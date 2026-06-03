@@ -15,6 +15,7 @@ results/
 logs/
 documents/
 docs/session-handoff-*.md
+AGENTS.md
 
 # Local production configuration with private paths
 config/config.yaml
