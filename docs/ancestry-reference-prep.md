@@ -22,6 +22,14 @@ The current production package was built upstream in a cluster environment and c
 
 Keep raw reference downloads and builder caches outside collaborator run directories. The unpacked package and its fingerprinted archive are the handoff artifacts.
 
+The runtime package contract is strict:
+
+- `content_fingerprint.sha256`, `file_manifest.tsv`, and `panel_manifest.tsv` must exist at the package root.
+- `file_manifest.tsv` must list package-relative paths, SHA-256 hashes, sizes, and roles for all package files except `file_manifest.tsv` and `content_fingerprint.sha256`.
+- `panel_manifest.tsv` must define exactly one build-matched `popmad` panel and one build-matched `admixture` panel for each production study build expected by collaborators.
+- Panel genotype, metadata, and exclusion-region paths must be package-relative and covered by `file_manifest.tsv`.
+- Raw Hail, VCF, or BCF artifacts should not be present in the runtime package.
+
 ## Preparation Steps
 
 1. Validate study genotype build and reference build metadata.

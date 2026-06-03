@@ -18,6 +18,7 @@ rule plot_gwas:
     output:
         qq="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.qq.png",
         manhattan="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.png",
+        manhattan_pdf="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.pdf",
     log:
         "results/logs/reporting/plot_gwas.{trait}.{ancestry}.{build}.log",
     conda:
@@ -28,6 +29,7 @@ rule plot_gwas:
           --stats {input.stats} \
           --qq {output.qq} \
           --manhattan {output.manhattan} \
+          --manhattan-pdf {output.manhattan_pdf} \
           > {log} 2>&1
         """
 
@@ -39,6 +41,7 @@ rule make_report:
         plink_log="results/gwas/{trait}/{ancestry}/plink2_raw/{trait}.{ancestry}.{build}.log",
         qq="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.qq.png",
         manhattan="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.png",
+        manhattan_pdf="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.pdf",
         strata_counts="results/qc/strata/strata_counts.tsv",
         pheno="results/qc/traits/{trait}.pheno.tsv",
         covar="results/qc/traits/{trait}.covar.tsv",
@@ -71,6 +74,7 @@ rule make_report:
           --plink-log {input.plink_log} \
           --qq {input.qq} \
           --manhattan {input.manhattan} \
+          --manhattan-pdf {input.manhattan_pdf} \
           --strata-counts {input.strata_counts} \
           --pheno {input.pheno} \
           --covar {input.covar} \

@@ -47,6 +47,7 @@ for (ancestry in split_csv(args$ancestries)) {
   report <- file.path(results, "reports", args$trait, paste0(args$trait, ".", ancestry, ".", build, ".report.md"))
   qq <- file.path(results, "plots", args$trait, ancestry, paste0(args$trait, ".", ancestry, ".", build, ".qq.png"))
   manhattan <- file.path(results, "plots", args$trait, ancestry, paste0(args$trait, ".", ancestry, ".", build, ".manhattan.png"))
+  manhattan_pdf <- file.path(results, "plots", args$trait, ancestry, paste0(args$trait, ".", ancestry, ".", build, ".manhattan.pdf"))
 
   require_file(stats, "missing GWAS stats")
   if (count_rows(stats) <= 0) die("GWAS stats are empty: ", stats)
@@ -61,6 +62,7 @@ for (ancestry in split_csv(args$ancestries)) {
   if (!any(grepl("Sex-check problems", report_text))) die("report missing sex-check details: ", report)
   if (!file.exists(qq) || file.info(qq)$size <= 0) die("missing QQ plot: ", qq)
   if (!file.exists(manhattan) || file.info(manhattan)$size <= 0) die("missing Manhattan plot: ", manhattan)
+  if (!file.exists(manhattan_pdf) || file.info(manhattan_pdf)$size <= 0) die("missing Manhattan PDF plot: ", manhattan_pdf)
 }
 
 

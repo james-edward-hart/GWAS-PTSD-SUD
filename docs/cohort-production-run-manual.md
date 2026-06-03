@@ -98,6 +98,8 @@ with only these columns:
 file_role	cohort_data_release	notes
 ```
 
+Leave `resources.input_manifest: ""` unless this file has the required rows below. A header-only `resources/manifests/input_data.tsv` is invalid if configured.
+
 Use these `file_role` values if the optional file is used:
 
 ```text
@@ -180,6 +182,17 @@ Use the value provided with your actual package.
 Use the unpacked package directory as `reference_package.root`. Do not use the `.tar.gz` archive path, and do not use the archive checksum as the content fingerprint.
 
 Do not manually add or edit `reference_package.observed_fingerprint`; Snakemake writes that into `results/config/resolved_config.yaml`.
+
+The reference package handoff must include:
+
+- `content_fingerprint.sha256`
+- `file_manifest.tsv`
+- `panel_manifest.tsv`
+- package-relative paths only
+- exactly one build-matched `popmad` panel for the inferred study build
+- exactly one build-matched `admixture` panel for the inferred study build
+
+The resolver rejects missing manifest files, unmanifested package files, absolute paths, `..` paths, file-size or SHA-256 mismatches, raw Hail/VCF/BCF artifacts, and package panels whose required genotype, metadata, or exclusion-region files are absent from `file_manifest.tsv`.
 
 Keep these production settings unless there is a documented reason to change them:
 
@@ -332,7 +345,9 @@ Main GWAS outputs are:
 
 ```text
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
-results/plots/{trait}/{ancestry}/
+results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.qq.png
+results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.png
+results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.pdf
 results/reports/{trait}/{trait}.{ancestry}.{build}.report.md
 ```
 

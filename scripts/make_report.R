@@ -8,7 +8,7 @@ source(file.path(script_dir, "lib", "stage1.R"))
 
 
 # Parse all report inputs for one trait/ancestry pair.
-args <- parse_args(defaults = list("reference-prep-report" = "NA"))
+args <- parse_args(defaults = list("reference-prep-report" = "NA", "manhattan-pdf" = ""))
 require_args(args, c(
   "config", "trait", "ancestry", "build", "stats", "qq", "manhattan",
   "strata-counts", "pheno", "covar", "keep", "relatedness-summary",
@@ -100,6 +100,11 @@ reference_panel_lines <- function(config, section, label) {
 
 
 study_components <- genotype_component_paths(config$genotypes, "study")
+plot_lines <- c(
+  paste0("- QQ plot: `", args$qq, "`"),
+  paste0("- Manhattan plot (PNG): `", args$manhattan, "`"),
+  if (nzchar(args[["manhattan-pdf"]])) paste0("- Manhattan plot (PDF): `", args[["manhattan-pdf"]], "`")
+)
 
 
 # Keep reports compact while retaining enough QC evidence for review.
@@ -155,8 +160,7 @@ text <- c(
   "",
   "## Plots",
   "",
-  paste0("- QQ plot: `", args$qq, "`"),
-  paste0("- Manhattan plot: `", args$manhattan, "`"),
+  plot_lines,
   "",
   "## QC Settings",
   "",

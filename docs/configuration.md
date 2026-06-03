@@ -87,12 +87,15 @@ The sample manifest must contain:
 - `age2`
 - `sex`
 - all configured phenotype columns
+- all configured non-PC covariates
 
 Case/control traits are converted to PLINK2 coding:
 
 - control: `1`
 - case: `2`
 - missing: `NA`
+
+`FID/IID` rows must be unique and must exist in the genotype files. Non-PC covariates must be numeric except for missing values. Sex codes must be `1`, `2`, `0`, `NA`, `-9`, or `.`. Phenotype values must match each trait registry's `case_value`, `control_value`, or `missing_values`.
 
 ## Covariates
 
@@ -146,6 +149,8 @@ inputs:
   projected_pcs_file: "config/study_projected_pcs.tsv"
   reference_pcs_file: "config/hgdp_1kg_reference_pcs.tsv"
 ```
+
+These two files are consumed only for non-package/test computed ancestry. In production package-backed computed ancestry, set `ancestry_reference.enabled: true`; the workflow creates run-specific projected study PCs and reference PCs from the resolved reference package instead of consuming the placeholder `projected_pcs_file` and `reference_pcs_file` values.
 
 The reference PC file must include:
 
@@ -230,6 +235,27 @@ The ancestry file must include:
 
 Ancestry labels must match `analysis.ancestries`.
 
+Samples with missing, ambiguous, or unconfigured ancestry labels are excluded from stratum keep files. The workflow fails when the excluded/unassigned fraction exceeds `popmad.max_unassigned_fraction`. In production mode, each configured trait-by-ancestry cell must contain at least one case and one control.
+
+## Exclusion Region Files
+
+`ancestry_reference.exclusion_regions` and `admixture.exclusion_regions` are TSV files used to remove long-range LD or other problem regions before ancestry-reference projection or ADMIXTURE QC.
+
+Required columns:
+
+```text
+chrom	start	end	label
+```
+
+An optional `build` column can be included:
+
+```text
+chrom	start	end	label	build
+6	25000000	34000000	MHC	GRCh38
+```
+
+In production, the file must either include a `build` column or include a build label such as `GRCh37` or `GRCh38` in the filename. The build must match the inferred study genotype build.
+
 ## Relatedness
 
 The default is production pruning with PLINK2 KING:
@@ -268,6 +294,7 @@ The pipeline runs PLINK2 `--check-sex` when sex-chromosome markers are present. 
 sex_check:
   enabled: true
   action: "warn"
+  allow_no_sex_markers: false
   max_female_xf: ""
   min_male_xf: ""
   max_female_yrate: ""
@@ -284,4 +311,4 @@ results/qc/sex/sex_checked.keep.tsv
 results/qc/sex/sex_check_summary.tsv
 ```
 
-Use `action: fail` to stop when mismatches are detected. Use `action: exclude` to remove problematic samples from relatedness pruning and final GWAS keep files. Production mode requires `action: exclude`; if no X/Y markers exist, the sex-check step warns and keeps all samples.
+Use `action: fail` to stop when mismatches are detected. Use `action: exclude` to remove problematic samples from relatedness pruning and final GWAS keep files. Production mode requires `action: exclude` and sex-chromosome markers unless `sex_check.allow_no_sex_markers: true` is set explicitly after external sex QC has already been completed and documented.

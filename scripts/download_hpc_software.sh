@@ -13,7 +13,7 @@ curl -L \
 
 unzip -o software/downloads/plink2_linux_x86_64.zip -d software/bin
 
-# Download ADMIXTURE for later QC work; it is not active in the Stage 1 DAG yet.
+# Download ADMIXTURE for the optional report-only QC branch.
 echo "Downloading Linux x86_64 ADMIXTURE..."
 curl -L \
   --fail \

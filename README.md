@@ -1,230 +1,163 @@
-# GWAS PTSD-SUD Stage 1 Pipeline
+# Stage 1 Ancestry-Stratified GWAS Instruction Manual
 
-This repository contains a Snakemake workflow for Stage 1 ancestry-stratified GWAS.
+This repository runs Stage 1 ancestry-stratified GWAS with Snakemake. It validates cohort inputs, infers the genotype genome build, resolves a fingerprinted reference package, prepares ancestry/QC sample sets, runs PLINK2 `--glm` within each ancestry stratum, and writes harmonized summary statistics, plots, reports, and run manifests.
 
-The first implementation is intentionally minimal and readable. Helper scripts are small, checks fail early, and every required software/reference resource is tracked in manifests.
+For real cohort data, start with the production path below. Do not run the HapMap3 example-data commands for production.
 
-## What Stage 1 Does
+## Start Here
 
-- Validates config, phenotype/covariate manifests, trait registry, ancestry labels, and genotype inputs.
-- Writes the active merged Snakemake config to `results/config/effective_config.yaml`, then writes the build-resolved runtime config to `results/config/resolved_config.yaml`.
-- Infers genome build from an offline GRCh36/GRCh37/GRCh38 marker panel before naming outputs.
-- Resolves and validates one fingerprinted reference package after build inference for production runs.
-- Optionally prepares production computed ancestry from a reference panel: study/reference harmonization, long-range LD exclusion, LD pruning, reference PCA, study projection, POP-MaD assignment, and within-ancestry PCA.
-- Optionally runs supervised K=5 ADMIXTURE as report-only QC with a 1000 Genomes reference; these proportions do not alter POP-MaD labels, strata, keep files, or GWAS covariates.
-- Runs genetic sex checks and can warn, fail, or exclude mismatches based on config.
-- Prepares one phenotype file and one covariate file per configured trait.
-- Builds ancestry-stratum keep files and excludes ambiguous POP-MaD assignments.
-- Keeps unrelated samples only using the configured KING threshold after QC and LD pruning of relatedness markers.
-- Runs PLINK2 `--glm` within each ancestry stratum.
-- Harmonizes PLINK2 output into consistent summary statistics.
-- Produces QQ and Manhattan plots.
-- Writes a Markdown QC report for each trait-by-ancestry GWAS.
+| Use case | Start with |
+| --- | --- |
+| Production cohort run on SLURM | [docs/cohort-production-run-manual.md](docs/cohort-production-run-manual.md) |
+| Local toy/example run | [docs/local-example-run.md](docs/local-example-run.md) |
+| Config fields and input schemas | [docs/configuration.md](docs/configuration.md) |
+| Ancestry reference package behavior | [docs/ancestry-reference-prep.md](docs/ancestry-reference-prep.md) |
+| Software, reference data, manifests | [docs/resources-and-downloads.md](docs/resources-and-downloads.md) |
+| Pipeline scope and output overview | [docs/pipeline-overview.md](docs/pipeline-overview.md) |
 
-## What Stage 1 Does Not Do
+## Production Run Sequence
 
-- It does not run imputation.
-- It does not run pooled GWAS.
-- It does not run METAL or trans-ancestry meta-analysis.
-- It does not lift summary statistics to GRCh38.
-- It does not hide reference-data preparation inside the GWAS rule.
-
-## Quick Start
-
-For real cohort runs on a cluster, use the production runbook first:
-
-```text
-docs/cohort-production-run-manual.md
-```
-
-Install Snakemake in a Linux or HPC-compatible environment.
-
-```bash
-# Create and enter the local test environment.
-mamba create -n gwas-stage1 -c conda-forge -c bioconda snakemake plink2 r-base r-yaml r-jsonlite
-mamba activate gwas-stage1
-```
-
-Download the public HapMap3 example data, then prepare the local fixture:
-
-```bash
-# Download public HapMap3 data and build the toy fixture.
-bash scripts/download_test_data.sh
-Rscript scripts/prepare_hapmap3_fixture.R
-```
-
-Run a dry run:
-
-```bash
-# Dry-run the workflow without creating outputs.
-snakemake -n --use-conda
-```
-
-Run locally:
-
-```bash
-# Run the local workflow with four cores.
-snakemake --cores 4 --shared-fs-usage input-output persistence software-deployment sources storage-local-copies
-```
-
-On this macOS test workstation, `config/config.yaml` points `tools.plink2` to `software/local/plink2`. On HPC, change this to a Linux PLINK2 binary, module path, or simply `plink2` if it is already on `PATH`.
-
-Genome build is inferred from genotype marker positions before build-labelled output filenames are expanded. The marker-panel methods are documented in:
-
-```text
-# Marker-panel documentation.
-resources/README.md
-```
-
-Check the example-run outputs:
-
-```bash
-# Validate the example outputs.
-Rscript scripts/test_pipeline_outputs.R
-```
-
-Run on SLURM:
-
-```bash
-# Submit/run with the bundled SLURM profile.
-snakemake --profile profiles/slurm
-```
-
-For production SLURM runs, create a driver environment with the executor plugin:
-
-```bash
-# Create the Snakemake driver environment for SLURM submission.
-mamba env create -f envs/snakemake-driver.yaml
-```
-
-Tip for internet-insulated clusters: Conda needs channel access only while
-creating or updating environments. If compute nodes cannot reach the internet,
-create the driver environment and pre-build the workflow rule environments on a
-login/build node or through your cluster's Conda mirror before production runs:
+Use a Linux/HPC-compatible environment. The SLURM profile requires Snakemake 8+ and the SLURM executor plugin.
 
 ```bash
 mamba env create -f envs/snakemake-driver.yaml
+mamba env create -f envs/gwas.yaml
 mamba activate gwas-stage1-driver
+python -c "import snakemake_executor_plugin_slurm"
+```
+
+Create the production config from the template:
+
+```bash
+cp config/config.template.yaml config/config.yaml
+```
+
+Edit `config/config.yaml` and set, at minimum:
+
+- `project.analysis_name`
+- `project.cohort_data_release`
+- `project.run_mode: "production"`
+- `reference_package.root`
+- `reference_package.fingerprint`
+- `inputs.sample_manifest`
+- `inputs.trait_registry`
+- `inputs.ancestry_mode: "computed"`
+- `genotypes.type`
+- `genotypes.prefix`
+- `tools.plink2`
+- `tools.admixture`
+
+Production runs should usually keep:
+
+```yaml
+ancestry_reference:
+  enabled: true
+
+admixture:
+  enabled: true
+
+sex_check:
+  enabled: true
+  action: "exclude"
+  allow_no_sex_markers: false
+
+gwas:
+  allow_missing_pcs: false
+```
+
+Edit `profiles/slurm/config.yaml` for the cluster account, partition, QoS, and shared conda prefix. The bundled profile contains placeholders and is not cluster-ready until those values match your site.
+
+Run preflight before submission:
+
+```bash
+mamba run -n gwas-stage1 Rscript scripts/production_preflight.R \
+  --config config/config.yaml \
+  --profile profiles/slurm/config.yaml
+```
+
+Dry-run the workflow:
+
+```bash
+snakemake -n --profile profiles/slurm
+```
+
+If compute nodes cannot reach conda channels, pre-create rule environments on a login/build node:
+
+```bash
 snakemake --profile profiles/slurm --conda-create-envs-only
 ```
 
-After those environments exist under the SLURM profile's `conda-prefix`,
-ordinary workflow jobs can reuse them without internet access unless the
-environment YAML files change.
+Run the validation target:
+
+```bash
+snakemake --profile profiles/slurm results/qc/input_validation/validation.ok
+```
+
+Then run the full pipeline:
+
+```bash
+snakemake --profile profiles/slurm
+```
+
+Production validation is performed inside Snakemake after genome-build inference and reference-package resolution. Do not use `scripts/validate_config.R --config config/config.yaml` as the production validation step; the production workflow validates `results/config/resolved_config.yaml`.
 
 ## Required Inputs
 
-Edit `config/config.yaml` before running real data, or start from the production-oriented template:
+Stage 1 accepts one genome-wide PLINK dataset:
+
+- `PGEN/PVAR/PSAM`, or
+- `BED/BIM/FAM`
+
+VCF/BCF is not accepted directly. Convert VCF/BCF upstream.
+
+The sample manifest TSV must include unique `FID`/`IID` rows, `age`, `age2`, `sex`, every phenotype column, and every non-PC covariate used by configured traits. Sex codes must be `1`, `2`, `0`, `NA`, `-9`, or `.`.
+
+The trait registry TSV must include:
 
 ```text
-# Production config template.
-config/config.template.yaml
+trait_id	phenotype_column	case_value	control_value	missing_values
 ```
 
-Core inputs:
+Optional trait-specific covariates can be added in a comma-separated `covariates` column.
 
-- `sample_manifest`: strict TSV with `FID`, `IID`, phenotype columns, `age`, `age2`, and `sex`.
-- `trait_registry`: strict TSV defining trait IDs, phenotype columns, case/control values, and missing values.
-- `ancestry_file`: strict TSV with `FID`, `IID`, and `ancestry` when using precomputed ancestry.
-- `pcs_file`: strict TSV with `FID`, `IID`, and `PC1` through `PC10`.
-- `genotypes`: one genome-wide PLINK2 `PGEN/PVAR/PSAM` dataset or one genome-wide PLINK1 `BED/BIM/FAM` dataset.
+Production ancestry is computed from the prebuilt, unpacked reference package. Set only `reference_package.root` and `reference_package.fingerprint`; the workflow validates the package fingerprint and resolves the build-matched POP-MaD and ADMIXTURE panels after genome-build inference.
 
-VCF/BCF is not accepted directly. Convert VCF/BCF to PGEN upstream.
+## Main Outputs
 
-Computed ancestry reference preparation is documented in:
+The full workflow writes:
 
 ```text
-# Computed ancestry documentation.
-docs/ancestry-reference-prep.md
+results/config/effective_config.yaml
+results/config/resolved_config.yaml
+results/qc/
+results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
+results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.qq.png
+results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.png
+results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.pdf
+results/reports/{trait}/{trait}.{ancestry}.{build}.report.md
+results/manifests/run_manifest.tsv
 ```
 
-The default example uses prebuilt toy PC tables. For production computed ancestry, set:
+Review and archive the final config, resolved config, QC reports, GWAS summary statistics, plots, and run manifest according to cohort policy.
 
-```yaml
-# Production computed ancestry toggle; enabled options: true, false.
-ancestry_reference:
-  enabled: true
-```
+## Local Example Smoke Test
 
-Then configure only `reference_package.root` and `reference_package.fingerprint`. Stage 1 consumes the prebuilt package, validates its fingerprint, and resolves the build-matched HGDP+1KG-compatible POP-MaD panel from the package manifest. It does not build or modify the reference package.
-
-ADMIXTURE QC is disabled by default. To enable the report-only branch, set:
-
-```yaml
-# Report-only ADMIXTURE QC toggle; enabled options: true, false.
-admixture:
-  enabled: true
-```
-
-Then configure the same prebuilt reference package. Stage 1 resolves the build-matched 1000 Genomes ADMIXTURE panel from the package manifest.
-
-Before a production SLURM pilot, run:
+The local example uses public HapMap3 genotype data and a generated random binary phenotype. It is for workflow testing only.
 
 ```bash
-Rscript scripts/production_preflight.R --config config/config.yaml --profile profiles/slurm/config.yaml
+mamba env create -f envs/snakemake-driver.yaml
+mamba env create -f envs/gwas.yaml
+mamba activate gwas-stage1-driver
+cp config/config.hapmap3.example.yaml config/config.yaml
+bash scripts/download_test_data.sh
+mamba run -n gwas-stage1 Rscript scripts/prepare_hapmap3_fixture.R --plink2 plink2
+snakemake -n --use-conda
+snakemake --cores 4 --use-conda --shared-fs-usage input-output persistence software-deployment sources storage-local-copies
+mamba run -n gwas-stage1 Rscript scripts/test_pipeline_outputs.R
 ```
 
-## Software And Reference Manifests
+If your local config points to `software/local/plink2`, make sure that path exists and matches your platform, or change `tools.plink2` to `plink2`.
 
-Software is tracked in:
+## Scope
 
-```text
-# Software manifest path.
-resources/manifests/software.tsv
-```
-
-Reference data is tracked in:
-
-```text
-# Reference manifest path.
-resources/manifests/reference_data.tsv
-```
-
-Files downloaded by the helper scripts are tracked in:
-
-```text
-# Helper-download manifest path.
-resources/manifests/downloaded_files.tsv
-```
-
-For every real analysis, record:
-
-- tool name and version
-- installation method
-- source URL
-- download date
-- local path
-- checksum, when available
-- preprocessing steps
-
-## HPC Notes
-
-The workflow is developed for Linux/HPC first. The SLURM profile keeps scheduler details out of the workflow rules so the pipeline can be ported to another scheduler later.
-
-Large production runs should use:
-
-- shared read-only reference-data directories
-- per-project writable `results/`
-- conda or module environments pinned by version
-- Snakemake dry runs before submission
-- explicit resource requests per rule
-
-## Output Layout
-
-```text
-# Main output directories.
-results/
-  gwas/
-  logs/
-  manifests/
-  plots/
-  qc/
-  reports/
-```
-
-The main per-analysis files are:
-
-- `results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv`
-- `results/plots/{trait}/{ancestry}/`
-- `results/reports/{trait}/{trait}.{ancestry}.{build}.report.md`
-- `results/manifests/run_manifest.tsv`
+Stage 1 does not run imputation, pooled GWAS, METAL, trans-ancestry meta-analysis, or liftover. It also does not build or download the production reference package inside the GWAS workflow.
