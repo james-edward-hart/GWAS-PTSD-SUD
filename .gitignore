@@ -10,6 +10,7 @@ __pycache__/
 .snakemake/
 
 # Local homes, caches, and generated workflow outputs
+.github/
 .home/
 results/
 logs/
