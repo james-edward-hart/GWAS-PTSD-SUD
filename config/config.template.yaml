@@ -1,0 +1,224 @@
+# Project identity; genome_build options: auto only.
+project:
+  analysis_name: "my_stage1_gwas"
+  cohort_data_release: "cohort_freeze_or_release_label"
+  genome_build: "auto"
+  run_mode: "production"
+
+
+# Prebuilt unpacked reference package; set only the root and content fingerprint.
+# Package creation is intentionally outside this Snakemake workflow.
+reference_package:
+  root: "/path/to/stage1_reference_package"
+  fingerprint: "sha256-from-content_fingerprint.sha256"
+
+
+# Ancestry strata to run; options: labels present in POP-MaD super_population output.
+analysis:
+  ancestries:
+    - AFR
+    - AMR
+    - EAS
+    - EUR
+    - SAS
+
+
+# User input tables; ancestry_mode options: computed, precomputed.
+inputs:
+  sample_manifest: "config/my_sample_manifest.tsv"
+  trait_registry: "config/my_traits.tsv"
+  ancestry_mode: "computed"
+  ancestry_file: "config/my_ancestry.tsv"
+  pcs_file: "config/my_pcs.tsv"
+  projected_pcs_file: "config/my_projected_pcs.tsv"
+  reference_pcs_file: "config/my_reference_pcs.tsv"
+
+
+# Tool paths; on HPC these must resolve to Linux executables, module shims, or
+# PATH entries. Do not reuse workstation-specific macOS binaries on the cluster.
+tools:
+  plink2: "plink2"
+  admixture: "admixture"
+
+
+# Study genotype dataset; type options: pgen, bed.
+genotypes:
+  type: "pgen"
+  prefix: "/path/to/study/genome_wide_dataset"
+
+
+# Genome-build inference thresholds; keep strict for production data.
+genome_build:
+  marker_file: "resources/build_markers.tsv"
+  min_markers: 50
+  min_match_fraction: 0.95
+  min_marker_margin: 20
+  min_fraction_margin: 0.20
+
+
+# POP-MaD assignment settings; pcs options: 1-20, default 10.
+popmad:
+  pcs: 10
+  reference_outlier_sd: 4.0
+  min_confidence: 0.05
+  min_reference_population_n: 20
+  max_unassigned_fraction: 0.02
+
+
+# Report-only supervised ADMIXTURE QC; enabled options: true, false.
+# Reference paths are resolved from the prebuilt reference_package.
+admixture:
+  enabled: true
+  mode: "supervised"
+  k: 5
+  labels:
+    - AFR
+    - AMR
+    - EAS
+    - EUR
+    - SAS
+  # ADMIXTURE marker filters; boolean options: true, false.
+  filters:
+    maf_min: 0.01
+    geno_missing_max: 0.02
+    snps_only_acgt: true
+    autosome_only: true
+    max_alleles: 2
+    remove_duplicate_ids: true
+    exclude_palindromic: true
+  min_pruned_variants: 50000
+  exclusion_regions: ""
+
+  # ADMIXTURE LD pruning; window is a variant count by default.
+  ld_prune:
+    window: 50
+    step: 10
+    r2: 0.1
+
+
+# Production ancestry-reference projection; enabled options: true, false.
+# Reference paths are resolved from the prebuilt reference_package.
+ancestry_reference:
+  enabled: true
+  reference_genome_build: ""
+  variant_set: ""
+
+  # Reference marker filters; boolean options: true, false.
+  filters:
+    maf_min: 0.01
+    geno_missing_max: 0.02
+    snps_only_acgt: true
+    autosome_only: true
+    max_alleles: 2
+    remove_duplicate_ids: true
+    exclude_palindromic: true
+  warn_shared_variants_below: 50000
+  min_shared_variants: 10000
+  exclusion_regions: ""
+
+  # Reference LD pruning; window examples: 500kb, 1000kb, or variant counts.
+  ld_prune:
+    window: 1500
+    step: 150
+    r2: 0.1
+
+  # Reference PCA projection validation; approx options: true, false.
+  pca:
+    approx: true
+    min_projection_pc_correlation: 0.95
+
+
+# GWAS variant/sample QC filters; boolean options: true, false.
+qc:
+  info_min: 0.8
+  maf_min: 0.01
+  hwe_p_min: 1e-6
+  geno_missing_max: 0.05
+  sample_missing_max: 0.05
+  # Set true for imputed dosage data with MACH_R2/INFO annotations.
+  use_mach_r2_filter: false
+  snps_only_acgt: false
+  autosome_only: true
+
+
+# Relatedness filtering; mode options: plink2_king, all_samples.
+relatedness:
+  mode: "plink2_king"
+  king_cutoff: 0.0884
+
+  # Legacy compatibility; prefer sex_check.action: exclude for sex-mismatch removal.
+  remove_sex_mismatches: false
+  maf_min: 0.05
+  geno_missing_max: 0.02
+  sample_missing_max: 0.05
+  snps_only_acgt: false
+  autosome_only: true
+
+  # Relatedness LD pruning; window examples: 500kb, 1000kb, or variant counts.
+  ld_prune:
+    window: "500kb"
+    step: 1
+    r2: 0.2
+
+
+# Genetic sex check; action options: warn, fail, exclude.
+sex_check:
+  enabled: true
+  action: "exclude"
+  # Production fails without X/Y markers unless this explicit override is true.
+  allow_no_sex_markers: false
+  max_female_xf: ""
+  min_male_xf: ""
+  max_female_yrate: ""
+  min_male_yrate: ""
+
+
+# PLINK2 GWAS settings; test options: ADD unless glm_options requests more tests.
+gwas:
+  test: "ADD"
+  default_covariates:
+    - age
+    - age2
+    - sex
+    - PC1
+    - PC2
+    - PC3
+    - PC4
+    - PC5
+    - PC6
+    - PC7
+    - PC8
+    - PC9
+    - PC10
+  extra_covariates: []
+  covar_variance_standardize: true
+  allow_missing_pcs: false
+  glm_options: "hide-covar firth-fallback"
+
+
+# Report warnings only; these thresholds do not stop the workflow.
+warnings:
+  min_n: 500
+  min_cases: 50
+  min_controls: 50
+
+
+# Manifests for reproducibility; input paths are recorded automatically from config.
+resources:
+  software_manifest: "resources/manifests/software.tsv"
+  reference_manifest: "resources/manifests/reference_data.tsv"
+  # Optional: set to resources/manifests/input_data.tsv for extra cohort-release notes.
+  input_manifest: ""
+
+
+# Default local resources; HPC overrides can live in profiles/slurm/config.yaml.
+runtime:
+  threads_small: 2
+  threads_gwas: 4
+  threads_admixture: 4
+  mem_mb_small: 4000
+  mem_mb_gwas: 16000
+  mem_mb_admixture: 16000
+  time_min_small: 30
+  time_min_gwas: 240
+  time_min_admixture: 240

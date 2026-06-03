@@ -1,0 +1,69 @@
+executor: slurm
+jobs: 100
+latency-wait: 60
+rerun-incomplete: true
+keep-going: true
+printshellcmds: true
+use-conda: true
+restart-times: 1
+max-jobs-per-second: 5
+max-status-checks-per-second: 5
+
+# Site-specific options; fill these in before production submission. The bundled
+# defaults are placeholders and should not be treated as cluster-ready policy.
+# slurm_account: "my_account"
+# slurm_qos: "normal"
+# slurm_partition: "standard"
+# conda-prefix: "/path/to/shared/conda/envs"
+
+default-resources:
+  slurm_partition: "standard"
+  mem_mb: 4000
+  runtime: 30
+
+set-resources:
+  run_plink2_gwas:
+    mem_mb: 16000
+    runtime: 240
+  make_unrelated_keep:
+    mem_mb: 8000
+    runtime: 120
+  prepare_relatedness_markers:
+    mem_mb: 8000
+    runtime: 120
+  convert_reference_for_ancestry:
+    mem_mb: 16000
+    runtime: 240
+  convert_study_for_ancestry:
+    mem_mb: 16000
+    runtime: 240
+  ld_prune_ancestry_markers:
+    mem_mb: 16000
+    runtime: 240
+  fit_reference_pca:
+    mem_mb: 32000
+    runtime: 480
+  score_reference_pcs:
+    mem_mb: 16000
+    runtime: 240
+  score_study_pcs:
+    mem_mb: 16000
+    runtime: 240
+  run_within_ancestry_pca:
+    mem_mb: 16000
+    runtime: 240
+  convert_reference_for_admixture:
+    mem_mb: 16000
+    runtime: 240
+  convert_study_for_admixture:
+    mem_mb: 16000
+    runtime: 240
+  ld_prune_admixture_markers:
+    mem_mb: 16000
+    runtime: 240
+  merge_admixture_genotypes:
+    mem_mb: 16000
+    runtime: 240
+  run_supervised_admixture:
+    mem_mb: 16000
+    runtime: 240

@@ -1,0 +1,2 @@
+trait_id	phenotype_column	case_value	control_value	missing_values	description
+random_binary	ptsd_sud_case	1	0	NA,-9,.	Random binary phenotype for real HapMap3 genotype fixture

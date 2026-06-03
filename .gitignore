@@ -1,0 +1,44 @@
+# macOS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Python / Snakemake runtime state
+__pycache__/
+*.pyc
+.snakemake/
+
+# Local homes, caches, and generated workflow outputs
+.home/
+results/
+logs/
+documents/
+docs/session-handoff-*.md
+
+# Local production configuration with private paths
+config/config.yaml
+
+# Cohort data, example/generated data, and prebuilt reference packages
+data/
+reference-data/
+reference_package/
+reference-panel-pca-qc/
+
+# Reference package builder workspace is intentionally not part of the user-facing pipeline repo
+reference_package_builder/
+
+# Locally downloaded software and binaries
+software/
+
+# Large genomics working directories
+*.mt/
+*.ht/
+*.vds/
+
+# HPC scheduler output files
+*.o[0-9]*
+*.e[0-9]*
+*.out
+*.err
+slurm-*.out

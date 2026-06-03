@@ -1,0 +1,5 @@
+path	source_url	download_date	sha256	notes
+data/example/hapmap3-files.tar.gz	https://dalexander.github.io/admixture/hapmap3-files.tar.gz	2026-05-21	52cd180d052a123294a0319c0476c4cc2addbf289c85fe4093282b66e927e040	Official ADMIXTURE HapMap3 sample data archive.
+software/downloads/plink2_linux_x86_64.zip	https://s3.amazonaws.com/plink2-assets/plink2_linux_x86_64_latest.zip	2026-05-21	9ca81bea7fab4b435441a136390914f14c542281f5f0853d6f273fbc76ab2304	Linux x86_64 PLINK2 binary archive for HPC use.
+software/downloads/plink2_mac_arm64.zip	https://s3.amazonaws.com/plink2-assets/alpha7/plink2_mac_arm64_20260504.zip	2026-05-21	02f3894091ad9ebd020d534cff071e4a565f062bb5ac7f39fd83f3937cf7aa27	macOS ARM64 PLINK2 binary archive for local testing only.
+software/downloads/admixture_linux-1.4.0.tar.gz	https://dalexander.github.io/admixture/binaries/admixture_linux-1.4.0.tar.gz	2026-05-21	5520c4f18525f49ab2c715d711b40f4a0818ef1485361a94ec8954d1364e6f19	Linux x86_64 ADMIXTURE binary archive for HPC use.

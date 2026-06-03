@@ -1,0 +1,9 @@
+name: gwas-stage1-driver
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python>=3.10,<3.13
+  - snakemake>=8,<10
+  - snakemake-executor-plugin-slurm
+  - pyyaml>=6,<7
