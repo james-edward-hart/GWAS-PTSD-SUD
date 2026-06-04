@@ -1,22 +1,29 @@
 # Ancestry Reference Preparation
 
-Stage 1 uses one production ancestry path: POP-MaD assignment from PCs projected
-against the reviewed, fingerprinted reference package. User-supplied ancestry
-labels, projected study PCs, and external reference PC tables are no longer
-supported.
+Stage 1 assigns ancestry by projecting study samples against the reviewed,
+fingerprinted reference package and applying POP-MaD. Do not provide separate
+ancestry labels, projected study PCs, or external reference PC tables in the
+config; the workflow creates these files during the run.
 
-Reference-package creation is intentionally outside the GWAS rules. The workflow consumes one local prebuilt package, validates its fingerprint, resolves build-matched panel paths, and does not download or build HGDP+1KG or 1000 Genomes reference data.
+Reference-package creation is separate from the GWAS rules. The workflow
+consumes one local package, validates its fingerprint, resolves build-matched
+panel paths, and does not download or build HGDP+1KG or 1000 Genomes reference
+data.
 
-## Maintainer Notes
+## Reference Package
 
-The `reference_package_builder/` directory is maintainer tooling for rebuilding the package when needed. Snakemake does not call it, and collaborators running Stage 1 should not need it. Routine users only need:
+The `reference_package_builder/` directory is for authorized reference-package
+maintenance. Snakemake does not call it during a Stage 1 run. Analysts running
+the pipeline only set:
 
 ```text
 reference_package.root: "/path/to/stage1_reference_package"
 reference_package.fingerprint: "sha256-from-content_fingerprint.sha256"
 ```
 
-The current production package was built upstream in a cluster environment and carries its own `panel_manifest.tsv`, `file_manifest.tsv`, `content_fingerprint.sha256`, QC reports, methods, and provenance files. The runtime pipeline treats those as read-only inputs.
+A valid production package contains `panel_manifest.tsv`, `file_manifest.tsv`,
+`content_fingerprint.sha256`, QC reports, methods, and provenance files. The
+pipeline treats the unpacked package as a read-only input.
 
 Keep raw reference downloads and builder caches outside collaborator run directories. The unpacked package and its fingerprinted archive are the handoff artifacts.
 
@@ -24,7 +31,7 @@ The runtime package contract is strict:
 
 - `content_fingerprint.sha256`, `file_manifest.tsv`, and `panel_manifest.tsv` must exist at the package root.
 - `file_manifest.tsv` must list package-relative paths, SHA-256 hashes, sizes, and roles for all package files except `file_manifest.tsv` and `content_fingerprint.sha256`.
-- `panel_manifest.tsv` must define exactly one build-matched `popmad` panel and one build-matched `admixture` panel for each production study build expected by collaborators.
+- `panel_manifest.tsv` must define exactly one build-matched `popmad` panel and one build-matched `admixture` panel for each supported study genome build.
 - Panel genotype, metadata, and exclusion-region paths must be package-relative and covered by `file_manifest.tsv`.
 - Raw Hail, VCF, or BCF artifacts should not be present in the runtime package.
 
@@ -58,7 +65,8 @@ admixture:
   enabled: true
 ```
 
-Stage 1 resolves `ancestry_reference` and `admixture` reference paths from the package `panel_manifest.tsv` after genome-build inference. Package creation remains outside Snakemake.
+Stage 1 resolves `ancestry_reference` and `admixture` reference paths from the
+package `panel_manifest.tsv` after genome-build inference.
 
 Main generated files:
 

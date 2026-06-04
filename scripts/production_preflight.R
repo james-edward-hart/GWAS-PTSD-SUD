@@ -21,7 +21,7 @@ add_failure <- function(...) failures <<- c(failures, paste0(...))
 
 # Production config gates duplicated here for operator-facing feedback.
 if (!is.null(config$project$run_mode) && !identical(config$project$run_mode, "production")) {
-  add_failure("project.run_mode test mode has been removed; remove project.run_mode or set it to 'production'")
+  add_failure("project.run_mode is not part of the production config schema; remove project.run_mode or set it to 'production'")
 }
 deprecated_input_fields <- intersect(names(config$inputs), c(
   "ancestry_mode", "ancestry_file", "pcs_file", "projected_pcs_file", "reference_pcs_file"

@@ -2,7 +2,11 @@
 
 This pipeline keeps software and reference downloads separate from analysis rules.
 
-Production HPC deployments should prefer site-managed modules, conda environments, and approved data-transfer procedures. The workflow does not download HGDP+1KG reference data. Routine analysts use the prebuilt, unpacked reference package and its `content_fingerprint.sha256`; maintainers record source-object and package provenance in `resources/manifests/reference_data.tsv`.
+Production HPC deployments should prefer site-managed modules, conda
+environments, and approved data-transfer procedures. The workflow does not
+download HGDP+1KG reference data. For a cohort run, use the approved unpacked
+reference package and its `content_fingerprint.sha256`; record package-level
+provenance in `resources/manifests/reference_data.tsv`.
 
 ## Software
 
@@ -59,7 +63,9 @@ Optional metadata fallback:
 https://storage.googleapis.com/gcp-public-data--gnomad/release/3.1.2/vcf/genomes/gnomad.genomes.v3.1.2.hgdp_1kg_subset_sample_meta.tsv.bgz
 ```
 
-Routine production runs use the prebuilt reference package. Collaborators only need the unpacked package path and the value in `content_fingerprint.sha256`; package creation and source-object provenance are maintainer-owned.
+For a standard production run, configure only the unpacked package path and the
+value in `content_fingerprint.sha256`. Package creation and source-object
+provenance are managed separately from each cohort run.
 
 The reference manifest uses these columns:
 
@@ -83,7 +89,10 @@ Rscript scripts/record_reference_resource.R \
   --notes 'Converted to PLINK2 after allele/build QC and LD-region exclusions.'
 ```
 
-Genome-build inference uses `resources/build_markers.tsv`. The bundled table includes 1,057 rsID markers with GRCh36, GRCh37, and GRCh38 positions. GRCh37 and GRCh38 positions were fetched from Ensembl REST; GRCh36 positions were preserved from the local HapMap fixture. Rebuild methods and QC are in:
+Genome-build inference uses `resources/build_markers.tsv`. The bundled table
+includes 1,057 rsID markers with GRCh36, GRCh37, and GRCh38 positions. GRCh37
+and GRCh38 positions were fetched from Ensembl REST; GRCh36 positions were
+preserved from the local HapMap example data. Rebuild methods and QC are in:
 
 ```text
 resources/README.md
@@ -103,7 +112,7 @@ resources/ancestry/long_range_ld_regions.GRCh38.tsv
 
 These are used when `ancestry_reference.enabled: true` or `admixture.enabled: true`. Replace them with a cohort-approved region list when the production reference bundle has its own documented exclusions.
 
-## Development Fixture Data
+## Development Data
 
 The helper script `scripts/download_test_data.sh` downloads the official ADMIXTURE HapMap3 sample archive:
 
@@ -111,19 +120,18 @@ The helper script `scripts/download_test_data.sh` downloads the official ADMIXTU
 https://dalexander.github.io/admixture/hapmap3-files.tar.gz
 ```
 
-The development fixture uses public HapMap3 genome-wide array genotype data with
-a generated random binary phenotype:
+The development data use public HapMap3 genome-wide array genotypes with a
+generated random binary phenotype:
 
 ```bash
 bash scripts/download_test_data.sh
 Rscript scripts/prepare_hapmap3_fixture.R
 ```
 
-The fixture is real public genotype data, but it is not real imputed dosage
-data and is not an end-to-end production pipeline example. Public,
-individual-level, genome-wide imputed human array datasets are usually
-controlled-access. When a controlled-access dataset is available, point
-`config/config.yaml` at one genome-wide PGEN/PVAR/PSAM or BED/BIM/FAM dataset
-and use the production workflow with a build-matched reference package. The
-workflow records configured cohort input paths in the resolved config, final
-reports, and run manifest.
+The HapMap3 dataset is real public genotype data, but it is not real imputed
+dosage data and is not a cohort analysis template. Public, individual-level,
+genome-wide imputed human array datasets are usually controlled-access. For a
+cohort run, point `config/config.yaml` at one genome-wide PGEN/PVAR/PSAM or
+BED/BIM/FAM dataset and use the production workflow with a build-matched
+reference package. The workflow records configured cohort input paths in the
+resolved config, final reports, and run manifest.

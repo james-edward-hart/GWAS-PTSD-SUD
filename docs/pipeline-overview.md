@@ -34,7 +34,7 @@ workflow/rules/                   Snakemake rules
 workflow/snake_helpers.py         Shared DAG helper functions
 scripts/                          R and shell helper scripts
 scripts/lib/                      Shared R helpers
-config/                           Templates and public fixture config inputs
+config/                           Templates and public example config inputs
 envs/                             Conda environment definitions
 profiles/slurm/                   SLURM execution profile
 resources/                        Marker panels, manifests, and resource docs

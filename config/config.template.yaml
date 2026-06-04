@@ -22,9 +22,9 @@ analysis:
     - SAS
 
 
-# User input tables. Ancestry and PC covariates are computed from the
-# fingerprinted reference package; do not provide user-supplied ancestry or PC
-# files.
+# User input tables. sample_manifest is the phenotype + covariate file. The
+# workflow computes ancestry and PC covariates from the fingerprinted reference
+# package; do not add separate ancestry-label or PC files.
 inputs:
   sample_manifest: "config/my_sample_manifest.tsv"
   trait_registry: "config/my_traits.tsv"

@@ -125,7 +125,7 @@ if (length(missing_sections)) die("config section missing: ", missing_sections[[
 
 if (!identical(config$project$genome_build, "auto")) die("project.genome_build must be 'auto'")
 if (!is.null(config$project$run_mode) && !identical(config$project$run_mode, "production")) {
-  die("project.run_mode test mode has been removed; remove project.run_mode or set it to 'production'")
+  die("project.run_mode is not part of the production config schema; remove project.run_mode or set it to 'production'")
 }
 if (!length(config$analysis$ancestries)) die("analysis.ancestries must list at least one ancestry")
 
@@ -134,7 +134,7 @@ deprecated_input_fields <- intersect(names(config$inputs), c(
 ))
 if (length(deprecated_input_fields)) {
   die("unsupported input config field(s): ", paste(deprecated_input_fields, collapse = ", "),
-    ". Package-backed computed ancestry is the only supported ancestry path; remove user-supplied ancestry/PC paths.")
+    ". The workflow computes ancestry and PC covariates from the reference package; remove separate ancestry-label or PC-path fields.")
 }
 
 sex_action <- config$sex_check$action %||% "warn"

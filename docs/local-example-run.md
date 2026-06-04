@@ -1,13 +1,13 @@
-# HapMap3 Development Fixture
+# HapMap3 Development Data
 
-The old HapMap3 end-to-end example has been retired. The production pipeline no
-longer supports `project.run_mode: "test"`, precomputed ancestry labels, or
-user-supplied projected PC files.
+The HapMap3 files provide a small public dataset for focused development
+checks, such as genome-build inference, script-level tests, ADMIXTURE QC checks,
+and marker-panel maintenance.
 
-Use this fixture only for focused development checks, such as genome-build
-inference, script-level tests, and marker-panel maintenance. Real end-to-end
-pipeline runs require a build-matched, fingerprinted reference package and the
-production workflow described in
+Do not use these files as a template for cohort analysis. Full Stage 1 runs
+require one cohort genotype dataset, a sample manifest (phenotype + covariate
+file), a trait registry, a build-matched fingerprinted reference package, and
+the production workflow described in
 [cohort-production-run-manual.md](cohort-production-run-manual.md).
 
 ## Fixture Setup
@@ -18,7 +18,7 @@ Download the public HapMap3 PLINK files:
 bash scripts/download_test_data.sh
 ```
 
-Build the sample manifest and toy trait registry:
+Build the example sample manifest and trait registry:
 
 ```bash
 mamba run -n gwas-stage1 Rscript scripts/prepare_hapmap3_fixture.R
@@ -37,5 +37,4 @@ mamba run -n gwas-stage1 Rscript scripts/test_ancestry_reference.R
 mamba run -n gwas-stage1 Rscript scripts/test_admixture_qc.R
 ```
 
-Do not use this fixture as production evidence and do not expect it to exercise
-the full package-backed POP-MaD/GWAS DAG.
+Use the full production run manual for real cohort analyses.
