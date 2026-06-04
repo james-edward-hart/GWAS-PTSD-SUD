@@ -1,314 +1,539 @@
 # Configuration Guide
 
-Edit `config/config.yaml` for each project.
+This guide explains every field in `config/config.template.yaml`. Copy the
+template to `config/config.yaml` for a real run, then edit the copy.
 
-Keep config values explicit. A failed validation step is preferable to running a GWAS with the wrong samples, phenotype, or build label.
-
-## Genome Build
-
-`project.genome_build` must stay set to `auto`.
-
-The workflow infers the build before expanding build-labelled outputs. It compares genotype variant IDs and positions to `genome_build.marker_file`, with a coordinate-position fallback for non-rsID BIM/PVAR variant IDs, and writes:
-
-```text
-# Genome-build inference outputs.
-results/qc/genome_build/genome_build.txt
-results/qc/genome_build/genome_build_marker_matches.tsv
+```bash
+cp config/config.template.yaml config/config.yaml
 ```
 
-The active merged Snakemake config is also written to:
+Keep config values explicit. A failed validation step is preferable to running a
+GWAS with the wrong samples, phenotype, ancestry labels, or build label.
+
+## How Config Is Used
+
+Snakemake reads `config/config.yaml` when building the DAG. The workflow then
+writes two config snapshots:
 
 ```text
-# Active config snapshot used by scripts.
 results/config/effective_config.yaml
 results/config/resolved_config.yaml
 ```
 
-Every script receives this snapshot, so runs launched with `snakemake --configfile project.yaml` use the same config during DAG construction and script execution.
-`effective_config.yaml` is written before build-matched package resolution. `resolved_config.yaml` is written after genome-build inference and is used by validation and downstream rules.
+`effective_config.yaml` records the merged config that Snakemake saw at parse
+time. `resolved_config.yaml` is written after genome-build inference and
+reference-package resolution. Downstream production validation and analysis
+rules use `resolved_config.yaml`.
 
-Input paths are also reported from the resolved config. `resources.input_manifest` is optional and is only for lightweight cohort-release notes; it is not the source of truth for sample, trait, or genotype paths.
+Do not edit `results/config/resolved_config.yaml` by hand. To change a run,
+edit `config/config.yaml` and rerun Snakemake.
 
-The pipeline does not lift genotype coordinates or summary statistics.
+## Production Minimum
 
-The bundled production marker table contains 1,057 rsID markers with GRCh36, GRCh37, and GRCh38 positions. GRCh37 and GRCh38 positions come from Ensembl REST; GRCh36 positions are preserved from the local HapMap fixture for regression testing. Rebuild methods and QC output are documented in:
-
-```text
-# Marker-panel methods and QC files.
-resources/README.md
-resources/build_marker_panel_qc.tsv
-```
-
-Production defaults require:
-
-```yaml
-# Genome-build thresholds; project.genome_build options: auto only.
-genome_build:
-  min_markers: 50
-  min_match_fraction: 0.95
-  min_marker_margin: 20
-  min_fraction_margin: 0.20
-```
-
-When rsIDs are unavailable, the inference falls back to chromosome-position matching against the same marker table. Sparse datasets or datasets with too few informative positions should still fail loudly rather than guessing a build.
-
-## Genotype Inputs
-
-Supported values:
-
-- `pgen`
-- `bed`
-
-For `pgen`, set:
-
-```yaml
-# PLINK2 genotype input; type options: pgen, bed.
-genotypes:
-  type: "pgen"
-  prefix: "data/my_project/my_data"
-```
-
-For `bed`, set:
-
-```yaml
-# PLINK1 genotype input; type options: pgen, bed.
-genotypes:
-  type: "bed"
-  prefix: "data/my_project/my_data"
-```
-
-## Phenotypes
-
-The sample manifest must contain:
-
-- `FID`
-- `IID`
-- `age`
-- `age2`
-- `sex`
-- all configured phenotype columns
-- all configured non-PC covariates
-
-Case/control traits are converted to PLINK2 coding:
-
-- control: `1`
-- case: `2`
-- missing: `NA`
-
-`FID/IID` rows must be unique and must exist in the genotype files. Non-PC covariates must be numeric except for missing values. Sex codes must be `1`, `2`, `0`, `NA`, `-9`, or `.`. Phenotype values must match each trait registry's `case_value`, `control_value`, or `missing_values`.
-
-## Covariates
-
-The default covariates are:
-
-- `age`
-- `age2`
-- `sex`
-- `PC1` through `PC10`
-
-Use a centered quadratic age term for `age2` when possible, for example `(age - mean_age)^2`, to avoid unnecessary collinearity.
-
-Add project-specific covariates in `gwas.extra_covariates`.
-
-Trait-specific covariates can be added with an optional comma-separated `covariates` column in the trait registry. These are appended to the default and extra covariates for that trait only.
-
-By default, PLINK2 covariates are variance-standardized before regression:
-
-```yaml
-# Covariate standardization toggle; options: true, false.
-gwas:
-  covar_variance_standardize: true
-```
-
-## Ancestry
-
-The pipeline supports `computed` and `precomputed` ancestry modes.
-
-Production runs must use the prebuilt unpacked reference package:
+Production runs should set these fields first:
 
 ```yaml
 project:
+  analysis_name: "cohort_stage1_gwas"
+  cohort_data_release: "cohort_freeze_or_release_label"
+  genome_build: "auto"
   run_mode: "production"
 
-inputs:
-  ancestry_mode: "computed"
-
 reference_package:
-  root: "/path/to/stage1_reference_package"
-  fingerprint: "sha256-from-content_fingerprint.sha256"
-```
+  root: "/path/to/unpacked/stage1_reference_package"
+  fingerprint: "value-from-content_fingerprint.sha256"
 
-Production mode forbids precomputed ancestry, requires computed POP-MaD ancestry, requires report-only ADMIXTURE, checks the package content fingerprint, and requires reference/exclusion-region builds to match the inferred study build. The pipeline consumes this package as read-only data; it does not create or rebuild it.
-
-For computed ancestry, provide projected study PCs and HGDP+1KG-style reference PCs:
-
-```yaml
-# Preprojected computed ancestry inputs; ancestry_mode options: computed, precomputed.
 inputs:
+  sample_manifest: "/path/to/sample_manifest.tsv"
+  trait_registry: "/path/to/trait_registry.tsv"
   ancestry_mode: "computed"
-  projected_pcs_file: "config/study_projected_pcs.tsv"
-  reference_pcs_file: "config/hgdp_1kg_reference_pcs.tsv"
-```
 
-These two files are consumed only for non-package/test computed ancestry. In production package-backed computed ancestry, set `ancestry_reference.enabled: true`; the workflow creates run-specific projected study PCs and reference PCs from the resolved reference package instead of consuming the placeholder `projected_pcs_file` and `reference_pcs_file` values.
+genotypes:
+  type: "pgen"
+  prefix: "/path/to/study/genotypes_without_extension"
 
-The reference PC file must include:
-
-- `FID`
-- `IID`
-- `population`
-- `super_population`
-- `PC1` through `PC10`
-
-POP-MaD assigns each study sample to the nearest reference population, collapses that to the configured ancestry label, and excludes ambiguous or outlying samples from ancestry-stratified GWAS. Assignment counts are written to:
-
-```text
-# POP-MaD assignment count outputs.
-results/qc/ancestry/popmad_population_counts.tsv
-results/qc/ancestry/popmad_excluded.tsv
-results/qc/ancestry/population_model_summary.tsv
-```
-
-For production computed ancestry, enable the reference projection branch:
-
-```yaml
-# Production ancestry reference projection; reference paths are resolved from reference_package.
 ancestry_reference:
   enabled: true
-  warn_shared_variants_below: 50000
-  min_shared_variants: 10000
-```
 
-When enabled, the pipeline creates run-specific projection and QC outputs instead of consuming precomputed projected PCs:
-
-```text
-# Production computed-ancestry outputs.
-results/qc/ancestry/reference/reference_pcs.tsv
-results/qc/ancestry/reference/study_projected_pcs.tsv
-results/qc/ancestry/production/popmad_assignments.tsv
-results/qc/ancestry/production/popmad_population_counts.tsv
-results/qc/ancestry/reference/reference_prep_report.md
-results/qc/ancestry/within_ancestry_pcs.tsv
-```
-
-The reference build must match the inferred study build. Reference metadata column names are configurable because HGDP+1KG releases and local manifests may use different labels. Package POP-MaD panels marked `variant_set=pre_ld_pruned` skip workflow-level LD pruning; the harmonized shared marker list is copied to the downstream PCA marker path.
-
-In production computed mode, within-ancestry PCs are fitted on the final sex-checked unrelated samples for each ancestry stratum. These PCs are the GWAS covariates used in that stratum.
-
-ADMIXTURE can be enabled as a separate report-only QC branch:
-
-```yaml
-# Report-only supervised ADMIXTURE QC.
 admixture:
   enabled: true
-  mode: "supervised"
-  k: 5
-  labels: [AFR, AMR, EAS, EUR, SAS]
+
+sex_check:
+  enabled: true
+  action: "exclude"
+  allow_no_sex_markers: false
+
+gwas:
+  allow_missing_pcs: false
 ```
 
-When enabled, the workflow writes:
+Production mode also requires a clean, unpacked reference package whose
+`content_fingerprint.sha256` matches `reference_package.fingerprint`.
 
-```text
-results/qc/admixture/study_ancestry_proportions.tsv
-results/qc/admixture/reference_ancestry_proportions.tsv
-results/qc/admixture/popmad_admixture_comparison.tsv
-results/qc/admixture/admixture_run_summary.tsv
-results/qc/admixture/admixture_report.md
-```
+## Input Table Schemas
 
-ADMIXTURE outputs are for QC review only. POP-MaD remains the ancestry-label source for strata and GWAS covariates.
+### Sample Manifest
 
-For precomputed ancestry labels:
-
-```yaml
-# Precomputed ancestry input; ancestry_mode options: computed, precomputed.
-inputs:
-  ancestry_mode: "precomputed"
-  ancestry_file: "config/my_ancestry.tsv"
-```
-
-The ancestry file must include:
-
-- `FID`
-- `IID`
-- `ancestry`
-
-Ancestry labels must match `analysis.ancestries`.
-
-Samples with missing, ambiguous, or unconfigured ancestry labels are excluded from stratum keep files. The workflow fails when the excluded/unassigned fraction exceeds `popmad.max_unassigned_fraction`. In production mode, each configured trait-by-ancestry cell must contain at least one case and one control.
-
-## Exclusion Region Files
-
-`ancestry_reference.exclusion_regions` and `admixture.exclusion_regions` are TSV files used to remove long-range LD or other problem regions before ancestry-reference projection or ADMIXTURE QC.
+`inputs.sample_manifest` must be a TSV with one row per analysis sample.
 
 Required columns:
+
+```text
+FID	IID	age	age2	sex
+```
+
+Also include every phenotype column named in the trait registry and every non-PC
+covariate used by `gwas.default_covariates`, `gwas.extra_covariates`, or the
+trait registry `covariates` column.
+
+Rules:
+
+- `FID`/`IID` pairs must be unique.
+- Every sample manifest `FID`/`IID` pair must exist in the genotype files.
+- `sex` must use PLINK-style codes: `1`, `2`, `0`, `NA`, `-9`, or `.`.
+- Non-PC covariates must be numeric, except configured missing values.
+
+### Trait Registry
+
+`inputs.trait_registry` must be a TSV with these columns:
+
+```text
+trait_id	phenotype_column	case_value	control_value	missing_values
+```
+
+Optional column:
+
+```text
+covariates
+```
+
+Rules:
+
+- `trait_id` values define the `{trait}` wildcard in GWAS outputs.
+- `phenotype_column` must exist in the sample manifest.
+- `case_value`, `control_value`, and `missing_values` define how the sample
+  manifest phenotype is recoded for PLINK2.
+- PLINK phenotype coding is written as control `1`, case `2`, missing `NA`.
+- Trait-specific `covariates` are comma-separated and appended to the global
+  GWAS covariates for that trait.
+
+### Precomputed Ancestry File
+
+Used only when `inputs.ancestry_mode: "precomputed"`.
+
+```text
+FID	IID	ancestry
+```
+
+`ancestry` labels must match `analysis.ancestries`.
+
+### PC Files
+
+For precomputed ancestry, `inputs.pcs_file` must include:
+
+```text
+FID	IID	PC1	PC2	...
+```
+
+For non-package computed ancestry, `inputs.projected_pcs_file` has the same
+schema and `inputs.reference_pcs_file` must include:
+
+```text
+FID	IID	population	super_population	PC1	PC2	...
+```
+
+The number of required PCs is controlled by `popmad.pcs`.
+
+## Parameter Reference
+
+### `project`
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `analysis_name` | Yes | Human-readable run name written to reports and manifests. |
+| `cohort_data_release` | Recommended | Cohort freeze or release label written to provenance outputs. |
+| `genome_build` | Yes | Must be `auto`. The workflow infers the build from genotype markers. |
+| `run_mode` | Yes | `production` or `test`. Production enables stricter validation gates. |
+
+`project.inferred_genome_build` is added to `resolved_config.yaml` after build
+inference. Do not set it in the editable config.
+
+### `reference_package`
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `root` | Production | Path to the unpacked prebuilt reference package directory. Leave blank for test runs that do not use the package. |
+| `fingerprint` | Production | Expected content fingerprint from `content_fingerprint.sha256` inside the unpacked package. |
+
+The package must contain `content_fingerprint.sha256`, `file_manifest.tsv`, and
+`panel_manifest.tsv`. The resolver validates package file hashes and injects
+package-derived fields into `resolved_config.yaml`, including
+`reference_package.observed_fingerprint` and build-matched reference paths for
+`ancestry_reference` and `admixture`.
+
+Set only `root` and `fingerprint` for routine production runs. Do not manually
+add `observed_fingerprint`.
+
+### `analysis`
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `ancestries` | Yes | List of ancestry strata to analyze. Labels must exist in the POP-MaD `super_population` output, precomputed ancestry file, or reference metadata for the active ancestry mode. |
+
+Each listed ancestry expands GWAS, plot, and report targets. In production, each
+configured trait/ancestry cell must contain at least one case and one control.
+
+### `inputs`
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `sample_manifest` | Yes | TSV with `FID`, `IID`, demographics, phenotypes, and non-PC covariates. |
+| `trait_registry` | Yes | TSV defining traits, phenotype coding, missing values, and optional trait covariates. |
+| `ancestry_mode` | Yes | `computed` or `precomputed`. Production requires `computed`. |
+| `ancestry_file` | Precomputed only | TSV with `FID`, `IID`, `ancestry`. Ignored when ancestry is computed. |
+| `pcs_file` | Precomputed only | PC table used for GWAS covariates when ancestry labels are precomputed. |
+| `projected_pcs_file` | Computed, non-package only | Study projected PCs for POP-MaD when `ancestry_reference.enabled: false`. |
+| `reference_pcs_file` | Computed, non-package only | Reference PCs with `population` and `super_population` for POP-MaD when `ancestry_reference.enabled: false`. |
+
+In production, `ancestry_reference.enabled: true` causes the workflow to create
+run-specific `study_projected_pcs.tsv`, `reference_pcs.tsv`, and
+`within_ancestry_pcs.tsv` from the resolved reference package. In that mode,
+the placeholder `projected_pcs_file`, `reference_pcs_file`, and `pcs_file`
+values are not used for production GWAS covariates.
+
+### `tools`
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `plink2` | Yes | PLINK2 executable path or `PATH` command. Validation checks that it can run `--version`. |
+| `admixture` | When ADMIXTURE enabled | ADMIXTURE executable path or `PATH` command. Required when `admixture.enabled: true`. |
+
+On HPC, these must resolve to Linux executables, module shims, or active
+environment commands. Do not reuse workstation-specific macOS binaries on the
+cluster.
+
+### `genotypes`
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `type` | Yes | `pgen` for `PGEN/PVAR/PSAM`, or `bed` for `BED/BIM/FAM`. |
+| `prefix` | Yes | Genotype file prefix without extension. |
+
+For `type: "pgen"`, the workflow requires:
+
+```text
+{prefix}.pgen
+{prefix}.pvar
+{prefix}.psam
+```
+
+For `type: "bed"`, the workflow requires:
+
+```text
+{prefix}.bed
+{prefix}.bim
+{prefix}.fam
+```
+
+VCF/BCF is not accepted directly. Convert upstream to PLINK format.
+
+### `genome_build`
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `marker_file` | Yes | Marker panel used to infer genome build. The bundled file is `resources/build_markers.tsv`. |
+| `min_markers` | Recommended | Minimum informative markers required before accepting a build call. Template uses `50`; code fallback is less strict for tests. |
+| `min_match_fraction` | Recommended | Minimum fraction of informative markers that must match the winning build. Template uses `0.95`. |
+| `min_marker_margin` | Recommended | Minimum marker-count lead of the winning build over the runner-up. Template uses `20`. |
+| `min_fraction_margin` | Recommended | Minimum match-fraction lead of the winning build over the runner-up. Template uses `0.20`. |
+
+Build inference writes:
+
+```text
+results/qc/genome_build/genome_build.txt
+results/qc/genome_build/genome_build_marker_matches.tsv
+```
+
+The pipeline does not lift genotype coordinates or summary statistics.
+
+### `popmad`
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `pcs` | Yes | Number of PCs used for POP-MaD assignment. Must be 1-20; template uses `10`. |
+| `reference_outlier_sd` | Yes | Reference-population outlier cutoff in SD units before assignment. |
+| `min_confidence` | Yes | Minimum assignment confidence. Lower-confidence samples are excluded as ambiguous. |
+| `min_reference_population_n` | Recommended | Minimum reference samples per population. Production fails if a reference population is below this threshold. |
+| `max_unassigned_fraction` | Recommended | Maximum allowed fraction of samples without a configured ancestry assignment before strata creation fails. |
+
+Computed ancestry outputs are written under `results/qc/ancestry/` for
+non-package runs and under `results/qc/ancestry/production/` for production
+package-backed runs.
+
+### `admixture`
+
+ADMIXTURE is a report-only QC branch. It does not define ancestry strata or GWAS
+covariates.
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `enabled` | Production | `true` or `false`. Production requires `true`. |
+| `mode` | When enabled | Must be `supervised`. |
+| `k` | When enabled | Number of supervised ancestry labels. Must be an integer >= 2. |
+| `labels` | When enabled | Ordered ancestry labels. Length must equal `k`, labels must be unique, and labels must exist in reference metadata. |
+| `filters.maf_min` | Recommended | Minimum MAF for ADMIXTURE marker filtering. |
+| `filters.geno_missing_max` | Recommended | Maximum marker missingness for ADMIXTURE marker filtering. |
+| `filters.snps_only_acgt` | Recommended | Keep only A/C/G/T SNPs when `true`. |
+| `filters.autosome_only` | Recommended | Keep autosomes only when `true`. |
+| `filters.max_alleles` | Recommended | Maximum allele count; template uses `2`. |
+| `filters.remove_duplicate_ids` | Recommended | Remove duplicate variant IDs before ADMIXTURE marker preparation. |
+| `filters.exclude_palindromic` | Recommended | Remove strand-ambiguous A/T and C/G SNPs. |
+| `min_pruned_variants` | Recommended | Minimum number of LD-pruned variants required for ADMIXTURE. |
+| `exclusion_regions` | Optional | Long-range LD/problem-region TSV. Leave blank to skip. |
+| `ld_prune.window` | Recommended | PLINK LD-pruning window. ADMIXTURE template uses variant count `50`. |
+| `ld_prune.step` | Recommended | PLINK LD-pruning step. Must be positive. |
+| `ld_prune.r2` | Recommended | PLINK LD-pruning `r2`. Must be between 0 and 1. |
+
+In production, `reference_genotypes`, `metadata`, `reference_genome_build`, and
+source fields are resolved from the reference package. Do not add local
+reference paths to the production template unless you are deliberately running a
+non-package test workflow.
+
+If `exclusion_regions` is set, the TSV must include:
 
 ```text
 chrom	start	end	label
 ```
 
-An optional `build` column can be included:
+In production, include a `build` column or put a build label such as `GRCh37` or
+`GRCh38` in the filename. The build must match the inferred study build.
+
+### `ancestry_reference`
+
+This branch prepares reference-projected PCs for POP-MaD. Production uses the
+prebuilt reference package and treats it as read-only.
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `enabled` | Production | `true` or `false`. Production requires `true`. |
+| `reference_genome_build` | Resolved in production | Reference build. Leave blank in the template; package resolution fills it. |
+| `variant_set` | Optional/resolved | Empty, `pre_ld_pruned`, `workflow_pruned`, or `unpruned`. Package panels can set this. |
+| `filters.maf_min` | Recommended | Minimum MAF for ancestry reference marker filtering. |
+| `filters.geno_missing_max` | Recommended | Maximum marker missingness for ancestry reference marker filtering. |
+| `filters.snps_only_acgt` | Recommended | Keep only A/C/G/T SNPs when `true`. |
+| `filters.autosome_only` | Recommended | Keep autosomes only when `true`. |
+| `filters.max_alleles` | Recommended | Maximum allele count; template uses `2`. |
+| `filters.remove_duplicate_ids` | Recommended | Remove duplicate variant IDs before ancestry reference prep. |
+| `filters.exclude_palindromic` | Recommended | Remove strand-ambiguous A/T and C/G SNPs. |
+| `warn_shared_variants_below` | Recommended | Warn when the shared study/reference marker count is below this value. |
+| `min_shared_variants` | Recommended | Hard fail when the shared study/reference marker count is below this value. |
+| `exclusion_regions` | Optional/resolved | Long-range LD/problem-region TSV. Usually resolved from the package in production. |
+| `ld_prune.window` | Recommended | PLINK LD-pruning window. Values can be variant counts or strings such as `500kb`. |
+| `ld_prune.step` | Recommended | PLINK LD-pruning step. |
+| `ld_prune.r2` | Recommended | PLINK LD-pruning `r2`. |
+| `pca.approx` | Recommended | Whether to use approximate PCA behavior where supported. |
+| `pca.min_projection_pc_correlation` | Recommended | Minimum correlation between original and reprojected reference PCs during projection validation. |
+
+Production package resolution injects `ancestry_reference.reference_genotypes`,
+`ancestry_reference.metadata`, `ancestry_reference.reference_genome_build`,
+`ancestry_reference.exclusion_regions`, and source/provenance fields into
+`resolved_config.yaml`.
+
+Main outputs:
 
 ```text
-chrom	start	end	label	build
-6	25000000	34000000	MHC	GRCh38
+results/qc/ancestry/reference/reference_pcs.tsv
+results/qc/ancestry/reference/study_projected_pcs.tsv
+results/qc/ancestry/reference/reference_prep_report.md
+results/qc/ancestry/within_ancestry_pcs.tsv
 ```
 
-In production, the file must either include a `build` column or include a build label such as `GRCh37` or `GRCh38` in the filename. The build must match the inferred study genotype build.
+### `qc`
 
-## Relatedness
+These settings drive PLINK2 GWAS variant and sample filters.
 
-The default is production pruning with PLINK2 KING:
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `info_min` | Optional | Minimum imputation INFO/MACH_R2 threshold when `use_mach_r2_filter: true`. |
+| `maf_min` | Recommended | Minimum GWAS minor allele frequency. |
+| `hwe_p_min` | Recommended | Minimum Hardy-Weinberg p-value filter. |
+| `geno_missing_max` | Recommended | Maximum per-variant missingness. |
+| `sample_missing_max` | Recommended | Maximum per-sample missingness. |
+| `use_mach_r2_filter` | Recommended | Set `true` for imputed dosage data with MACH_R2/INFO annotations. |
+| `snps_only_acgt` | Recommended | Keep only A/C/G/T SNPs when `true`. |
+| `autosome_only` | Recommended | Restrict GWAS to autosomes when `true`. |
+
+For imputed dosage data with MACH_R2/INFO annotations, use:
 
 ```yaml
-# Relatedness mode options: plink2_king, all_samples.
-relatedness:
-  mode: "plink2_king"
-  king_cutoff: 0.0884
+qc:
+  use_mach_r2_filter: true
+  info_min: 0.8
 ```
 
-PLINK2 writes unrelated samples to:
+### `relatedness`
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `mode` | Yes | `plink2_king` or `all_samples`. Production should usually use `plink2_king`. |
+| `king_cutoff` | When `plink2_king` | KING relatedness cutoff. Template uses `0.0884`. |
+| `remove_sex_mismatches` | Legacy | Prefer `sex_check.action: "exclude"`. If this is `true`, validation requires `sex_check.action: "exclude"`. |
+| `maf_min` | Recommended | Minimum MAF for relatedness marker preparation. |
+| `geno_missing_max` | Recommended | Maximum marker missingness for relatedness marker preparation. |
+| `sample_missing_max` | Recommended | Maximum sample missingness for relatedness marker preparation. |
+| `snps_only_acgt` | Recommended | Keep only A/C/G/T SNPs when `true`. |
+| `autosome_only` | Recommended | Keep autosomes only when `true`. |
+| `ld_prune.window` | Recommended | PLINK LD-pruning window, for example `500kb`. |
+| `ld_prune.step` | Recommended | PLINK LD-pruning step. |
+| `ld_prune.r2` | Recommended | PLINK LD-pruning `r2`. |
+
+Key outputs:
 
 ```text
-# KING unrelated keep output.
-results/qc/relatedness/unrelated.king.cutoff.in.id
-```
-
-Before KING, the workflow creates an autosomal, biallelic, common, LD-pruned marker set:
-
-```text
-# Relatedness QC marker outputs.
 results/qc/relatedness/relatedness_qc.pgen
 results/qc/relatedness/relatedness_ld_prune.prune.in
+results/qc/relatedness/unrelated.king.cutoff.in.id
 results/qc/relatedness/relatedness_summary.tsv
 ```
 
-Tune these filters under `relatedness.maf_min`, `relatedness.geno_missing_max`, and `relatedness.ld_prune`.
+### `sex_check`
 
-## Genetic Sex Check
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `enabled` | Production | `true` or `false`. Production requires `true`. |
+| `action` | Yes | `warn`, `fail`, or `exclude`. Production requires `exclude`. |
+| `allow_no_sex_markers` | Production review | If `false`, production fails when genotype data lack X/Y markers. Set `true` only with documented external sex QC. |
+| `max_female_xf` | Optional | Custom PLINK `--check-sex` female X inbreeding threshold when nonblank. |
+| `min_male_xf` | Optional | Custom PLINK `--check-sex` male X inbreeding threshold when nonblank. |
+| `max_female_yrate` | Optional | Custom PLINK `--check-sex` female Y-rate threshold when nonblank. |
+| `min_male_yrate` | Optional | Custom PLINK `--check-sex` male Y-rate threshold when nonblank. |
 
-The pipeline runs PLINK2 `--check-sex` when sex-chromosome markers are present. By default it reports problems but does not remove samples:
-
-```yaml
-# Genetic sex check; action options: warn, fail, exclude.
-sex_check:
-  enabled: true
-  action: "warn"
-  allow_no_sex_markers: false
-  max_female_xf: ""
-  min_male_xf: ""
-  max_female_yrate: ""
-  min_male_yrate: ""
-```
-
-Outputs are:
+Outputs:
 
 ```text
-# Genetic sex-check outputs.
 results/qc/sex/sexcheck.tsv
 results/qc/sex/sex_mismatches.remove.tsv
 results/qc/sex/sex_checked.keep.tsv
 results/qc/sex/sex_check_summary.tsv
 ```
 
-Use `action: fail` to stop when mismatches are detected. Use `action: exclude` to remove problematic samples from relatedness pruning and final GWAS keep files. Production mode requires `action: exclude` and sex-chromosome markers unless `sex_check.allow_no_sex_markers: true` is set explicitly after external sex QC has already been completed and documented.
+`sex_checked.keep.tsv` contains all samples for `action: "warn"` and excludes
+problematic samples for `action: "exclude"`.
+
+### `gwas`
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `test` | Recommended | PLINK2 test term retained in harmonized output. Template uses `ADD`. |
+| `default_covariates` | Yes | Covariates used for every trait unless removed from the config. Non-PC covariates must exist in the sample manifest. PC covariates must exist in the active PC table. |
+| `extra_covariates` | Optional | Additional global covariates used for every trait. |
+| `covar_variance_standardize` | Recommended | Adds PLINK2 `--covar-variance-standardize` when `true`. |
+| `allow_missing_pcs` | Production false | Allows missing PC covariates when `true`. Production forbids `true`. |
+| `glm_options` | Optional | Free-form options appended after PLINK2 `--glm`, for example `hide-covar firth-fallback`. |
+
+Use a centered quadratic age term for `age2` when possible, for example
+`(age - mean_age)^2`, to reduce collinearity.
+
+Trait-specific covariates from the trait registry `covariates` column are
+appended to `default_covariates` and `extra_covariates` for that trait only.
+
+### `warnings`
+
+These thresholds are report-only warnings; they do not stop the workflow.
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `min_n` | Optional | Warn when an analyzed trait/ancestry sample count is below this value. |
+| `min_cases` | Optional | Warn when case count is below this value. |
+| `min_controls` | Optional | Warn when control count is below this value. |
+
+Production mode separately fails trait/ancestry cells with zero cases or zero
+controls.
+
+### `resources`
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `software_manifest` | Yes | TSV documenting software provenance. |
+| `reference_manifest` | Yes | TSV documenting reference data/package provenance. |
+| `input_manifest` | Optional | Optional compact cohort-release note TSV. Leave blank unless needed. |
+
+`resources.input_manifest` is not the source of truth for input paths. The
+config is the source of truth, and the workflow records configured paths in
+`resolved_config.yaml`, reports, and `run_manifest.tsv`.
+
+If `resources.input_manifest` is nonblank in production, it must contain:
+
+```text
+file_role	cohort_data_release	notes
+```
+
+Required `file_role` values:
+
+```text
+sample_manifest
+trait_registry
+study_genotype
+```
+
+### `runtime`
+
+These values become Snakemake resources. The bundled SLURM profile can override
+or map them to cluster-specific resource requests.
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `threads_small` | Yes | Threads for small PLINK/R helper jobs. |
+| `threads_gwas` | Yes | Threads for each PLINK2 GWAS job. |
+| `threads_admixture` | Recommended | Threads for ADMIXTURE jobs. Falls back to small threads in some ADMIXTURE rules if omitted. |
+| `mem_mb_small` | Yes | Memory in MB for small helper jobs. |
+| `mem_mb_gwas` | Yes | Memory in MB for each GWAS job. |
+| `mem_mb_admixture` | Recommended | Memory in MB for ADMIXTURE jobs. |
+| `time_min_small` | Yes | Runtime in minutes for small helper jobs. |
+| `time_min_gwas` | Yes | Runtime in minutes for each GWAS job. |
+| `time_min_admixture` | Recommended | Runtime in minutes for ADMIXTURE jobs. |
+
+For HPC runs, also review `profiles/slurm/config.yaml`.
+
+## Production Validation Gates
+
+Production mode requires:
+
+- `project.run_mode: "production"`
+- `project.genome_build: "auto"`
+- `inputs.ancestry_mode: "computed"`
+- `ancestry_reference.enabled: true`
+- `admixture.enabled: true`
+- `reference_package.root` and `reference_package.fingerprint`
+- a resolved package fingerprint that matches the expected fingerprint
+- `sex_check.enabled: true`
+- `sex_check.action: "exclude"`
+- sex-chromosome markers unless `sex_check.allow_no_sex_markers: true`
+- `gwas.allow_missing_pcs: false`
+
+Run production validation through Snakemake:
+
+```bash
+snakemake --profile profiles/slurm results/qc/input_validation/validation.ok
+```
+
+Do not use `scripts/validate_config.R --config config/config.yaml` as the
+production validation step. That direct script call is only appropriate for
+focused local/test development checks because production validation requires the
+build-resolved config.
+
+## Main Config-Derived Outputs
+
+```text
+results/qc/genome_build/genome_build.txt
+results/qc/genome_build/genome_build_marker_matches.tsv
+results/config/effective_config.yaml
+results/config/resolved_config.yaml
+results/qc/input_validation/validation.ok
+results/qc/traits/{trait}.pheno.tsv
+results/qc/traits/{trait}.covar.tsv
+results/qc/strata/{ancestry}.unrelated.keep.tsv
+results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
+results/reports/{trait}/{trait}.{ancestry}.{build}.report.md
+results/manifests/run_manifest.tsv
+```

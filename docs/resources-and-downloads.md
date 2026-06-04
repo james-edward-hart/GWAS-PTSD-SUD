@@ -2,7 +2,7 @@
 
 This pipeline keeps software and reference downloads separate from analysis rules.
 
-Production HPC deployments should prefer site-managed modules, conda environments, and approved data-transfer procedures. The workflow does not download HGDP+1KG reference data; analysts must place reviewed local files under `reference-data/` or an HPC project path and record them in `resources/manifests/reference_data.tsv`.
+Production HPC deployments should prefer site-managed modules, conda environments, and approved data-transfer procedures. The workflow does not download HGDP+1KG reference data. Routine analysts use the prebuilt, unpacked reference package and its `content_fingerprint.sha256`; maintainers record source-object and package provenance in `resources/manifests/reference_data.tsv`.
 
 ## Software
 

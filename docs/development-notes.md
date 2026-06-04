@@ -21,3 +21,12 @@ Before changing workflow behavior:
 snakemake -n --use-conda
 Rscript scripts/validate_config.R --config config/config.yaml --out /tmp/stage1-validation.ok
 ```
+
+The direct `scripts/validate_config.R` call is for focused local/test
+development checks only. Production validation must run through Snakemake so the
+workflow can infer the genome build, resolve the reference package, and validate
+`results/config/resolved_config.yaml`:
+
+```bash
+snakemake --profile profiles/slurm results/qc/input_validation/validation.ok
+```
