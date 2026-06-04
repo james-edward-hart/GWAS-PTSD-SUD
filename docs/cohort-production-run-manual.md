@@ -59,6 +59,17 @@ Also include every phenotype column and every non-PC covariate used in the GWAS.
 
 Do not use `M/F` sex codes. `FID/IID` rows must be unique.
 
+Calculate `age2` before running the pipeline as a centered quadratic age term:
+
+```text
+mean_age = mean(age) across non-missing analysis samples
+age2 = (age - mean_age)^2
+```
+
+Use the same age units as `age`, usually years. Do not use raw `age^2` unless
+that is an explicitly approved analysis choice, and record the `mean_age` value
+with the cohort release notes.
+
 Prepare a trait registry TSV with:
 
 ```text

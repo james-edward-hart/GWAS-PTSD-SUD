@@ -210,6 +210,16 @@ The sample manifest must include unique `FID`/`IID` rows, `age`, `age2`, `sex`,
 all phenotype columns, and all non-PC covariates used by configured traits. Sex
 codes must be `1`, `2`, `0`, `NA`, `-9`, or `.`.
 
+Calculate `age2` as a centered quadratic term, not raw `age^2`:
+
+```text
+mean_age = mean(age) across non-missing analysis samples
+age2 = (age - mean_age)^2
+```
+
+Use the same age units as `age`, usually years, and document the `mean_age`
+value used for the cohort release.
+
 The trait registry must include:
 
 ```text
