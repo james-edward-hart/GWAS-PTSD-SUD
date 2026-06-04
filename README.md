@@ -19,11 +19,48 @@ For real cohort data, start with the production path below. Do not run the HapMa
 
 Use a Linux/HPC-compatible environment. The SLURM profile requires Snakemake 8+ and the SLURM executor plugin.
 
+Make a Conda-compatible package manager available first. On many clusters this means loading a Miniforge, Mambaforge, Miniconda, or Anaconda module:
+
 ```bash
-mamba env create -f envs/snakemake-driver.yaml
-mamba env create -f envs/gwas.yaml
-mamba activate gwas-stage1-driver
+module load <conda-or-mamba-module>
+```
+
+If your cluster requires shell initialization before environment activation, run the initialization command recommended by your site.
+
+Create the driver environment that runs Snakemake, then create the utility/R environment used by preflight scripts. Use `mamba` or `conda`, whichever is supported on your cluster:
+
+```bash
+<conda-or-mamba> env create -f envs/snakemake-driver.yaml
+<conda-or-mamba> env create -f envs/gwas.yaml
+```
+
+If these environments already exist, update them instead:
+
+```bash
+<conda-or-mamba> env update -n gwas-stage1-driver -f envs/snakemake-driver.yaml --prune
+<conda-or-mamba> env update -n gwas-stage1 -f envs/gwas.yaml --prune
+```
+
+Activate the driver environment using the activation command configured for your cluster:
+
+```bash
+<activate-command> gwas-stage1-driver
+```
+
+Verify the environment setup:
+
+```bash
+which python
 python -c "import snakemake_executor_plugin_slurm"
+snakemake --version
+<conda-or-mamba> run -n gwas-stage1 Rscript -e 'library(yaml); library(jsonlite); cat("R utility env OK\n")'
+```
+
+For later sessions, you do not need to recreate the environments. Reload the Conda/Mamba module, initialize activation if your site requires it, and reactivate the driver environment:
+
+```bash
+module load <conda-or-mamba-module>
+<activate-command> gwas-stage1-driver
 ```
 
 Create the production config from the template:
@@ -70,7 +107,7 @@ Edit `profiles/slurm/config.yaml` for the cluster account, partition, QoS, and s
 Run preflight before submission:
 
 ```bash
-mamba run -n gwas-stage1 Rscript scripts/production_preflight.R \
+<conda-or-mamba> run -n gwas-stage1 Rscript scripts/production_preflight.R \
   --config config/config.yaml \
   --profile profiles/slurm/config.yaml
 ```
@@ -145,15 +182,15 @@ Review and archive the final config, resolved config, QC reports, GWAS summary s
 The local example uses public HapMap3 genotype data and a generated random binary phenotype. It is for workflow testing only.
 
 ```bash
-mamba env create -f envs/snakemake-driver.yaml
-mamba env create -f envs/gwas.yaml
-mamba activate gwas-stage1-driver
+<conda-or-mamba> env create -f envs/snakemake-driver.yaml
+<conda-or-mamba> env create -f envs/gwas.yaml
+<activate-command> gwas-stage1-driver
 cp config/config.hapmap3.example.yaml config/config.yaml
 bash scripts/download_test_data.sh
-mamba run -n gwas-stage1 Rscript scripts/prepare_hapmap3_fixture.R --plink2 plink2
+<conda-or-mamba> run -n gwas-stage1 Rscript scripts/prepare_hapmap3_fixture.R --plink2 plink2
 snakemake -n --use-conda
 snakemake --cores 4 --use-conda --shared-fs-usage input-output persistence software-deployment sources storage-local-copies
-mamba run -n gwas-stage1 Rscript scripts/test_pipeline_outputs.R
+<conda-or-mamba> run -n gwas-stage1 Rscript scripts/test_pipeline_outputs.R
 ```
 
 If your local config points to `software/local/plink2`, make sure that path exists and matches your platform, or change `tools.plink2` to `plink2`.

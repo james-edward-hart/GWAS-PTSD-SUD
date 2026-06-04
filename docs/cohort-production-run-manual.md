@@ -10,7 +10,7 @@ Copy or clone the repository into a project directory on the cluster.
 
 ```bash
 cd /path/to/project
-git clone /path/to/GWAS-PTSD-SUD.git
+git clone https://github.com/james-edward-hart/GWAS-PTSD-SUD.git
 cd GWAS-PTSD-SUD
 ```
 
@@ -22,9 +22,11 @@ Use storage visible from login and compute nodes for the repository, input genot
 
 Use a login/build node for environment setup.
 
+Load the cluster module or shell setup that provides `conda` or `mamba`. Use whichever package manager and activation command your site supports.
+
 ```bash
-mamba env create -f envs/snakemake-driver.yaml
-mamba activate gwas-stage1-driver
+<conda-or-mamba> env create -f envs/snakemake-driver.yaml
+<activate-command> gwas-stage1-driver
 python -c "import snakemake_executor_plugin_slurm"
 ```
 
@@ -33,7 +35,7 @@ If `python -c "import snakemake_executor_plugin_slurm"` fails, the SLURM executo
 For running the standalone R preflight script, use an existing R installation with `yaml` and `jsonlite`, or create the utility environment:
 
 ```bash
-mamba env create -f envs/gwas.yaml
+<conda-or-mamba> env create -f envs/gwas.yaml
 ```
 
 Snakemake will create the rule-specific conda environments during the workflow run.
@@ -250,13 +252,13 @@ Adjust memory, runtime, partition, and job limits if your cluster requires diffe
 From the repository root:
 
 ```bash
-mamba activate gwas-stage1-driver
+<activate-command> gwas-stage1-driver
 ```
 
 Run the production preflight. Use the R environment available on your cluster, or run through the utility environment:
 
 ```bash
-mamba run -n gwas-stage1 Rscript scripts/production_preflight.R \
+<conda-or-mamba> run -n gwas-stage1 Rscript scripts/production_preflight.R \
   --config config/config.yaml \
   --profile profiles/slurm/config.yaml
 ```
