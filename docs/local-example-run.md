@@ -18,10 +18,10 @@ Download the public HapMap3 PLINK files:
 bash scripts/download_test_data.sh
 ```
 
-Build the sample manifest, toy trait registry, and local PCA fixture files:
+Build the sample manifest and toy trait registry:
 
 ```bash
-mamba run -n gwas-stage1 Rscript scripts/prepare_hapmap3_fixture.R --plink2 plink2
+mamba run -n gwas-stage1 Rscript scripts/prepare_hapmap3_fixture.R
 ```
 
 The generated phenotype is random and not analytically meaningful.
