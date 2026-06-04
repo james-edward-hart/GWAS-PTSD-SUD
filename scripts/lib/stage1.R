@@ -496,19 +496,17 @@ apply_reference_panel <- function(config, section, row, root, genome_build) {
 
 # Validate and resolve a custom reference package against the inferred study build.
 resolve_reference_package_config <- function(config, genome_build, verify_hashes = TRUE) {
-  run_mode <- config$project$run_mode %||% "test"
   package <- config$reference_package %||% list()
   root <- package$root %||% ""
   if (blank(root)) {
-    if (identical(run_mode, "production")) die("production mode requires reference_package.root")
-    return(config)
+    die("reference_package.root is required")
   }
 
   if (!dir.exists(root)) die("reference_package.root does not exist: ", root)
   observed <- reference_package_fingerprint(root, verify_hashes = verify_hashes)
   expected <- package$fingerprint %||% ""
   if (blank(expected)) {
-    if (identical(run_mode, "production")) die("production mode requires reference_package.fingerprint")
+    die("reference_package.fingerprint is required")
   } else if (!identical(tolower(as.character(expected)), observed)) {
     die("reference package fingerprint mismatch: expected ", tolower(as.character(expected)), ", observed ", observed)
   }

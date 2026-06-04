@@ -3,7 +3,6 @@ project:
   analysis_name: "my_stage1_gwas"
   cohort_data_release: "cohort_freeze_or_release_label"
   genome_build: "auto"
-  run_mode: "production"
 
 
 # Prebuilt unpacked reference package; set only the root and content fingerprint.
@@ -23,15 +22,12 @@ analysis:
     - SAS
 
 
-# User input tables; ancestry_mode options: computed, precomputed.
+# User input tables. Ancestry and PC covariates are computed from the
+# fingerprinted reference package; do not provide user-supplied ancestry or PC
+# files.
 inputs:
   sample_manifest: "config/my_sample_manifest.tsv"
   trait_registry: "config/my_traits.tsv"
-  ancestry_mode: "computed"
-  ancestry_file: "config/my_ancestry.tsv"
-  pcs_file: "config/my_pcs.tsv"
-  projected_pcs_file: "config/my_projected_pcs.tsv"
-  reference_pcs_file: "config/my_reference_pcs.tsv"
 
 
 # Tool paths; on HPC these must resolve to Linux executables, module shims, or
@@ -65,7 +61,7 @@ popmad:
   max_unassigned_fraction: 0.02
 
 
-# Report-only supervised ADMIXTURE QC; enabled options: true, false.
+# Report-only supervised ADMIXTURE QC. Production requires enabled: true.
 # Reference paths are resolved from the prebuilt reference_package.
 admixture:
   enabled: true
@@ -96,7 +92,7 @@ admixture:
     r2: 0.1
 
 
-# Production ancestry-reference projection; enabled options: true, false.
+# Production ancestry-reference projection. Production requires enabled: true.
 # Reference paths are resolved from the prebuilt reference_package.
 ancestry_reference:
   enabled: true

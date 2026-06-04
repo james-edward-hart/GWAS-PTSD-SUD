@@ -1,15 +1,12 @@
 REFERENCE_PREP_REPORT = "results/qc/ancestry/reference/reference_prep_report.md"
-ANCESTRY_COUNTS_REPORT = "results/qc/ancestry/precomputed_population_counts.tsv"
 
-# Per-trait reports should wait for the production reference-prep report when
-# computed ancestry is active; otherwise they record "NA" for that link.
+# Per-trait reports should wait for the reference-prep report when that branch
+# is enabled; otherwise they record "NA" for that link.
 reference_prep_report_input = lambda wildcards: [REFERENCE_PREP_REPORT] \
-    if ANCESTRY_REFERENCE_ENABLED and config["inputs"]["ancestry_mode"] == "computed" \
+    if ANCESTRY_REFERENCE_ENABLED \
     else []
 
-ancestry_counts_input = lambda wildcards: popmad_counts_file() \
-    if config["inputs"]["ancestry_mode"] == "computed" \
-    else ANCESTRY_COUNTS_REPORT
+ancestry_counts_input = lambda wildcards: popmad_counts_file()
 
 
 rule plot_gwas:

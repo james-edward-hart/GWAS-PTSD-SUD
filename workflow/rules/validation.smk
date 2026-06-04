@@ -70,8 +70,8 @@ rule validate_config:
         reference=lambda wildcards: config["resources"]["reference_manifest"],
         markers=lambda wildcards: config["genome_build"]["marker_file"],
         build="results/qc/genome_build/genome_build.txt",
-        # Optional branch inputs are injected only when enabled. This keeps the
-        # toy/test config small while making production reference files explicit.
+        # Branch inputs are injected only when enabled so Snakemake tracks the
+        # concrete reference files selected by package resolution.
         ancestry_reference=ancestry_reference_validation_inputs,
         admixture=admixture_validation_inputs,
     output:

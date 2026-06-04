@@ -14,7 +14,7 @@ example-data commands for production analyses.
 | Goal | Start here |
 | --- | --- |
 | Run a real cohort on SLURM | [Production Quickstart](#production-quickstart), then [docs/cohort-production-run-manual.md](docs/cohort-production-run-manual.md) |
-| Test the pipeline locally with public data | [Local Smoke Test](#local-smoke-test), then [docs/local-example-run.md](docs/local-example-run.md) |
+| Run focused development checks | [Development Checks](#development-checks), then [docs/development-notes.md](docs/development-notes.md) |
 | Understand or edit `config/config.yaml` | [docs/configuration.md](docs/configuration.md) |
 | Review pipeline stages and output layout | [docs/pipeline-overview.md](docs/pipeline-overview.md) |
 | Understand the ancestry reference package | [docs/ancestry-reference-prep.md](docs/ancestry-reference-prep.md) |
@@ -24,7 +24,8 @@ example-data commands for production analyses.
 
 - Accepts one genome-wide PLINK dataset: `PGEN/PVAR/PSAM` or `BED/BIM/FAM`.
 - Validates config, sample manifest, trait registry, software manifests,
-  reference manifests, genotype files, ancestry inputs, and covariates.
+  reference manifests, genotype files, the ancestry reference package, and
+  covariates.
 - Infers the genotype build from marker positions and writes build-resolved
   config snapshots.
 - Computes POP-MaD ancestry from a prebuilt reference package in production.
@@ -86,7 +87,6 @@ project:
   analysis_name: "cohort_stage1_gwas"
   cohort_data_release: "cohort_freeze_or_release_label"
   genome_build: "auto"
-  run_mode: "production"
 
 reference_package:
   root: "/path/to/unpacked/stage1_reference_package"
@@ -95,7 +95,6 @@ reference_package:
 inputs:
   sample_manifest: "/path/to/sample_manifest.tsv"
   trait_registry: "/path/to/trait_registry.tsv"
-  ancestry_mode: "computed"
 
 genotypes:
   type: "pgen"
@@ -185,24 +184,25 @@ results/reports/
 Archive the final config, resolved config, manifest, QC reports, GWAS summary
 statistics, and plots according to cohort policy.
 
-## Local Smoke Test
+## Development Checks
 
-The local example uses public HapMap3 genotype data and a generated random
-binary phenotype. It is useful for checking the DAG and output shape only.
+The production pipeline requires a real build-matched reference package and does
+not support a separate `test` run mode. The old HapMap3 fixture remains useful
+for focused script checks and marker-panel development, but it is no longer an
+end-to-end pipeline example.
 
 ```bash
 <conda-or-mamba> env create -f envs/snakemake-driver.yaml
 <conda-or-mamba> env create -f envs/gwas.yaml
 <activate-command> gwas-stage1-driver
-cp config/config.hapmap3.example.yaml config/config.yaml
-bash scripts/download_test_data.sh
-<conda-or-mamba> run -n gwas-stage1 Rscript scripts/prepare_hapmap3_fixture.R --plink2 plink2
-snakemake -n --use-conda
-snakemake --cores 4 --use-conda --shared-fs-usage input-output persistence software-deployment sources storage-local-copies
-<conda-or-mamba> run -n gwas-stage1 Rscript scripts/test_pipeline_outputs.R
+snakemake -n --use-conda  # requires a production-style config/config.yaml
+<conda-or-mamba> run -n gwas-stage1 Rscript scripts/test_infer_genome_build.R
+<conda-or-mamba> run -n gwas-stage1 Rscript scripts/test_reference_package.R
 ```
 
-See [docs/local-example-run.md](docs/local-example-run.md) for details.
+Use [docs/development-notes.md](docs/development-notes.md) for development
+checks. Use [docs/cohort-production-run-manual.md](docs/cohort-production-run-manual.md)
+for real end-to-end runs.
 
 ## Required Inputs At A Glance
 

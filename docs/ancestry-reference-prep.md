@@ -1,11 +1,9 @@
 # Ancestry Reference Preparation
 
-Stage 1 supports two ancestry modes:
-
-- `precomputed`: validated ancestry labels are supplied by the analyst.
-- `computed`: POP-MaD assignment from projected study PCs and an HGDP + 1000 Genomes style reference PC table.
-
-The runnable example uses computed mode with a small HapMap-derived fixture. Production use requires the reviewed, fingerprinted reference package containing POP-MaD and ADMIXTURE panels for the inferred study build.
+Stage 1 uses one production ancestry path: POP-MaD assignment from PCs projected
+against the reviewed, fingerprinted reference package. User-supplied ancestry
+labels, projected study PCs, and external reference PC tables are no longer
+supported.
 
 Reference-package creation is intentionally outside the GWAS rules. The workflow consumes one local prebuilt package, validates its fingerprint, resolves build-matched panel paths, and does not download or build HGDP+1KG or 1000 Genomes reference data.
 
@@ -49,9 +47,6 @@ The runtime package contract is strict:
 Enable production reference use with:
 
 ```yaml
-project:
-  run_mode: "production"
-
 reference_package:
   root: "/path/to/stage1_reference_package"
   fingerprint: "sha256-from-content_fingerprint.sha256"
@@ -88,4 +83,5 @@ The pipeline is conservative: package fingerprint mismatch fails validation, bui
 
 ADMIXTURE is available as an independent report-only QC branch when `admixture.enabled: true`. In production it uses the build-matched ADMIXTURE panel resolved from the reference package, writes proportions and POP-MaD comparison tables under `results/qc/admixture/`, and does not alter POP-MaD labels, strata, keep files, within-ancestry PCs, or GWAS covariates.
 
-Do not run production GWAS from computed ancestry labels until the reference-preparation report and manifest have been reviewed.
+Do not launch full production GWAS until the package-backed POP-MaD assignments,
+reference-preparation report, and manifest have been reviewed.

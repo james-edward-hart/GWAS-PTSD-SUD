@@ -148,7 +148,6 @@ project:
   analysis_name: "cohort_stage1_gwas"
   cohort_data_release: "cohort_freeze_or_release_label"
   genome_build: "auto"
-  run_mode: "production"
 
 reference_package:
   root: "/path/to/stage1_reference_package"
@@ -157,7 +156,6 @@ reference_package:
 inputs:
   sample_manifest: "/path/to/sample_manifest.tsv"
   trait_registry: "/path/to/trait_registry.tsv"
-  ancestry_mode: "computed"
 
 genotypes:
   type: "pgen"
@@ -216,7 +214,7 @@ gwas:
 
 If the genotype data are autosome-only, set `sex_check.allow_no_sex_markers: true` only after external sex QC has already been completed and documented.
 
-Set `analysis.ancestries` to the ancestry strata you intend to run. Each configured trait/ancestry cell must have at least one case and one control in production mode.
+Set `analysis.ancestries` to the ancestry strata you intend to run. Each configured trait/ancestry cell must have at least one case and one control.
 
 For imputed dosage data with MACH_R2/INFO annotations, set:
 
@@ -263,7 +261,7 @@ Run the production preflight. Use the R environment available on your cluster, o
   --profile profiles/slurm/config.yaml
 ```
 
-Preflight must pass before submission. It checks production mode, reference package fingerprint, required ancestry settings, optional input-manifest path existence, SLURM profile placeholders, and whether `results/` is clean.
+Preflight must pass before submission. It checks the reference package fingerprint, required ancestry settings, optional input-manifest path existence, SLURM profile placeholders, and whether `results/` is clean.
 
 ## 8. Dry-Run The Workflow
 

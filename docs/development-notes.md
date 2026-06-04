@@ -17,14 +17,13 @@ Use comments only where they explain non-obvious GWAS or workflow behavior.
 Before changing workflow behavior:
 
 ```bash
-# Smoke-test workflow behavior after edits.
-snakemake -n --use-conda
-Rscript scripts/validate_config.R --config config/config.yaml --out /tmp/stage1-validation.ok
+snakemake -n --use-conda  # requires a production-style config/config.yaml
+Rscript scripts/test_reference_package.R
+Rscript scripts/test_infer_genome_build.R
 ```
 
-The direct `scripts/validate_config.R` call is for focused local/test
-development checks only. Production validation must run through Snakemake so the
-workflow can infer the genome build, resolve the reference package, and validate
+Full validation must run through Snakemake so the workflow can infer the genome
+build, resolve the reference package, and validate
 `results/config/resolved_config.yaml`:
 
 ```bash

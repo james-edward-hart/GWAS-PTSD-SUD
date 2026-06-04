@@ -1,15 +1,34 @@
 #!/usr/bin/env Rscript
 
-# Check that a local test run produced the expected Stage 1 outputs.
+# Check that a production Stage 1 run produced expected output bundles.
 
 cmd <- commandArgs(FALSE)
 script_dir <- dirname(normalizePath(sub("^--file=", "", cmd[grepl("^--file=", cmd)][1])))
 source(file.path(script_dir, "lib", "stage1.R"))
 
 
-# Parse expected results location and fixture labels.
-args <- parse_args(defaults = list(results = "results", trait = "random_binary", build = "auto", ancestries = "HMAP_A,HMAP_B"))
+# Parse expected results location and optional trait/ancestry filters.
+args <- parse_args(defaults = list(results = "results", config = "", trait = "", build = "auto", ancestries = ""))
 results <- args$results
+config_path <- args$config
+if (blank(config_path)) config_path <- file.path(results, "config", "resolved_config.yaml")
+require_existing_file(config_path, "resolved run config")
+config <- load_config(config_path)
+
+trait_ids <- if (blank(args$trait)) {
+  traits <- read_tsv(config$inputs$trait_registry)
+  require_columns(traits, "trait_id", "trait registry")
+  traits$trait_id[nzchar(traits$trait_id)]
+} else {
+  split_csv(args$trait)
+}
+ancestry_labels <- if (blank(args$ancestries)) {
+  as.character(unlist(config$analysis$ancestries, use.names = FALSE))
+} else {
+  split_csv(args$ancestries)
+}
+if (!length(trait_ids)) die("no traits configured for output validation")
+if (!length(ancestry_labels)) die("no ancestries configured for output validation")
 
 
 # Small assertions for required files and non-empty tables.
@@ -30,10 +49,11 @@ build <- if (args$build == "auto") trimws(readLines(build_file, warn = FALSE)[[1
 
 
 # Check POP-MaD output tables.
-assignments <- file.path(results, "qc", "ancestry", "popmad_assignments.tsv")
-excluded <- file.path(results, "qc", "ancestry", "popmad_excluded.tsv")
-counts <- file.path(results, "qc", "ancestry", "popmad_population_counts.tsv")
-model_summary <- file.path(results, "qc", "ancestry", "population_model_summary.tsv")
+popmad_dir <- file.path(results, "qc", "ancestry", "production")
+assignments <- file.path(popmad_dir, "popmad_assignments.tsv")
+excluded <- file.path(popmad_dir, "popmad_excluded.tsv")
+counts <- file.path(popmad_dir, "popmad_population_counts.tsv")
+model_summary <- file.path(popmad_dir, "population_model_summary.tsv")
 require_file(assignments, "missing POP-MaD assignments")
 if (count_rows(assignments) <= 0) die("POP-MaD assignments are empty")
 require_file(excluded, "missing POP-MaD excluded file")
@@ -42,27 +62,29 @@ require_file(model_summary, "missing POP-MaD model summary")
 
 
 # Check each expected trait/ancestry report bundle.
-for (ancestry in split_csv(args$ancestries)) {
-  stats <- file.path(results, "gwas", args$trait, ancestry, paste0(args$trait, ".", ancestry, ".", build, ".plink2.glm.tsv"))
-  report <- file.path(results, "reports", args$trait, paste0(args$trait, ".", ancestry, ".", build, ".report.md"))
-  qq <- file.path(results, "plots", args$trait, ancestry, paste0(args$trait, ".", ancestry, ".", build, ".qq.png"))
-  manhattan <- file.path(results, "plots", args$trait, ancestry, paste0(args$trait, ".", ancestry, ".", build, ".manhattan.png"))
-  manhattan_pdf <- file.path(results, "plots", args$trait, ancestry, paste0(args$trait, ".", ancestry, ".", build, ".manhattan.pdf"))
+for (trait in trait_ids) {
+  for (ancestry in ancestry_labels) {
+    stats <- file.path(results, "gwas", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".plink2.glm.tsv"))
+    report <- file.path(results, "reports", trait, paste0(trait, ".", ancestry, ".", build, ".report.md"))
+    qq <- file.path(results, "plots", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".qq.png"))
+    manhattan <- file.path(results, "plots", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".manhattan.png"))
+    manhattan_pdf <- file.path(results, "plots", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".manhattan.pdf"))
 
-  require_file(stats, "missing GWAS stats")
-  if (count_rows(stats) <= 0) die("GWAS stats are empty: ", stats)
-  header <- names(read_tsv(stats))
-  for (column in c("a1_freq", "mac", "info", "test")) {
-    if (!column %in% header) die("GWAS stats missing harmonized column ", column, ": ", stats)
+    require_file(stats, "missing GWAS stats")
+    if (count_rows(stats) <= 0) die("GWAS stats are empty: ", stats)
+    header <- names(read_tsv(stats))
+    for (column in c("a1_freq", "mac", "info", "test")) {
+      if (!column %in% header) die("GWAS stats missing harmonized column ", column, ": ", stats)
+    }
+    require_file(report, "missing report")
+    report_text <- readLines(report, warn = FALSE)
+    if (!any(grepl("Covariates used", report_text))) die("report missing covariate section: ", report)
+    if (!any(grepl("Relatedness LD-pruned variants", report_text))) die("report missing relatedness details: ", report)
+    if (!any(grepl("Sex-check problems", report_text))) die("report missing sex-check details: ", report)
+    if (!file.exists(qq) || file.info(qq)$size <= 0) die("missing QQ plot: ", qq)
+    if (!file.exists(manhattan) || file.info(manhattan)$size <= 0) die("missing Manhattan plot: ", manhattan)
+    if (!file.exists(manhattan_pdf) || file.info(manhattan_pdf)$size <= 0) die("missing Manhattan PDF plot: ", manhattan_pdf)
   }
-  require_file(report, "missing report")
-  report_text <- readLines(report, warn = FALSE)
-  if (!any(grepl("Covariates used", report_text))) die("report missing covariate section: ", report)
-  if (!any(grepl("Relatedness LD-pruned variants", report_text))) die("report missing relatedness details: ", report)
-  if (!any(grepl("Sex-check problems", report_text))) die("report missing sex-check details: ", report)
-  if (!file.exists(qq) || file.info(qq)$size <= 0) die("missing QQ plot: ", qq)
-  if (!file.exists(manhattan) || file.info(manhattan)$size <= 0) die("missing Manhattan plot: ", manhattan)
-  if (!file.exists(manhattan_pdf) || file.info(manhattan_pdf)$size <= 0) die("missing Manhattan PDF plot: ", manhattan_pdf)
 }
 
 

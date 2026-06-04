@@ -103,7 +103,7 @@ resources/ancestry/long_range_ld_regions.GRCh38.tsv
 
 These are used when `ancestry_reference.enabled: true` or `admixture.enabled: true`. Replace them with a cohort-approved region list when the production reference bundle has its own documented exclusions.
 
-## Test Data
+## Development Fixture Data
 
 The helper script `scripts/download_test_data.sh` downloads the official ADMIXTURE HapMap3 sample archive:
 
@@ -111,11 +111,19 @@ The helper script `scripts/download_test_data.sh` downloads the official ADMIXTU
 https://dalexander.github.io/admixture/hapmap3-files.tar.gz
 ```
 
-The default local fixture uses public HapMap3 genome-wide array genotype data with a generated random binary phenotype:
+The development fixture uses public HapMap3 genome-wide array genotype data with
+a generated random binary phenotype:
 
 ```bash
 bash scripts/download_test_data.sh
 Rscript scripts/prepare_hapmap3_fixture.R
 ```
 
-The fixture is real public genotype data, but it is not real imputed dosage data. Public, individual-level, genome-wide imputed human array datasets are usually controlled-access. When a controlled-access dataset is available, point `config/config.yaml` at one genome-wide PGEN/PVAR/PSAM or BED/BIM/FAM dataset. The workflow records configured cohort input paths in the resolved config, final reports, and run manifest.
+The fixture is real public genotype data, but it is not real imputed dosage
+data and is not an end-to-end production pipeline example. Public,
+individual-level, genome-wide imputed human array datasets are usually
+controlled-access. When a controlled-access dataset is available, point
+`config/config.yaml` at one genome-wide PGEN/PVAR/PSAM or BED/BIM/FAM dataset
+and use the production workflow with a build-matched reference package. The
+workflow records configured cohort input paths in the resolved config, final
+reports, and run manifest.

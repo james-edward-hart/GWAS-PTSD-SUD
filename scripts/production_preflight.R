@@ -8,10 +8,9 @@ source(file.path(script_dir, "lib", "stage1.R"))
 
 
 args <- parse_args(defaults = list(config = "config/config.yaml", profile = "profiles/slurm/config.yaml"),
-  flags = c("allow-existing-results", "allow-test-run"))
+  flags = c("allow-existing-results"))
 
 config <- load_config(args$config)
-run_mode <- config$project$run_mode %||% "test"
 results_dir <- "results"
 warnings <- character()
 failures <- character()
@@ -21,14 +20,15 @@ add_failure <- function(...) failures <<- c(failures, paste0(...))
 
 
 # Production config gates duplicated here for operator-facing feedback.
-if (run_mode != "production") {
-  if (truthy(args[["allow-test-run"]] %||% FALSE)) {
-    add_warning("project.run_mode is '", run_mode, "', not 'production'; continuing because --allow-test-run was set")
-  } else {
-    add_failure("project.run_mode must be 'production' for production preflight; use --allow-test-run only for rehearsal configs")
-  }
+if (!is.null(config$project$run_mode) && !identical(config$project$run_mode, "production")) {
+  add_failure("project.run_mode test mode has been removed; remove project.run_mode or set it to 'production'")
 }
-if ((config$inputs$ancestry_mode %||% "") != "computed") add_failure("production requires inputs.ancestry_mode: computed")
+deprecated_input_fields <- intersect(names(config$inputs), c(
+  "ancestry_mode", "ancestry_file", "pcs_file", "projected_pcs_file", "reference_pcs_file"
+))
+if (length(deprecated_input_fields)) {
+  add_failure("remove unsupported input config field(s): ", paste(deprecated_input_fields, collapse = ", "))
+}
 if (!truthy(config$ancestry_reference$enabled %||% FALSE)) add_failure("production requires ancestry_reference.enabled: true")
 if (!truthy(config$admixture$enabled %||% FALSE)) add_failure("production requires admixture.enabled: true")
 if (!truthy(config$sex_check$enabled %||% TRUE)) add_failure("production requires sex_check.enabled: true")
@@ -101,7 +101,6 @@ if (length(private_hits)) {
 cat("Production preflight\n")
 cat("- Config: ", args$config, "\n", sep = "")
 cat("- Profile: ", args$profile, "\n", sep = "")
-cat("- Run mode: ", run_mode, "\n", sep = "")
 cat("- Reference package: ", ifelse(blank(root), "NA", root), "\n", sep = "")
 if (length(warnings)) {
   cat("\nWarnings:\n")

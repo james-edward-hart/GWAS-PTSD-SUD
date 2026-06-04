@@ -117,15 +117,25 @@ genotype_has_sex_markers <- function(config) {
 
 
 # Check required top-level config sections and simple scalar settings.
-required_sections <- c("project", "analysis", "inputs", "genotypes", "genome_build",
-  "popmad", "admixture", "ancestry_reference", "qc", "relatedness", "sex_check", "gwas", "resources")
+required_sections <- c("project", "analysis", "inputs", "tools", "genotypes", "genome_build",
+  "popmad", "admixture", "ancestry_reference", "qc", "relatedness", "sex_check", "gwas",
+  "warnings", "resources", "runtime")
 missing_sections <- required_sections[vapply(required_sections, function(x) is.null(config[[x]]), logical(1))]
 if (length(missing_sections)) die("config section missing: ", missing_sections[[1]])
 
 if (!identical(config$project$genome_build, "auto")) die("project.genome_build must be 'auto'")
-run_mode <- config$project$run_mode %||% "test"
-if (!run_mode %in% c("test", "production")) die("project.run_mode must be 'test' or 'production'")
+if (!is.null(config$project$run_mode) && !identical(config$project$run_mode, "production")) {
+  die("project.run_mode test mode has been removed; remove project.run_mode or set it to 'production'")
+}
 if (!length(config$analysis$ancestries)) die("analysis.ancestries must list at least one ancestry")
+
+deprecated_input_fields <- intersect(names(config$inputs), c(
+  "ancestry_mode", "ancestry_file", "pcs_file", "projected_pcs_file", "reference_pcs_file"
+))
+if (length(deprecated_input_fields)) {
+  die("unsupported input config field(s): ", paste(deprecated_input_fields, collapse = ", "),
+    ". Package-backed computed ancestry is the only supported ancestry path; remove user-supplied ancestry/PC paths.")
+}
 
 sex_action <- config$sex_check$action %||% "warn"
 if (!sex_action %in% c("warn", "fail", "exclude")) die("sex_check.action must be warn, fail, or exclude")
@@ -217,8 +227,8 @@ validate_exclusion_regions <- function(path, label, build) {
         die(label, " exclusion-region build mismatch: inferred study build is ", build,
           ", file path suggests ", paste(in_name, collapse = ", "))
       }
-      if (run_mode == "production" && !length(in_name)) {
-        die(label, " exclusion-region file must include a build column or build label in its filename in production: ", path)
+      if (!length(in_name)) {
+        die(label, " exclusion-region file must include a build column or build label in its filename: ", path)
       }
     }
   }
@@ -226,38 +236,28 @@ validate_exclusion_regions <- function(path, label, build) {
 }
 
 
-# Validate run-mode gates before optional branches are expanded.
-ancestry_mode <- config$inputs$ancestry_mode
+# Validate production gates before optional branches are expanded.
 ancestry_reference_enabled <- truthy(config$ancestry_reference$enabled %||% FALSE)
 admixture_enabled <- truthy(config$admixture$enabled %||% FALSE)
 
-if (!ancestry_mode %in% c("precomputed", "computed")) {
-  die("inputs.ancestry_mode must be 'precomputed' or 'computed'")
+if (!ancestry_reference_enabled) die("ancestry_reference.enabled: true is required")
+if (!admixture_enabled) die("admixture.enabled: true is required")
+if (blank(config$reference_package$root %||% "")) die("reference_package.root is required")
+if (blank(config$reference_package$fingerprint %||% "")) die("reference_package.fingerprint is required")
+if (blank(config$reference_package$observed_fingerprint %||% "")) die("a resolved reference package fingerprint is required")
+if (!identical(tolower(config$reference_package$fingerprint), tolower(config$reference_package$observed_fingerprint))) {
+  die("reference_package.fingerprint does not match observed_fingerprint")
 }
-
-if (run_mode == "production") {
-  # Production mode is intentionally narrower than test mode: ancestry must be
-  # assigned from the prebuilt fingerprinted package and reviewed via ADMIXTURE QC.
-  if (ancestry_mode != "computed") die("production mode forbids precomputed ancestry; use inputs.ancestry_mode: computed")
-  if (!ancestry_reference_enabled) die("production mode requires ancestry_reference.enabled: true")
-  if (!admixture_enabled) die("production mode requires admixture.enabled: true")
-  if (blank(config$reference_package$root %||% "")) die("production mode requires reference_package.root")
-  if (blank(config$reference_package$fingerprint %||% "")) die("production mode requires reference_package.fingerprint")
-  if (blank(config$reference_package$observed_fingerprint %||% "")) die("production mode requires a resolved reference package fingerprint")
-  if (!identical(tolower(config$reference_package$fingerprint), tolower(config$reference_package$observed_fingerprint))) {
-    die("production reference_package.fingerprint does not match observed_fingerprint")
-  }
-  if (truthy(config$gwas$allow_missing_pcs %||% FALSE)) die("production mode forbids gwas.allow_missing_pcs: true")
-  if (!truthy(config$sex_check$enabled %||% TRUE)) die("production mode requires sex_check.enabled: true")
-  if ((config$sex_check$action %||% "warn") != "exclude") {
-    die("production mode requires sex_check.action: exclude; runs without sex chromosomes are warned and kept by sex_check.R")
-  }
-  if (!truthy(config$sex_check$allow_no_sex_markers %||% FALSE) && !genotype_has_sex_markers(config)) {
-    die("production mode requires sex-chromosome markers for sex_check.action: exclude, or explicit sex_check.allow_no_sex_markers: true")
-  }
-  if (!blank(config$resources$input_manifest %||% "")) {
-    validate_input_manifest(config$resources$input_manifest, config)
-  }
+if (truthy(config$gwas$allow_missing_pcs %||% FALSE)) die("gwas.allow_missing_pcs: true is not supported")
+if (!truthy(config$sex_check$enabled %||% TRUE)) die("sex_check.enabled: true is required")
+if ((config$sex_check$action %||% "warn") != "exclude") {
+  die("sex_check.action: exclude is required")
+}
+if (!truthy(config$sex_check$allow_no_sex_markers %||% FALSE) && !genotype_has_sex_markers(config)) {
+  die("sex-chromosome markers are required for sex_check.action: exclude, or set sex_check.allow_no_sex_markers: true with documented external sex QC")
+}
+if (!blank(config$resources$input_manifest %||% "")) {
+  validate_input_manifest(config$resources$input_manifest, config)
 }
 
 
@@ -317,89 +317,45 @@ if (admixture_enabled) {
   validate_exclusion_regions(config$admixture$exclusion_regions %||% "", "ADMIXTURE", genome_build)
 }
 
-
-# Validate PC files against the configured number of PCs.
-validate_pc_file <- function(path, label, extra = character()) {
-  rows <- read_tsv(path)
-  require_columns(rows, c("FID", "IID", extra, paste0("PC", seq_len(pc_count))), label)
-  require_unique_ids(rows, label)
-  for (pc in paste0("PC", seq_len(pc_count))) {
-    numeric_value <- suppressWarnings(as.numeric(rows[[pc]]))
-    if (any(is.na(numeric_value) | !is.finite(numeric_value))) {
-      bad <- which(is.na(numeric_value) | !is.finite(numeric_value))[[1]]
-      die(label, " has missing or non-finite ", pc, " for ", rows$FID[[bad]], " ", rows$IID[[bad]])
-    }
-  }
-  rows
+# Validate the resolved package-backed ancestry reference panel.
+variant_set <- config$ancestry_reference$variant_set %||% ""
+if (nzchar(variant_set) && !variant_set %in% c("pre_ld_pruned", "workflow_pruned", "unpruned")) {
+  die("ancestry_reference.variant_set must be pre_ld_pruned, workflow_pruned, unpruned, or empty")
 }
-
-
-# Validate whichever ancestry mode is active.
-if (ancestry_reference_enabled) {
-  # Package-backed reference prep resolves concrete paths before validation, so
-  # this block validates the build-matched panel selected for the current run.
-  if (ancestry_mode != "computed") die("ancestry_reference.enabled requires inputs.ancestry_mode: computed")
-  variant_set <- config$ancestry_reference$variant_set %||% ""
-  if (nzchar(variant_set) && !variant_set %in% c("pre_ld_pruned", "workflow_pruned", "unpruned")) {
-    die("ancestry_reference.variant_set must be pre_ld_pruned, workflow_pruned, unpruned, or empty")
-  }
-  genotype_files(config$ancestry_reference$reference_genotypes, "ancestry reference genotype input")
-  if (nzchar(genome_build) && !identical(config$ancestry_reference$reference_genome_build %||% genome_build, genome_build)) {
-    die("ancestry reference build mismatch: inferred study build is ", genome_build,
-      ", reference build is ", config$ancestry_reference$reference_genome_build)
-  }
-  metadata_path <- config$ancestry_reference$metadata$path
-  require_file(metadata_path, "ancestry reference metadata")
-  metadata <- read_tsv(metadata_path)
-  require_columns(metadata, c(
-    config$ancestry_reference$metadata$sample_id_column,
-    config$ancestry_reference$metadata$population_column,
-    config$ancestry_reference$metadata$super_population_column
-  ), "ancestry reference metadata")
-  if (any(!nzchar(metadata[[config$ancestry_reference$metadata$population_column]])) ||
-      any(!nzchar(metadata[[config$ancestry_reference$metadata$super_population_column]]))) {
-    die("ancestry reference metadata contains empty population or super_population labels")
-  }
-  mapping <- unique(metadata[c(config$ancestry_reference$metadata$population_column, config$ancestry_reference$metadata$super_population_column)])
-  names(mapping) <- c("population", "super_population")
-  conflicts <- unique(mapping$population[duplicated(mapping$population)])
-  if (length(conflicts)) die("ancestry reference metadata has conflicting population -> super_population mappings: ",
-    paste(head(conflicts, 5), collapse = ", "))
-  missing_super <- setdiff(unlist(config$analysis$ancestries), unique(metadata[[config$ancestry_reference$metadata$super_population_column]]))
-  if (length(missing_super)) die("ancestry reference metadata is missing configured ancestry labels: ",
-    paste(missing_super, collapse = ", "))
-  validate_exclusion_regions(config$ancestry_reference$exclusion_regions %||% "", "ancestry", genome_build)
-} else if (ancestry_mode == "precomputed") {
-  require_file(config$inputs$ancestry_file, "ancestry file")
-  require_file(config$inputs$pcs_file, "PC file")
-  ancestry <- read_tsv(config$inputs$ancestry_file)
-  require_columns(ancestry, c("FID", "IID", "ancestry"), "ancestry file")
-  require_unique_ids(ancestry, "ancestry file")
-  validate_pc_file(config$inputs$pcs_file, "PC file")
-  unknown <- setdiff(unique(ancestry$ancestry), unlist(config$analysis$ancestries))
-  if (length(unknown)) die("ancestry file contains labels not listed in config: ", paste(unknown, collapse = ", "))
-} else if (ancestry_mode == "computed") {
-  require_file(config$inputs$projected_pcs_file, "projected study PC file")
-  require_file(config$inputs$reference_pcs_file, "reference PC file")
-  validate_pc_file(config$inputs$projected_pcs_file, "projected study PC file")
-  reference_pcs <- validate_pc_file(config$inputs$reference_pcs_file, "reference PC file", c("population", "super_population"))
-  if (any(!nzchar(reference_pcs$population)) || any(!nzchar(reference_pcs$super_population))) {
-    die("reference PC file contains empty population or super_population labels")
-  }
-  mapping <- unique(reference_pcs[c("population", "super_population")])
-  conflicts <- unique(mapping$population[duplicated(mapping$population)])
-  if (length(conflicts)) die("reference PC file has conflicting population -> super_population mappings: ",
-    paste(head(conflicts, 5), collapse = ", "))
-  min_population_n <- as.integer(config$popmad$min_reference_population_n %||% 20)
-  pop_counts <- table(reference_pcs$population)
-  low <- names(pop_counts)[pop_counts < min_population_n]
-  if (run_mode == "production" && length(low)) {
-    die("reference PC file has populations below popmad.min_reference_population_n=", min_population_n,
-      ": ", paste(low, collapse = ", "))
-  }
-  missing_super <- setdiff(unlist(config$analysis$ancestries), unique(reference_pcs$super_population))
-  if (length(missing_super)) die("reference PC file is missing configured ancestry labels: ", paste(missing_super, collapse = ", "))
+genotype_files(config$ancestry_reference$reference_genotypes, "ancestry reference genotype input")
+if (nzchar(genome_build) && !identical(config$ancestry_reference$reference_genome_build %||% genome_build, genome_build)) {
+  die("ancestry reference build mismatch: inferred study build is ", genome_build,
+    ", reference build is ", config$ancestry_reference$reference_genome_build)
 }
+metadata_path <- config$ancestry_reference$metadata$path
+require_file(metadata_path, "ancestry reference metadata")
+metadata <- read_tsv(metadata_path)
+population_col <- config$ancestry_reference$metadata$population_column
+super_col <- config$ancestry_reference$metadata$super_population_column
+require_columns(metadata, c(
+  config$ancestry_reference$metadata$sample_id_column,
+  population_col,
+  super_col
+), "ancestry reference metadata")
+if (any(!nzchar(metadata[[population_col]])) || any(!nzchar(metadata[[super_col]]))) {
+  die("ancestry reference metadata contains empty population or super_population labels")
+}
+mapping <- unique(metadata[c(population_col, super_col)])
+names(mapping) <- c("population", "super_population")
+conflicts <- unique(mapping$population[duplicated(mapping$population)])
+if (length(conflicts)) die("ancestry reference metadata has conflicting population -> super_population mappings: ",
+  paste(head(conflicts, 5), collapse = ", "))
+missing_super <- setdiff(unlist(config$analysis$ancestries), unique(metadata[[super_col]]))
+if (length(missing_super)) die("ancestry reference metadata is missing configured ancestry labels: ",
+  paste(missing_super, collapse = ", "))
+min_population_n <- as.integer(config$popmad$min_reference_population_n %||% 20)
+pop_counts <- table(metadata[[population_col]])
+low <- names(pop_counts)[pop_counts < min_population_n]
+if (length(low)) {
+  die("ancestry reference metadata has populations below popmad.min_reference_population_n=", min_population_n,
+    ": ", paste(low, collapse = ", "))
+}
+validate_exclusion_regions(config$ancestry_reference$exclusion_regions %||% "", "ancestry", genome_build)
 
 
 # Write a small success marker for Snakemake.

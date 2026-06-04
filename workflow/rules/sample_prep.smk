@@ -38,7 +38,6 @@ rule make_strata_files:
     output:
         counts="results/qc/strata/strata_counts.tsv",
         keep=expand("results/qc/strata/{ancestry}.keep.tsv", ancestry=ANCESTRIES),
-        ancestry_counts="results/qc/ancestry/precomputed_population_counts.tsv",
     log:
         "results/logs/sample_prep/make_strata_files.log",
     conda:

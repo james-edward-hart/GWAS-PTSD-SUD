@@ -58,9 +58,9 @@ def reference_package_inputs(config):
     return sorted(set(paths))
 
 
-# Add production ancestry-reference report only when that branch is enabled.
+# Add ancestry-reference report only when that branch is enabled.
 def ancestry_reference_targets(config):
-    if config.get("ancestry_reference", {}).get("enabled", False) and config["inputs"]["ancestry_mode"] == "computed":
+    if config.get("ancestry_reference", {}).get("enabled", False):
         return ["results/qc/ancestry/reference/reference_prep_report.md"]
     return []
 
@@ -153,11 +153,9 @@ def report_targets(checkpoints, traits, ancestries, wildcards):
     ]
 
 
-# Keep production computed-ancestry outputs separate from toy/local outputs.
+# Keep POP-MaD outputs in the production ancestry directory.
 def popmad_output_dir(config):
-    if config["inputs"]["ancestry_mode"] == "computed" and config.get("ancestry_reference", {}).get("enabled", False):
-        return "results/qc/ancestry/production"
-    return "results/qc/ancestry"
+    return "results/qc/ancestry/production"
 
 
 # Build paths inside the active POP-MaD output directory.
@@ -165,38 +163,26 @@ def popmad_path(config, name):
     return f"{popmad_output_dir(config)}/{name}"
 
 
-# Resolve the ancestry assignment file for precomputed or computed mode.
+# Resolve the package-backed POP-MaD ancestry assignment file.
 def ancestry_file(config):
-    if config["inputs"]["ancestry_mode"] == "computed":
-        return popmad_path(config, "popmad_assignments.tsv")
-    return config["inputs"]["ancestry_file"]
+    return popmad_path(config, "popmad_assignments.tsv")
 
 
 # Resolve the projected study PC file used by POP-MaD.
 def ancestry_study_pcs_file(config, _wildcards=None):
-    if config["inputs"]["ancestry_mode"] == "computed" and config.get("ancestry_reference", {}).get("enabled", False):
-        return "results/qc/ancestry/reference/study_projected_pcs.tsv"
-    return config["inputs"]["projected_pcs_file"]
+    return "results/qc/ancestry/reference/study_projected_pcs.tsv"
 
 
 # Resolve the reference PC file used by POP-MaD.
 def ancestry_reference_pcs_file(config, _wildcards=None):
-    if config["inputs"]["ancestry_mode"] == "computed" and config.get("ancestry_reference", {}).get("enabled", False):
-        return "results/qc/ancestry/reference/reference_pcs.tsv"
-    return config["inputs"]["reference_pcs_file"]
+    return "results/qc/ancestry/reference/reference_pcs.tsv"
 
 
 # Resolve the PC table that includes assigned ancestry labels.
 def popmad_within_file(config):
-    if config["inputs"]["ancestry_mode"] == "computed" and config.get("ancestry_reference", {}).get("enabled", False):
-        return f"{popmad_output_dir(config)}/popmad_projected_pcs_with_ancestry.tsv"
-    return "results/qc/ancestry/within_ancestry_pcs.tsv"
+    return f"{popmad_output_dir(config)}/popmad_projected_pcs_with_ancestry.tsv"
 
 
-# Resolve the GWAS covariate PC file for precomputed, toy, or production mode.
+# Resolve the package-backed within-ancestry PC file for GWAS covariates.
 def pcs_file(config):
-    if config["inputs"]["ancestry_mode"] == "computed" and config.get("ancestry_reference", {}).get("enabled", False):
-        return "results/qc/ancestry/within_ancestry_pcs.tsv"
-    if config["inputs"]["ancestry_mode"] == "computed":
-        return "results/qc/ancestry/study_pcs.tsv"
-    return config["inputs"]["pcs_file"]
+    return "results/qc/ancestry/within_ancestry_pcs.tsv"

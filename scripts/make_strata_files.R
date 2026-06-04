@@ -18,7 +18,6 @@ samples <- read_tsv(config$inputs$sample_manifest)
 ancestry <- read_tsv(args[["ancestry-file"]])
 traits <- read_tsv(config$inputs$trait_registry)
 labels <- unlist(config$analysis$ancestries, use.names = FALSE)
-run_mode <- config$project$run_mode %||% "test"
 max_unassigned_fraction <- as.numeric(config$popmad$max_unassigned_fraction %||% 0.02)
 dir.create(args$outdir, recursive = TRUE, showWarnings = FALSE)
 
@@ -95,35 +94,17 @@ counts[[length(counts) + 1]] <- data.frame(
 )
 
 
-# Production should not launch GWAS jobs for configured empty case/control cells.
+# Do not launch GWAS jobs for configured empty case/control cells.
 count_rows <- do.call(rbind, counts)
-if (identical(run_mode, "production")) {
-  checked <- count_rows[count_rows$trait_id != "ALL" & count_rows$ancestry != "UNASSIGNED", , drop = FALSE]
-  empty <- checked[checked$n == 0 | checked$cases == 0 | checked$controls == 0, , drop = FALSE]
-  if (nrow(empty)) {
-    labels <- paste0(empty$trait_id, "/", empty$ancestry,
-      " n=", empty$n, " cases=", empty$cases, " controls=", empty$controls)
-    die("production has empty GWAS strata or case/control cells: ", paste(labels, collapse = "; "))
-  }
+checked <- count_rows[count_rows$trait_id != "ALL" & count_rows$ancestry != "UNASSIGNED", , drop = FALSE]
+empty <- checked[checked$n == 0 | checked$cases == 0 | checked$controls == 0, , drop = FALSE]
+if (nrow(empty)) {
+  labels <- paste0(empty$trait_id, "/", empty$ancestry,
+    " n=", empty$n, " cases=", empty$cases, " controls=", empty$controls)
+  die("empty GWAS strata or case/control cells: ", paste(labels, collapse = "; "))
 }
 
 
 # Save the combined sample-count summary.
 write_tsv(count_rows, file.path(args$outdir, "strata_counts.tsv"))
-if (identical(config$inputs$ancestry_mode %||% "", "precomputed")) {
-  by_ancestry <- as.data.frame(table(ancestry$ancestry), stringsAsFactors = FALSE)
-  ancestry_counts <- data.frame(
-    category = "assigned_ancestry",
-    population = "ALL",
-    ancestry = by_ancestry$Var1,
-    n = by_ancestry$Freq,
-    stringsAsFactors = FALSE
-  )
-  ancestry_counts <- rbind(ancestry_counts,
-    data.frame(category = "excluded_total", population = "ALL", ancestry = "ALL", n = length(missing_keys)))
-  write_tsv(ancestry_counts, file.path(dirname(args$outdir), "ancestry", "precomputed_population_counts.tsv"))
-} else {
-  write_tsv(data.frame(category = character(), population = character(), ancestry = character(), n = integer()),
-    file.path(dirname(args$outdir), "ancestry", "precomputed_population_counts.tsv"))
-}
 cat("Wrote strata files to", args$outdir, "\n")

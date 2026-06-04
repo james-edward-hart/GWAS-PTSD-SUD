@@ -16,7 +16,6 @@ require_args(args, c("config", "plink-out-prefix", "sexcheck-out", "remove-out",
 config <- load_config(args$config)
 settings <- config$sex_check %||% list()
 action <- settings$action %||% "warn"
-run_mode <- config$project$run_mode %||% "test"
 samples <- read_tsv(config$inputs$sample_manifest)
 sample_keys <- paste(samples$FID, samples$IID, sep = "\t")
 
@@ -111,8 +110,8 @@ write_outputs <- function(rows, skipped_reason = "") {
 if (!truthy(settings$enabled %||% TRUE)) {
   problems <- write_outputs(data.frame(), "disabled")
 } else if (!has_sex_markers(config)) {
-  if (identical(run_mode, "production") && !truthy(settings$allow_no_sex_markers %||% FALSE)) {
-    die("production sex_check requires sex-chromosome markers, or explicit sex_check.allow_no_sex_markers: true")
+  if (!truthy(settings$allow_no_sex_markers %||% FALSE)) {
+    die("sex_check requires sex-chromosome markers, or explicit sex_check.allow_no_sex_markers: true")
   }
   problems <- write_outputs(data.frame(), "no_sex_chromosome_markers")
   cat("WARNING: sex_check.action=", action, " requested but no sex-chromosome markers were found; keeping all samples\n", sep = "")

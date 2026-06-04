@@ -18,7 +18,7 @@ observed <- reference_package_fingerprint(pkg, verify_hashes = TRUE)
 stopifnot(identical(observed, read_first_line(file.path(pkg, "content_fingerprint.sha256"))))
 
 config <- list(
-  project = list(run_mode = "production"),
+  project = list(),
   reference_package = list(root = pkg, fingerprint = observed),
   ancestry_reference = list(enabled = TRUE),
   admixture = list(enabled = TRUE, labels = c("AFR", "AMR", "EAS", "EUR", "SAS"))

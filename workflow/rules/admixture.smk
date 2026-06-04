@@ -11,7 +11,7 @@ ADMIXTURE_STUDY_PRUNED_PREFIX = f"{ADMIXTURE_RAW_DIR}/study_pruned"
 ADMIXTURE_LD_PRUNE_PREFIX = f"{ADMIXTURE_RAW_DIR}/ld_prune/admixture_ld_prune"
 ADMIXTURE_MERGED_PREFIX = f"{ADMIXTURE_RAW_DIR}/merged"
 
-admixture_popmad_input = lambda wildcards: popmad_assignments_file() if config["inputs"]["ancestry_mode"] == "computed" else []
+admixture_popmad_input = lambda wildcards: popmad_assignments_file()
 
 
 rule convert_reference_for_admixture:

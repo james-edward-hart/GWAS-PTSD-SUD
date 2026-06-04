@@ -4,7 +4,7 @@ set -euo pipefail
 # Create local tool directories that can be copied or added to PATH on HPC.
 mkdir -p software/bin software/downloads
 
-# Download PLINK2 Linux binary for local/HPC test runs.
+# Download PLINK2 Linux binary for HPC deployments.
 echo "Downloading Linux x86_64 PLINK2..."
 curl -L \
   --fail \

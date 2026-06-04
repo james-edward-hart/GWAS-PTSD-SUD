@@ -7,8 +7,8 @@ Stage 1 is a Snakemake workflow for ancestry-stratified GWAS. It is designed to 
 - Validates config, input schemas, trait registry values, ancestry labels, genotype files, software manifests, and reference manifests.
 - Writes `results/config/effective_config.yaml` from the merged Snakemake config and `results/config/resolved_config.yaml` after genome-build inference and reference-package resolution.
 - Infers the genotype genome build from an offline GRCh36/GRCh37/GRCh38 marker panel before expanding build-labelled outputs.
-- Resolves one fingerprinted, unpacked reference package when configured.
-- Computes POP-MaD ancestry from package-backed reference projection in production, or from supplied study/reference PC tables in test mode.
+- Resolves one fingerprinted, unpacked reference package.
+- Computes POP-MaD ancestry and within-ancestry GWAS PCs from package-backed reference projection.
 - Optionally runs supervised K=5 ADMIXTURE as report-only QC.
 - Runs genetic sex checks and can warn, fail, or exclude mismatches based on config.
 - Prepares one phenotype file and one covariate file per trait.
@@ -42,7 +42,7 @@ docs/                             User manuals and development notes
 results/                          Generated outputs
 ```
 
-`config/config.yaml` is intentionally ignored because production copies often contain private paths. Use `config/config.template.yaml` for production and `config/config.hapmap3.example.yaml` for the local public fixture.
+`config/config.yaml` is intentionally ignored because production copies often contain private paths. Use `config/config.template.yaml` for production runs.
 
 ## Output Layout
 
