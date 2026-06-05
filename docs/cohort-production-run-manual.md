@@ -80,13 +80,25 @@ environment from `envs/snakemake-driver.yaml`.
 
 ### 2.4 Create The Utility R Environment
 
-For standalone R preflight checks, use an existing R installation with `yaml`
-and `jsonlite`, or create the utility environment. The provided
-`envs/gwas.yaml` file is a convenience environment for these checks; it is
-separate from the Snakemake driver environment.
+Create the utility R environment used by the production preflight script. This
+environment is separate from the Snakemake driver environment; it provides R,
+`yaml`, `jsonlite`, and the small command-line tools needed for standalone
+checks.
 
 ```bash
-<conda-or-mamba> env create -f envs/gwas.yaml
+mamba env create -f envs/gwas.yaml
+```
+
+If `gwas-stage1` already exists, update it from the repository environment file:
+
+```bash
+mamba env update -n gwas-stage1 -f envs/gwas.yaml --prune
+```
+
+If your cluster provides `conda` but not `mamba`, use:
+
+```bash
+conda env create -f envs/gwas.yaml
 ```
 
 ### 2.5 Let Snakemake Create Rule Environments
@@ -305,7 +317,9 @@ The reference package handoff must include:
 The resolver rejects missing manifest files, unmanifested package files,
 absolute paths, `..` paths, file-size or SHA-256 mismatches, raw Hail/VCF/BCF
 artifacts, and package panels whose required genotype, metadata, or
-exclusion-region files are absent from `file_manifest.tsv`.
+exclusion-region files are absent from `file_manifest.tsv`. macOS sidecar files
+such as `._*`, `.DS_Store`, and `__MACOSX/` are ignored because they are copy
+metadata, not reference-package content.
 
 ### 5.6 Keep Production Safety Settings
 
@@ -347,7 +361,30 @@ qc:
 
 ## 6. Configure The SLURM Profile
 
-### 6.1 Edit The Profile
+### 6.1 Find Your Cluster Values
+
+On the cluster login node, list available partitions and the account/QOS
+combinations assigned to your user:
+
+```bash
+sinfo -o "%P %a %l %D %C"
+sacctmgr -nP show assoc user=$USER format=Account,Partition,QOS,DefaultQOS
+```
+
+Use a partition that is available, has a sufficient time limit, and appears in
+your user association. If `sinfo` prints a partition as `cpu*`, use `cpu` in
+the profile; the `*` marks the cluster default and is not part of the partition
+name. Set `slurm-qos` only to a QOS allowed for the selected
+account and partition. If `sacctmgr` is not available on your cluster, use the
+site HPC documentation or ask the cluster support team which account,
+partition, and QOS should be used for batch jobs.
+
+Choose `conda-prefix` rather than discovering it from SLURM. It should be a
+writable directory for Snakemake-created rule environments, not the path to the
+conda installation itself. A directory in your home folder is acceptable if it
+is accessible to compute nodes and has enough quota.
+
+### 6.2 Edit The Profile
 
 Edit:
 
@@ -355,22 +392,45 @@ Edit:
 profiles/slurm/config.yaml
 ```
 
-### 6.2 Set Site Values
+### 6.3 Set Site Values
 
 Set site-specific values such as:
 
 ```yaml
-slurm_account: "your_account"
-slurm_qos: "normal"
-slurm_partition: "standard"
+slurm-qos: "normal"
 conda-prefix: "/path/to/shared/conda/envs"
+
+default-resources:
+  slurm_account: "your_account"
+  slurm_partition: "standard"
+  mem_mb: 4000
+  runtime: 30
 ```
 
-### 6.3 Confirm Runtime And Environment Storage
+`default-resources` should stay active. It supplies the account, partition,
+memory, and runtime defaults for each submitted job. `slurm-qos` is separate
+because QOS is a SLURM executor option; leave it commented out or delete it if
+your cluster does not use QOS.
+
+For example, if your site values are account `hartj5`, QOS `normal`, partition
+`cpu`, and environment directory `/lustre/home/hartj5/environments`, use:
+
+```yaml
+slurm-qos: "normal"
+conda-prefix: "/lustre/home/hartj5/environments"
+
+default-resources:
+  slurm_account: "hartj5"
+  slurm_partition: "cpu"
+  mem_mb: 4000
+  runtime: 30
+```
+
+### 6.4 Confirm Runtime And Environment Storage
 
 Adjust memory, runtime, partition, and job limits if your cluster requires
 different settings. `runtime` values in the profile are minutes. Put
-`conda-prefix` on shared writable storage, not node-local scratch.
+`conda-prefix` on storage that compute nodes can access, not node-local scratch.
 
 If `conda-prefix` is left unset, Snakemake may create environments under the
 repository `.snakemake/` directory. That can work for small runs, but production
@@ -389,18 +449,30 @@ From the repository root:
 
 ### 7.2 Run Production Preflight
 
-Use the R environment available on your cluster, or run through the utility
-environment:
+Run the preflight script through the utility R environment from Step 2.4:
 
 ```bash
-<conda-or-mamba> run -n gwas-stage1 Rscript scripts/production_preflight.R \
+mamba run -n gwas-stage1 Rscript scripts/production_preflight.R \
   --config config/config.yaml \
   --profile profiles/slurm/config.yaml
 ```
 
 If this command cannot find `gwas-stage1`, create the utility environment from
-Step 2.4 or run the same script with a site R module that has `yaml` and
-`jsonlite` installed.
+Step 2.4 after loading the conda/mamba module from Step 2.1. If your cluster
+provides `conda` but not `mamba`, use `conda run -n gwas-stage1` instead.
+
+If preflight reports `R package 'yaml' is required`, the `gwas-stage1`
+environment is incomplete or older than `envs/gwas.yaml`. Update it with:
+
+```bash
+mamba env update -n gwas-stage1 -f envs/gwas.yaml --prune
+```
+
+Then confirm the required R packages are available:
+
+```bash
+mamba run -n gwas-stage1 Rscript -e 'library(yaml); library(jsonlite); cat("R utility environment OK\n")'
+```
 
 ### 7.3 Confirm Preflight Passes
 
@@ -566,6 +638,9 @@ plots according to cohort policy.
 - If the reference fingerprint fails, check `reference_package.root` and
   `reference_package.fingerprint`. Do not rebuild the package inside this
   pipeline.
+- If a reference-package error lists files beginning with `._`, the package has
+  macOS sidecar metadata. Current validation ignores those sidecars; real
+  unmanifested analysis files still fail.
 - If the optional input manifest fails, either leave
   `resources.input_manifest: ""` or use only `file_role`,
   `cohort_data_release`, and `notes` columns with rows for `sample_manifest`,

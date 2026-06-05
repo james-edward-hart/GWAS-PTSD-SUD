@@ -34,6 +34,7 @@ The runtime package contract is strict:
 - `panel_manifest.tsv` must define exactly one build-matched `popmad` panel and one build-matched `admixture` panel for each supported study genome build.
 - Panel genotype, metadata, and exclusion-region paths must be package-relative and covered by `file_manifest.tsv`.
 - Raw Hail, VCF, or BCF artifacts should not be present in the runtime package.
+- macOS sidecar files such as `._*`, `.DS_Store`, and `__MACOSX/` are ignored during validation because they are copy metadata, not package content.
 
 ## Preparation Steps
 

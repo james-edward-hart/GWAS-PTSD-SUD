@@ -308,6 +308,16 @@ reference_package_files <- function(root) {
 }
 
 
+# Identify filesystem/archive metadata that macOS can add during copy or
+# extraction. These files are not reference-package content.
+is_reference_package_sidecar <- function(path) {
+  base <- basename(path)
+  base %in% c(".DS_Store") |
+    grepl("(^|/)__MACOSX(/|$)", path) |
+    grepl("(^|/)\\._[^/]+$", path)
+}
+
+
 # Read one non-empty line from a small text file.
 read_first_line <- function(path) {
   lines <- readLines(path, warn = FALSE)
@@ -338,6 +348,7 @@ reference_package_fingerprint <- function(root, verify_hashes = TRUE) {
   }
 
   actual_files <- reference_package_files(root)
+  actual_files <- actual_files[!is_reference_package_sidecar(actual_files)]
   allowed_unmanifested <- c("file_manifest.tsv", "content_fingerprint.sha256")
   extra_files <- setdiff(actual_files, c(manifest$path, allowed_unmanifested))
   if (length(extra_files)) {

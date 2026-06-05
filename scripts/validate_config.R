@@ -251,7 +251,7 @@ if (!identical(tolower(config$reference_package$fingerprint), tolower(config$ref
 if (truthy(config$gwas$allow_missing_pcs %||% FALSE)) die("gwas.allow_missing_pcs: true is not supported")
 if (!truthy(config$sex_check$enabled %||% TRUE)) die("sex_check.enabled: true is required")
 if ((config$sex_check$action %||% "warn") != "exclude") {
-  die("sex_check.action: exclude is required")
+  die("sex_check.action: \"exclude\" is required in config/config.yaml")
 }
 if (!truthy(config$sex_check$allow_no_sex_markers %||% FALSE) && !genotype_has_sex_markers(config)) {
   die("sex-chromosome markers are required for sex_check.action: exclude, or set sex_check.allow_no_sex_markers: true with documented external sex QC")

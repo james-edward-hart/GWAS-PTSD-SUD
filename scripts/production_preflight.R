@@ -32,7 +32,9 @@ if (length(deprecated_input_fields)) {
 if (!truthy(config$ancestry_reference$enabled %||% FALSE)) add_failure("production requires ancestry_reference.enabled: true")
 if (!truthy(config$admixture$enabled %||% FALSE)) add_failure("production requires admixture.enabled: true")
 if (!truthy(config$sex_check$enabled %||% TRUE)) add_failure("production requires sex_check.enabled: true")
-if ((config$sex_check$action %||% "warn") != "exclude") add_failure("production requires sex_check.action: exclude")
+if ((config$sex_check$action %||% "warn") != "exclude") {
+  add_failure("production requires sex_check.action: \"exclude\" in config/config.yaml")
+}
 if (truthy(config$sex_check$allow_no_sex_markers %||% FALSE)) {
   add_warning("sex_check.allow_no_sex_markers is true; confirm autosome-only study data have an external sex-QC record")
 }

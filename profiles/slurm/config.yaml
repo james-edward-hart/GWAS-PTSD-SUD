@@ -9,14 +9,17 @@ restart-times: 1
 max-jobs-per-second: 5
 max-status-checks-per-second: 5
 
-# Site-specific options; fill these in before production submission. The bundled
-# defaults are placeholders and should not be treated as cluster-ready policy.
-# slurm_account: "my_account"
-# slurm_qos: "normal"
-# slurm_partition: "standard"
+# Site-specific options; fill these in before production submission.
+# Set QOS here only if your cluster requires or recommends one.
+# slurm-qos: "normal"
+# conda-prefix stores Snakemake-created rule environments; use a writable
+# directory accessible to compute nodes, not the conda installation path.
 # conda-prefix: "/path/to/shared/conda/envs"
 
+# Default resources apply to every submitted job unless a rule-specific override
+# is set below. Replace the account and partition placeholders before production.
 default-resources:
+  slurm_account: "my_account"
   slurm_partition: "standard"
   mem_mb: 4000
   runtime: 30

@@ -44,6 +44,17 @@ status <- tryCatch({
 }, error = function(e) FALSE)
 stopifnot(!status)
 
+pkg_sidecar <- file.path(tmp, "pkg_sidecar")
+invisible(file.copy(fixture, tmp, recursive = TRUE))
+invisible(file.rename(file.path(tmp, basename(fixture)), pkg_sidecar))
+writeLines("macOS metadata", file.path(pkg_sidecar, "._file_manifest.tsv"))
+writeLines("macOS metadata", file.path(pkg_sidecar, ".DS_Store"))
+writeLines("macOS metadata", file.path(pkg_sidecar, "panels", "._admixture.GRCh37"))
+dir.create(file.path(pkg_sidecar, "__MACOSX", "panels"), recursive = TRUE)
+writeLines("macOS metadata", file.path(pkg_sidecar, "__MACOSX", "panels", "._popmad.GRCh37"))
+sidecar_fingerprint <- reference_package_fingerprint(pkg_sidecar, verify_hashes = TRUE)
+stopifnot(identical(sidecar_fingerprint, observed))
+
 unlink(file.path(pkg, "panel_manifest.tsv"))
 status <- tryCatch({
   reference_package_fingerprint(pkg, verify_hashes = TRUE)

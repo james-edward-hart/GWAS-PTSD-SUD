@@ -185,6 +185,10 @@ package-derived fields into `resolved_config.yaml`, including
 `reference_package.observed_fingerprint` and build-matched reference paths for
 `ancestry_reference` and `admixture`.
 
+macOS sidecar files such as `._*`, `.DS_Store`, and `__MACOSX/` are ignored
+during package validation because they are copy metadata, not reference content.
+Other unmanifested files still fail validation.
+
 Set only `root` and `fingerprint` for routine production runs. Do not manually
 add `observed_fingerprint`.
 
@@ -499,7 +503,38 @@ or map them to cluster-specific resource requests.
 | `time_min_gwas` | Yes | Runtime in minutes for each GWAS job. |
 | `time_min_admixture` | Recommended | Runtime in minutes for ADMIXTURE jobs. |
 
-For HPC runs, also review `profiles/slurm/config.yaml`.
+For HPC runs, also review `profiles/slurm/config.yaml`. To identify candidate
+SLURM values on the cluster login node, run:
+
+```bash
+sinfo -o "%P %a %l %D %C"
+sacctmgr -nP show assoc user=$USER format=Account,Partition,QOS,DefaultQOS
+```
+
+Use a partition that is available, has enough runtime for the job, and appears
+in your user association. If `sinfo` marks a partition as `cpu*`, write `cpu`
+in the profile; the `*` only marks the cluster default. Use only a QOS allowed
+for the selected account and partition.
+
+Set `conda-prefix` to a writable directory for Snakemake-created rule
+environments. It is not the conda installation path. A directory in your home
+folder is acceptable if it is accessible to compute nodes and has enough quota.
+
+In `profiles/slurm/config.yaml`, set account and partition under
+`default-resources` so they are attached to every submitted job:
+
+```yaml
+slurm-qos: "normal"
+conda-prefix: "/path/to/shared/conda/envs"
+
+default-resources:
+  slurm_account: "your_account"
+  slurm_partition: "standard"
+  mem_mb: 4000
+  runtime: 30
+```
+
+Leave `slurm-qos` commented out or remove it if your cluster does not use QOS.
 
 ## Production Validation Gates
 
