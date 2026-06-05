@@ -132,9 +132,9 @@ missing values are applied.
 
 Calculate `age2` before running the pipeline as a centered quadratic age term:
 
-```text
-mean_age = mean(age) across non-missing analysis samples
-age2 = (age - mean_age)^2
+```r
+mean_age <- mean(manifest$age, na.rm = TRUE)
+manifest$age2 <- (manifest$age - mean_age)^2
 ```
 
 Use the same age units as `age`, usually years. Do not use raw `age^2` unless
