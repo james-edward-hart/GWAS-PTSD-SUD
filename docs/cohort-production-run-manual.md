@@ -29,22 +29,39 @@ rules. Do not commit cohort data, credentials, or private storage paths.
 
 Use storage visible from login and compute nodes for the repository, input
 genotypes, prebuilt reference package, conda environments, and `results/`.
+If a path is only visible from the login node, Snakemake may dry-run
+successfully and then fail when the SLURM job starts.
 
 ## 2. Set Up Snakemake
 
 ### 2.1 Use A Login Or Build Node
 
 Use a login/build node for environment setup. Load the cluster module or shell
-setup that provides `conda` or `mamba`.
+setup that provides `conda` or `mamba`. The exact module name is
+site-specific; common choices are Miniforge, Mambaforge, Miniconda, or Anaconda.
+Prefer a current conda/mamba module with conda-forge and bioconda access. Do
+not use a Python-only module for environment creation.
+
+On the cluster used for this project, load:
+
+```bash
+module load miniforge3/23.3.1
+```
 
 ### 2.2 Create The Driver Environment
 
-Create and activate the Snakemake driver environment.
+Create and activate the Snakemake driver environment. The repository includes
+this environment in `envs/snakemake-driver.yaml`; it installs Snakemake and the
+SLURM executor plugin needed by the bundled profile.
 
 ```bash
 <conda-or-mamba> env create -f envs/snakemake-driver.yaml
 <activate-command> gwas-stage1-driver
 ```
+
+On most clusters, `<activate-command>` is `conda activate`. If the environment
+already exists from an older checkout, update or recreate it from
+`envs/snakemake-driver.yaml` before production submission.
 
 ### 2.3 Verify The SLURM Executor
 
@@ -57,12 +74,16 @@ snakemake --version
 ```
 
 If the import command fails, the SLURM executor plugin is not installed in the
-active Snakemake environment.
+active Snakemake environment. The most common fix is to load the intended
+conda/mamba module, activate `gwas-stage1-driver`, and rebuild or update that
+environment from `envs/snakemake-driver.yaml`.
 
 ### 2.4 Create The Utility R Environment
 
 For standalone R preflight checks, use an existing R installation with `yaml`
-and `jsonlite`, or create the utility environment.
+and `jsonlite`, or create the utility environment. The provided
+`envs/gwas.yaml` file is a convenience environment for these checks; it is
+separate from the Snakemake driver environment.
 
 ```bash
 <conda-or-mamba> env create -f envs/gwas.yaml
@@ -72,7 +93,9 @@ and `jsonlite`, or create the utility environment.
 
 Snakemake creates rule-specific conda environments during the workflow run.
 Create them ahead of time only if compute nodes cannot access conda channels;
-that command is listed in Step 9.
+that command is listed in Step 9. The rule environment definitions live in
+`envs/`, so users should not manually install rule dependencies into the driver
+environment.
 
 ## 3. Prepare The Real Input Files
 
@@ -86,6 +109,9 @@ Prepare one genome-wide PLINK dataset:
 VCF/BCF is not accepted directly. Convert it upstream before using this
 pipeline.
 
+Set the config genotype prefix without the file extension. For example, use
+`/path/to/cohort/genotypes` rather than `/path/to/cohort/genotypes.pgen`.
+
 ### 3.2 Prepare The Sample Manifest
 
 Prepare a sample manifest TSV (phenotype + covariate file) with at least:
@@ -97,6 +123,10 @@ FID	IID	age	age2	sex
 Also include every phenotype column and every non-PC covariate used in the
 GWAS. Sex codes must be `1`, `2`, `0`, `NA`, `-9`, or `.`. Do not use `M/F`
 sex codes. `FID/IID` rows must be unique.
+
+Export this file as tab-delimited text, not CSV or Excel. Header names are
+matched exactly, and non-PC covariates used in the model should be numeric after
+missing values are applied.
 
 ### 3.3 Calculate `age2`
 
@@ -126,6 +156,7 @@ comma-separated list.
 
 Make sure `FID/IID` values match exactly between the sample manifest and
 genotype files before running preflight or Snakemake validation.
+Order does not matter, but spelling, leading zeros, and whitespace do.
 
 ## 4. Record Cohort Data Release
 
@@ -215,6 +246,10 @@ Edit:
 config/config.yaml
 ```
 
+Use full paths that are visible on compute nodes. Avoid `~` and shell variables
+inside YAML values because they are not a reliable substitute for explicit
+cluster-visible paths.
+
 ### 5.2 Set Required Fields First
 
 Set these fields first:
@@ -233,6 +268,10 @@ inputs:
   sample_manifest: "/path/to/sample_manifest.tsv"
   trait_registry: "/path/to/trait_registry.tsv"
 
+tools:
+  plink2: "plink2"
+  admixture: "admixture"
+
 genotypes:
   type: "pgen"
   prefix: "/path/to/study/genotypes_without_extension"
@@ -240,6 +279,11 @@ genotypes:
 resources:
   input_manifest: ""
 ```
+
+Use `plink2` and `admixture` only if those commands resolve inside cluster
+jobs. Otherwise, set each field to a full Linux executable path or a
+site-approved module shim, and record the same tool versions in
+`resources/manifests/software.tsv`.
 
 ### 5.3 Set The Reference Fingerprint
 
@@ -343,6 +387,11 @@ Adjust memory, runtime, partition, and job limits if your cluster requires
 different settings. `runtime` values in the profile are minutes. Put
 `conda-prefix` on shared writable storage, not node-local scratch.
 
+If `conda-prefix` is left unset, Snakemake may create environments under the
+repository `.snakemake/` directory. That can work for small runs, but production
+clusters often require an explicit shared environment directory to avoid home
+quota and compute-node visibility problems.
+
 ## 7. Run Preflight Checks
 
 ### 7.1 Activate The Driver Environment
@@ -364,11 +413,17 @@ environment:
   --profile profiles/slurm/config.yaml
 ```
 
+If this command cannot find `gwas-stage1`, create the utility environment from
+Step 2.4 or run the same script with a site R module that has `yaml` and
+`jsonlite` installed.
+
 ### 7.3 Confirm Preflight Passes
 
 Preflight must pass before submission. It checks the reference package
 fingerprint, required ancestry settings, optional input-manifest path existence,
 SLURM profile placeholders, and whether `results/` is clean.
+If it fails, fix the reported config or profile issue before continuing; do not
+start the workflow and expect Snakemake to correct these settings.
 
 ## 8. Dry-Run The Workflow
 
@@ -383,6 +438,10 @@ snakemake -n --profile profiles/slurm
 Review the planned jobs. Do not start the real run until the dry-run completes
 without errors.
 
+A successful dry-run confirms that Snakemake can build the workflow graph. It
+does not prove that compute nodes can read every path or load every executable;
+the validation and QC pilots below check those operational details.
+
 ## 9. Create Conda Environments
 
 ### 9.1 Pre-Create Environments If Needed
@@ -393,6 +452,10 @@ main run:
 ```bash
 snakemake --profile profiles/slurm --conda-create-envs-only
 ```
+
+Run this from a login/build node that has conda channel access and can write to
+the configured `conda-prefix`. After this step, compute jobs should be able to
+use the prebuilt environments without reaching external channels.
 
 ### 9.2 Wait For First-Time Solves
 
@@ -420,6 +483,9 @@ results/config/resolved_config.yaml
 ```
 
 Do not continue until validation passes.
+For failures, start with the matching files in `results/logs/validation/`; they
+usually identify the missing column, inaccessible path, or build-resolution
+problem directly.
 
 ### 10.3 Use Snakemake Validation For Production
 
@@ -447,6 +513,8 @@ snakemake --profile profiles/slurm \
 ### 11.2 Review Before GWAS
 
 Review these files before launching all GWAS jobs.
+This pilot is the best place to catch reference-package, ADMIXTURE, PLINK2,
+sample-strata, and sex-check problems before submitting many association jobs.
 
 ## 12. Run The Full Pipeline
 
