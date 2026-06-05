@@ -22,12 +22,14 @@ analysis:
     - SAS
 
 
-# User input tables. sample_manifest is the phenotype + covariate file. The
-# workflow computes ancestry and PC covariates from the fingerprinted reference
-# package; do not add separate ancestry-label or PC files.
+# User input tables. For production, keep protected cohort files on secure
+# cluster-visible storage and point to them here. sample_manifest is the
+# phenotype + covariate file. The workflow computes ancestry and PC covariates
+# from the fingerprinted reference package; do not add separate ancestry-label
+# or PC files.
 inputs:
-  sample_manifest: "config/my_sample_manifest.tsv"
-  trait_registry: "config/my_traits.tsv"
+  sample_manifest: "/path/to/cohort/sample_manifest.tsv"
+  trait_registry: "/path/to/cohort/trait_registry.tsv"
 
 
 # Tool paths; on HPC these must resolve to Linux executables, module shims, or
@@ -40,7 +42,7 @@ tools:
 # Study genotype dataset; type options: pgen, bed.
 genotypes:
   type: "pgen"
-  prefix: "/path/to/study/genome_wide_dataset"
+  prefix: "/path/to/cohort/genotypes_without_extension"
 
 
 # Genome-build inference thresholds; keep strict for production data.
@@ -203,7 +205,7 @@ warnings:
 resources:
   software_manifest: "resources/manifests/software.tsv"
   reference_manifest: "resources/manifests/reference_data.tsv"
-  # Optional: set to resources/manifests/input_data.tsv for extra cohort-release notes.
+  # Optional: leave blank unless your team wants extra cohort-release notes.
   input_manifest: ""
 
 

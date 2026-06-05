@@ -28,6 +28,33 @@ rules use `resolved_config.yaml`.
 Do not edit `results/config/resolved_config.yaml` by hand. To change a run,
 edit `config/config.yaml` and rerun Snakemake.
 
+## Files To Configure
+
+For a production run, configure these repository files:
+
+| File | Where it lives | Purpose |
+| --- | --- | --- |
+| `config/config.yaml` | Copy from `config/config.template.yaml` in the repository root | Main run config. This is the file Snakemake reads. |
+| `profiles/slurm/config.yaml` | Bundled scheduler profile in `profiles/slurm/` | Cluster account, partition, QOS, job resources, and shared conda location. |
+| `resources/manifests/software.tsv` | Repository provenance file in `resources/manifests/` | Software names, versions, and paths used for the run. |
+| `resources/manifests/reference_data.tsv` | Repository provenance file in `resources/manifests/` | Reference package provenance. Runtime validation uses the fingerprint in `config/config.yaml`. |
+
+The cohort input files usually live outside the repository on secure,
+cluster-visible storage. Do not copy protected cohort data into this repository
+unless your data-governance plan explicitly allows it. Point to those files from
+`config/config.yaml`:
+
+| Cohort input | Config field |
+| --- | --- |
+| Sample manifest TSV (phenotype + covariate file) | `inputs.sample_manifest` |
+| Trait registry TSV | `inputs.trait_registry` |
+| Study genotype prefix without extension | `genotypes.prefix` |
+| Unpacked ancestry reference package directory | `reference_package.root` |
+
+`resources/manifests/input_data.tsv` is optional. Most production configs should
+leave `resources.input_manifest: ""`. Use it only for short free-text notes about
+the cohort input release, not as the source of truth for input paths.
+
 ## Production Minimum
 
 Production runs should set these fields first:
@@ -43,12 +70,12 @@ reference_package:
   fingerprint: "value-from-content_fingerprint.sha256"
 
 inputs:
-  sample_manifest: "/path/to/sample_manifest.tsv"
-  trait_registry: "/path/to/trait_registry.tsv"
+  sample_manifest: "/path/to/cohort/sample_manifest.tsv"
+  trait_registry: "/path/to/cohort/trait_registry.tsv"
 
 genotypes:
   type: "pgen"
-  prefix: "/path/to/study/genotypes_without_extension"
+  prefix: "/path/to/cohort/genotypes_without_extension"
 
 ancestry_reference:
   enabled: true

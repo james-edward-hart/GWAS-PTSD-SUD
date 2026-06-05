@@ -120,7 +120,7 @@ Prepare a sample manifest TSV (phenotype + covariate file) with at least:
 FID	IID	age	age2	sex
 ```
 
-Also include every phenotype column and every non-PC covariate used in the
+**Also include every phenotype column** and every non-PC covariate used in the
 GWAS. Sex codes must be `1`, `2`, `0`, `NA`, `-9`, or `.`. Do not use `M/F`
 sex codes. `FID/IID` rows must be unique.
 
@@ -169,57 +169,16 @@ project:
   cohort_data_release: "cohort_freeze_or_release_label"
 ```
 
-### 4.2 Let The Pipeline Record Runtime Inputs
+### 4.2 Continue With The Config
 
-The pipeline records real input paths automatically from `config/config.yaml`
-into:
+After setting `project.cohort_data_release`, continue to Step 5. No additional
+input log is required here. When the workflow runs, it automatically records the
+resolved config and run-level metadata under `results/`.
 
-```text
-results/config/resolved_config.yaml
-results/manifests/run_manifest.tsv
-results/reports/
-```
+### 4.3 Review Software And Reference Manifests
 
-Do not duplicate local input paths, genome build, dates, file sizes, or
-checksums in `resources/manifests/input_data.tsv`.
-
-### 4.3 Use The Optional Input Note Manifest Only If Needed
-
-If the cohort wants a small free-text input note file, fill in:
-
-```text
-resources/manifests/input_data.tsv
-```
-
-with only these columns:
-
-```text
-file_role	cohort_data_release	notes
-```
-
-Leave `resources.input_manifest: ""` unless this file has the required rows
-below. A header-only `resources/manifests/input_data.tsv` is invalid if
-configured.
-
-Use these `file_role` values if the optional file is used:
-
-```text
-sample_manifest
-trait_registry
-study_genotype
-```
-
-Example:
-
-```text
-sample_manifest	cohort_freeze_2026_06	phenotype + covariate file from cohort freeze
-trait_registry	cohort_freeze_2026_06	trait definitions approved for this run
-study_genotype	cohort_freeze_2026_06	genotype prefix is set in config/config.yaml
-```
-
-### 4.4 Review Software And Reference Manifests
-
-Review these manifests before sharing final results:
+Review these repository provenance files during configuration and again before
+sharing final results:
 
 ```text
 resources/manifests/software.tsv
@@ -232,7 +191,33 @@ package fingerprint remains the runtime reference validation.
 
 ## 5. Create The Production Config
 
-### 5.1 Copy The Template
+### 5.1 Know Which Files You Configure
+
+For a standard production run, configure these repository files:
+
+| File | Where it lives | What to do |
+| --- | --- | --- |
+| `config/config.yaml` | Copy from `config/config.template.yaml` in the repository root | Main run config. Set paths to cohort inputs, the reference package, tools, genotype files, ancestries, and QC options. |
+| `profiles/slurm/config.yaml` | Bundled SLURM profile in `profiles/slurm/` | Set site scheduler values such as account, partition, QOS, job resources, and `conda-prefix`. |
+| `resources/manifests/software.tsv` | Repository provenance file in `resources/manifests/` | Record the PLINK2, ADMIXTURE, Snakemake, and R versions used for the run. |
+| `resources/manifests/reference_data.tsv` | Repository provenance file in `resources/manifests/` | Record the ancestry reference package provenance. Runtime validation still uses the package fingerprint in `config/config.yaml`. |
+
+These cohort files do not have to live in the repository. For production, keep
+protected cohort inputs on secure cluster-visible storage and point to them from
+`config/config.yaml`:
+
+| Cohort input | Config field |
+| --- | --- |
+| Sample manifest TSV (phenotype + covariate file) | `inputs.sample_manifest` |
+| Trait registry TSV | `inputs.trait_registry` |
+| Study genotype prefix without extension | `genotypes.prefix` |
+| Unpacked ancestry reference package directory | `reference_package.root` |
+
+Most runs should leave `resources.input_manifest: ""`. Only set it to
+`resources/manifests/input_data.tsv` if your team wants an additional short
+free-text note file about the cohort input release.
+
+### 5.2 Copy The Template
 
 Start from the template.
 
@@ -250,7 +235,7 @@ Use full paths that are visible on compute nodes. Avoid `~` and shell variables
 inside YAML values because they are not a reliable substitute for explicit
 cluster-visible paths.
 
-### 5.2 Set Required Fields First
+### 5.3 Set Required Fields First
 
 Set these fields first:
 
@@ -261,12 +246,12 @@ project:
   genome_build: "auto"
 
 reference_package:
-  root: "/path/to/stage1_reference_package"
+  root: "/path/to/unpacked/stage1_reference_package"
   fingerprint: "value-from-content_fingerprint.sha256"
 
 inputs:
-  sample_manifest: "/path/to/sample_manifest.tsv"
-  trait_registry: "/path/to/trait_registry.tsv"
+  sample_manifest: "/path/to/cohort/sample_manifest.tsv"
+  trait_registry: "/path/to/cohort/trait_registry.tsv"
 
 tools:
   plink2: "plink2"
@@ -274,7 +259,7 @@ tools:
 
 genotypes:
   type: "pgen"
-  prefix: "/path/to/study/genotypes_without_extension"
+  prefix: "/path/to/cohort/genotypes_without_extension"
 
 resources:
   input_manifest: ""
@@ -285,12 +270,12 @@ jobs. Otherwise, set each field to a full Linux executable path or a
 site-approved module shim, and record the same tool versions in
 `resources/manifests/software.tsv`.
 
-### 5.3 Set The Reference Fingerprint
+### 5.4 Set The Reference Fingerprint
 
 Get the reference fingerprint from the unpacked package.
 
 ```bash
-cat /path/to/stage1_reference_package/content_fingerprint.sha256
+cat /path/to/unpacked/stage1_reference_package/content_fingerprint.sha256
 ```
 
 For this project reference package, the expected fingerprint may be:
@@ -306,7 +291,7 @@ and do not use the archive checksum as the content fingerprint.
 Do not manually add or edit `reference_package.observed_fingerprint`;
 Snakemake writes that into `results/config/resolved_config.yaml`.
 
-### 5.4 Confirm The Reference Package Handoff
+### 5.5 Confirm The Reference Package Handoff
 
 The reference package handoff must include:
 
@@ -322,7 +307,7 @@ absolute paths, `..` paths, file-size or SHA-256 mismatches, raw Hail/VCF/BCF
 artifacts, and package panels whose required genotype, metadata, or
 exclusion-region files are absent from `file_manifest.tsv`.
 
-### 5.5 Keep Production Safety Settings
+### 5.6 Keep Production Safety Settings
 
 Keep these production settings unless there is a documented reason to change
 them:
@@ -347,7 +332,7 @@ If the genotype data are autosome-only, set
 `sex_check.allow_no_sex_markers: true` only after external sex QC has already
 been completed and documented.
 
-### 5.6 Set Analysis Strata And QC Options
+### 5.7 Set Analysis Strata And QC Options
 
 Set `analysis.ancestries` to the ancestry strata you intend to run. Each
 configured trait/ancestry cell must have at least one case and one control.
