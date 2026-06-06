@@ -40,11 +40,12 @@ https://snakemake.readthedocs.io/
 
 Install through conda/mamba on HPC unless the cluster already provides a tested module.
 
-The bundled SLURM profile expects the Snakemake 8 SLURM executor plugin in the driver environment:
+The bundled SLURM profile expects the Snakemake SLURM executor plugin and
+`conda>=24.7.1` in the driver environment:
 
 ```bash
 mamba env create -f envs/snakemake-driver.yaml
-mamba activate gwas-stage1-driver
+conda activate gwas-stage1-driver
 ```
 
 ## Reference Data

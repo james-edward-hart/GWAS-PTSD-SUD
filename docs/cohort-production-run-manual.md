@@ -52,16 +52,24 @@ module load miniforge3/23.3.1
 
 Create and activate the Snakemake driver environment. The repository includes
 this environment in `envs/snakemake-driver.yaml`; it installs Snakemake and the
-SLURM executor plugin needed by the bundled profile.
+SLURM executor plugin needed by the bundled profile. It also installs a current
+`conda`, which Snakemake uses to create rule-specific environments.
 
 ```bash
-<conda-or-mamba> env create -f envs/snakemake-driver.yaml
-<activate-command> gwas-stage1-driver
+mamba env create -f envs/snakemake-driver.yaml
+conda activate gwas-stage1-driver
 ```
 
-On most clusters, `<activate-command>` is `conda activate`. If the environment
-already exists from an older checkout, update or recreate it from
-`envs/snakemake-driver.yaml` before production submission.
+If the environment already exists from an older checkout, update it from the
+repository environment file:
+
+```bash
+mamba env update -n gwas-stage1-driver -f envs/snakemake-driver.yaml --prune
+```
+
+Use the driver environment for Snakemake commands. Do not keep the utility R
+environment active at the same time; use `mamba run -n gwas-stage1 ...` for
+preflight checks instead.
 
 ### 2.3 Verify The SLURM Executor
 
@@ -69,9 +77,15 @@ Confirm that the active environment includes the Snakemake SLURM executor
 plugin.
 
 ```bash
+conda --version
 python -c "import snakemake_executor_plugin_slurm"
 snakemake --version
 ```
+
+`conda --version` must report `24.7.1` or later. If Snakemake reports
+`CreateCondaEnvironmentException: Conda must be version 24.7.1 or later`, update
+`gwas-stage1-driver` from `envs/snakemake-driver.yaml` after loading the
+intended conda/mamba module.
 
 If the import command fails, the SLURM executor plugin is not installed in the
 active Snakemake environment. The most common fix is to load the intended

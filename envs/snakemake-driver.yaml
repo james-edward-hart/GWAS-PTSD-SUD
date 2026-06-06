@@ -4,6 +4,7 @@ channels:
   - bioconda
 dependencies:
   - python>=3.10,<3.13
+  - conda>=24.7.1
   - snakemake>=8,<10
   - snakemake-executor-plugin-slurm
   - pyyaml>=6,<7
