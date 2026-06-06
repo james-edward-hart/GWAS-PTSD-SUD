@@ -275,7 +275,7 @@ The pipeline does not lift genotype coordinates or summary statistics.
 | `pcs` | Yes | Number of PCs used for POP-MaD assignment. Must be 1-20; template uses `10`. |
 | `reference_outlier_sd` | Yes | Reference-population outlier cutoff in SD units before assignment. |
 | `min_confidence` | Yes | Minimum assignment confidence. Lower-confidence samples are excluded as ambiguous. |
-| `min_reference_population_n` | Recommended | Minimum reference samples per population. Production fails if a reference population is below this threshold. |
+| `min_reference_population_n` | Recommended | Minimum reference samples required for a fine-scale population to contribute a POP-MaD model. Populations below this threshold are skipped; production fails only if a configured ancestry has no retained population model. |
 | `max_unassigned_fraction` | Recommended | Maximum allowed fraction of samples without a configured ancestry assignment before strata creation fails. |
 
 POP-MaD ancestry outputs are written under

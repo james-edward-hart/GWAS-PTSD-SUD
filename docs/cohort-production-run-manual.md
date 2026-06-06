@@ -77,12 +77,17 @@ Confirm that the active environment includes the Snakemake SLURM executor
 plugin.
 
 ```bash
-conda --version
+echo "$CONDA_PREFIX"
+"$CONDA_PREFIX/bin/conda" --version
+python -c "import conda; print(conda.__version__)"
 python -c "import snakemake_executor_plugin_slurm"
 snakemake --version
 ```
 
-`conda --version` must report `24.7.1` or later. If Snakemake reports
+`$CONDA_PREFIX` should point to the `gwas-stage1-driver` environment, and
+`$CONDA_PREFIX/bin/conda --version` must report `24.7.1` or later. A plain
+`conda --version` command may report the module or base conda version instead,
+so use the explicit path above for this check. If Snakemake reports
 `CreateCondaEnvironmentException: Conda must be version 24.7.1 or later`, update
 `gwas-stage1-driver` from `envs/snakemake-driver.yaml` after loading the
 intended conda/mamba module.
@@ -91,6 +96,20 @@ If the import command fails, the SLURM executor plugin is not installed in the
 active Snakemake environment. The most common fix is to load the intended
 conda/mamba module, activate `gwas-stage1-driver`, and rebuild or update that
 environment from `envs/snakemake-driver.yaml`.
+
+If `mamba env update` does not update the driver environment conda version, run:
+
+```bash
+mamba install -n gwas-stage1-driver -c conda-forge "conda>=24.7.1"
+```
+
+Snakemake may also warn if conda channel priority is not strict. This warning is
+not the same as a failed dry run, but strict priority makes rule environment
+creation more reproducible:
+
+```bash
+conda config --set channel_priority strict
+```
 
 ### 2.4 Create The Utility R Environment
 
@@ -661,6 +680,10 @@ plots according to cohort policy.
   `trait_registry`, and `study_genotype`.
 - If genome-build inference fails, check that the genotype prefix is correct
   and that BIM/PVAR marker positions match the intended genome build.
+- If validation warns that fine-scale reference populations are below
+  `popmad.min_reference_population_n`, those populations will be skipped during
+  POP-MaD model fitting. Fix the reference package or adjust the threshold only
+  if a configured ancestry has no retained population model.
 - If sex check fails because no X/Y markers exist, either provide genotype data
   with sex chromosomes or set `sex_check.allow_no_sex_markers: true` only with
   documented external sex QC.

@@ -337,23 +337,29 @@ require_columns(metadata, c(
   population_col,
   super_col
 ), "ancestry reference metadata")
-if (any(!nzchar(metadata[[population_col]])) || any(!nzchar(metadata[[super_col]]))) {
-  die("ancestry reference metadata contains empty population or super_population labels")
-}
-mapping <- unique(metadata[c(population_col, super_col)])
-names(mapping) <- c("population", "super_population")
-conflicts <- unique(mapping$population[duplicated(mapping$population)])
-if (length(conflicts)) die("ancestry reference metadata has conflicting population -> super_population mappings: ",
-  paste(head(conflicts, 5), collapse = ", "))
 missing_super <- setdiff(unlist(config$analysis$ancestries), unique(metadata[[super_col]]))
 if (length(missing_super)) die("ancestry reference metadata is missing configured ancestry labels: ",
   paste(missing_super, collapse = ", "))
 min_population_n <- as.integer(config$popmad$min_reference_population_n %||% 20)
-pop_counts <- table(metadata[[population_col]])
-low <- names(pop_counts)[pop_counts < min_population_n]
-if (length(low)) {
-  die("ancestry reference metadata has populations below popmad.min_reference_population_n=", min_population_n,
-    ": ", paste(low, collapse = ", "))
+coverage <- popmad_reference_model_coverage(
+  metadata,
+  population_col,
+  super_col,
+  config$analysis$ancestries,
+  min_population_n
+)
+if (length(coverage$missing_super)) {
+  die("ancestry reference metadata has no population with at least popmad.min_reference_population_n=", min_population_n,
+    " samples for configured ancestry label(s): ", paste(coverage$missing_super, collapse = ", "))
+}
+if (nrow(coverage$low)) {
+  labels <- paste0(coverage$low$population, " (n=", coverage$low$n, ")")
+  shown <- head(labels, 30)
+  if (length(labels) > length(shown)) {
+    shown <- c(shown, paste0("... ", length(labels) - length(shown), " more"))
+  }
+  warning("fine-scale reference populations below popmad.min_reference_population_n=", min_population_n,
+    " will be skipped during POP-MaD model fitting: ", paste(shown, collapse = ", "))
 }
 validate_exclusion_regions(config$ancestry_reference$exclusion_regions %||% "", "ancestry", genome_build)
 

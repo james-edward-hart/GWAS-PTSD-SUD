@@ -151,6 +151,32 @@ require_unique_ids <- function(df, label) {
 }
 
 
+# Summarize which fine-scale reference populations can contribute POP-MaD models.
+popmad_reference_model_coverage <- function(metadata, population_col, super_col, ancestries, min_population_n) {
+  require_columns(metadata, c(population_col, super_col), "ancestry reference metadata")
+  if (any(!nzchar(metadata[[population_col]])) || any(!nzchar(metadata[[super_col]]))) {
+    die("ancestry reference metadata contains empty population or super_population labels")
+  }
+  mapping <- unique(data.frame(
+    population = metadata[[population_col]],
+    super_population = metadata[[super_col]],
+    stringsAsFactors = FALSE
+  ))
+  conflicts <- unique(mapping$population[duplicated(mapping$population)])
+  if (length(conflicts)) {
+    die("ancestry reference metadata has conflicting population -> super_population mappings: ",
+      paste(head(conflicts, 5), collapse = ", "))
+  }
+
+  counts <- table(metadata[[population_col]])
+  mapping$n <- as.integer(counts[mapping$population])
+  retained <- mapping[mapping$n >= min_population_n, , drop = FALSE]
+  low <- mapping[mapping$n < min_population_n, , drop = FALSE]
+  missing_super <- setdiff(as.character(unlist(ancestries, use.names = FALSE)), unique(retained$super_population))
+  list(summary = mapping, retained = retained, low = low, missing_super = missing_super)
+}
+
+
 # Run an external command and stop on failure.
 run_command <- function(command, args) {
   status <- system2(command, args = args)

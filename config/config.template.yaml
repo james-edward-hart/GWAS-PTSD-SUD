@@ -55,6 +55,8 @@ genome_build:
 
 
 # POP-MaD assignment settings; pcs options: 1-20, default 10.
+# Fine-scale reference populations below min_reference_population_n are skipped;
+# each configured ancestry must retain at least one population model.
 popmad:
   pcs: 10
   reference_outlier_sd: 4.0
