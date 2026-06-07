@@ -32,7 +32,7 @@ filters <- c(filters,
 
 
 # Create a QC'd temporary PGEN for relatedness pruning.
-command <- c(genotype_args(config$genotypes))
+command <- c(plink_input_args(config$genotypes, args[["out-prefix"]], "relatedness genotype input"))
 if (nzchar(args$keep)) command <- c(command, "--keep", args$keep)
 command <- c(command, filters, "--make-pgen", "--threads", args$threads, "--out", args[["out-prefix"]])
 ensure_parent(paste0(args[["out-prefix"]], ".pgen"))

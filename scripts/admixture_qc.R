@@ -66,7 +66,8 @@ read_pvar <- function(prefix_or_path) {
   keep <- rows$chrom_clean %in% autosomes &
     nzchar(rows$ID) & rows$ID != "." &
     grepl("^[ACGT]$", rows$REF) &
-    grepl("^[ACGT]$", rows$ALT)
+    grepl("^[ACGT]$", rows$ALT) &
+    rows$REF != rows$ALT
   rows <- rows[keep, , drop = FALSE]
   duplicate_ids <- unique(rows$ID[duplicated(rows$ID)])
   if (length(duplicate_ids)) die("duplicate target variant IDs in ", path, ": ", paste(head(duplicate_ids, 5), collapse = ", "))
@@ -119,7 +120,7 @@ read_bim <- function(path) {
 convert_genotypes <- function(config, block, out_prefix, threads) {
   ensure_parent(paste0(out_prefix, ".pgen"))
   run_command(plink_tool(config), c(
-    genotype_args(block), admixture_filters(config),
+    plink_input_args(block, out_prefix, "ADMIXTURE genotype input"), admixture_filters(config),
     "--make-pgen", "--sort-vars", "--threads", threads, "--out", out_prefix
   ))
 }

@@ -18,7 +18,11 @@ mode <- config$relatedness$mode
 
 # Let PLINK2 choose unrelated samples with KING when requested.
 if (mode == "plink2_king") {
-  dataset <- if (nzchar(args[["pfile-prefix"]])) c("--pfile", args[["pfile-prefix"]]) else genotype_args(config$genotypes)
+  dataset <- if (nzchar(args[["pfile-prefix"]])) {
+    c("--pfile", args[["pfile-prefix"]])
+  } else {
+    plink_input_args(config$genotypes, args[["plink-out-prefix"]], "relatedness genotype input")
+  }
   command <- c(dataset)
   if (nzchar(args$extract)) command <- c(command, "--extract", args$extract)
   command <- c(command,

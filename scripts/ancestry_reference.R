@@ -38,8 +38,12 @@ read_pvar <- function(prefix_or_path) {
   path <- if (grepl("\\.pvar$", prefix_or_path)) prefix_or_path else paste0(prefix_or_path, ".pvar")
   rows <- read_tsv(path)
   chrom_col <- if ("#CHROM" %in% names(rows)) "#CHROM" else "CHROM"
+  require_columns(rows, c(chrom_col, "POS", "ID", "REF", "ALT"), path)
+  rows$REF <- toupper(rows$REF)
+  rows$ALT <- toupper(rows$ALT)
   rows$chrom_clean <- clean_chrom(rows[[chrom_col]])
-  rows <- rows[rows$chrom_clean %in% autosomes & nzchar(rows$ID) & rows$ID != "." & !grepl(",", rows$ALT, fixed = TRUE), ]
+  rows <- rows[rows$chrom_clean %in% autosomes & nzchar(rows$ID) & rows$ID != "." &
+    rows$REF != rows$ALT & !grepl(",", rows$ALT, fixed = TRUE), ]
   duplicate_ids <- unique(rows$ID[duplicated(rows$ID)])
   if (length(duplicate_ids)) die("duplicate target variant IDs in ", path, ": ", paste(head(duplicate_ids, 5), collapse = ", "))
   coords <- paste(rows$chrom_clean, rows$POS, sep = ":")
@@ -49,8 +53,8 @@ read_pvar <- function(prefix_or_path) {
     ID = rows$ID,
     chrom = rows$chrom_clean,
     pos = as.integer(rows$POS),
-    ref = toupper(rows$REF),
-    alt = toupper(rows$ALT),
+    ref = rows$REF,
+    alt = rows$ALT,
     stringsAsFactors = FALSE
   )
 }
@@ -59,7 +63,7 @@ read_pvar <- function(prefix_or_path) {
 # Convert a configured genotype block to filtered PGEN.
 convert_genotypes <- function(config, block, out_prefix, threads) {
   ensure_parent(paste0(out_prefix, ".pgen"))
-  run_command(plink_tool(config), c(genotype_args(block), ancestry_filters(config), "--make-pgen", "--threads", threads, "--out", out_prefix))
+  run_command(plink_tool(config), c(plink_input_args(block, out_prefix, "ancestry genotype input"), ancestry_filters(config), "--make-pgen", "--threads", threads, "--out", out_prefix))
 }
 
 

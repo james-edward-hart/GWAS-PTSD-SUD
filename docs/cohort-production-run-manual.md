@@ -680,6 +680,10 @@ plots according to cohort policy.
   `trait_registry`, and `study_genotype`.
 - If genome-build inference fails, check that the genotype prefix is correct
   and that BIM/PVAR marker positions match the intended genome build.
+- If the source BIM/PVAR contains rows with the same allele recorded twice
+  (`A/A`, `C/C`, and similar), the workflow excludes those malformed variants
+  before PLINK2 conversion and writes an `*.invalid_*_alleles.tsv` report next
+  to the affected QC prefix.
 - If validation warns that fine-scale reference populations are below
   `popmad.min_reference_population_n`, those populations will be skipped during
   POP-MaD model fitting. Fix the reference package or adjust the threshold only

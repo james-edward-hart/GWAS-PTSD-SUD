@@ -19,7 +19,7 @@ covars <- covariates_for_trait(config, args$trait)
 
 # Build the PLINK2 --glm command.
 command <- c(
-  genotype_args(config$genotypes),
+  plink_input_args(config$genotypes, args[["plink-prefix"]], "GWAS genotype input"),
   "--keep", args$keep,
   "--pheno", args$pheno,
   "--pheno-name", "PHENO",

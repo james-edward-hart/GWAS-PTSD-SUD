@@ -205,6 +205,175 @@ genotype_args <- function(block) {
 }
 
 
+# Read PLINK1 BIM variant metadata with stable column names.
+read_bim_variants <- function(path, label = "BIM file") {
+  rows <- read.table(
+    path,
+    stringsAsFactors = FALSE,
+    quote = "",
+    comment.char = "",
+    na.strings = character()
+  )
+  if (ncol(rows) < 6) die(label, " must contain at least 6 columns: ", path)
+  names(rows)[1:6] <- c("chrom", "variant_id", "cm", "pos", "allele1", "allele2")
+  rows$row_number <- seq_len(nrow(rows))
+  rows
+}
+
+
+# Identify BIM rows PLINK2 rejects before normal variant filters can run.
+duplicate_bim_allele_rows <- function(rows) {
+  allele1 <- toupper(trimws(as.character(rows$allele1)))
+  allele2 <- toupper(trimws(as.character(rows$allele2)))
+  rows[nzchar(allele1) & nzchar(allele2) & allele1 == allele2, , drop = FALSE]
+}
+
+
+# Return TRUE for regular files and symlinks, including broken symlinks.
+path_exists_or_symlink <- function(path) {
+  file.exists(path) || nzchar(suppressWarnings(Sys.readlink(path)))
+}
+
+
+# Link a large genotype component into a sanitized temporary prefix.
+link_plink_component <- function(src, dest, component) {
+  src_abs <- normalizePath(src, mustWork = TRUE)
+  ok <- suppressWarnings(file.symlink(src_abs, dest))
+  if (!isTRUE(ok) || !file.exists(dest)) {
+    if (path_exists_or_symlink(dest)) unlink(dest)
+    ok <- suppressWarnings(file.link(src_abs, dest))
+  }
+  if (!isTRUE(ok) || !file.exists(dest)) {
+    die("could not create ", component, " link for sanitized PLINK input at ", dest,
+      ". Check filesystem permissions for ", dirname(dest))
+  }
+}
+
+
+# Create a lightweight PLINK1 BED view whose BIM metadata can be parsed by
+# PLINK2, while excluding malformed source rows from the downstream dataset.
+plink_safe_bed_args <- function(block, out_prefix, label = "genotype input") {
+  prefix <- block$prefix
+  bim_path <- paste0(prefix, ".bim")
+  rows <- read_bim_variants(bim_path, paste(label, "BIM file"))
+  invalid <- duplicate_bim_allele_rows(rows)
+  if (!nrow(invalid)) return(c("--bfile", prefix))
+
+  if (blank(out_prefix)) die("out_prefix is required to sanitize malformed BIM alleles for ", label)
+  safe_prefix <- paste0(out_prefix, ".plink_safe_input")
+  safe_bim <- paste0(safe_prefix, ".bim")
+  safe_bed <- paste0(safe_prefix, ".bed")
+  safe_fam <- paste0(safe_prefix, ".fam")
+  exclude_path <- paste0(out_prefix, ".invalid_bim_alleles.exclude.txt")
+  report_path <- paste0(out_prefix, ".invalid_bim_alleles.tsv")
+
+  ensure_parent(safe_bim)
+  for (path in c(safe_bed, safe_fam, safe_bim, exclude_path, report_path)) {
+    if (path_exists_or_symlink(path)) unlink(path)
+  }
+
+  safe_rows <- rows
+  safe_ids <- paste0("__stage1_excluded_invalid_bim_", invalid$row_number)
+  invalid_index <- match(invalid$row_number, safe_rows$row_number)
+  safe_rows$variant_id[invalid_index] <- safe_ids
+  safe_rows$allele1[invalid_index] <- "A"
+  safe_rows$allele2[invalid_index] <- "C"
+
+  report <- data.frame(
+    row_number = invalid$row_number,
+    variant_id = invalid$variant_id,
+    chrom = invalid$chrom,
+    pos = invalid$pos,
+    allele1 = invalid$allele1,
+    allele2 = invalid$allele2,
+    replacement_variant_id = safe_ids,
+    reason = "duplicate_allele_code",
+    stringsAsFactors = FALSE
+  )
+  write_tsv(report, report_path)
+  writeLines(safe_ids, exclude_path)
+  write.table(
+    safe_rows[, c("chrom", "variant_id", "cm", "pos", "allele1", "allele2")],
+    safe_bim,
+    sep = "\t",
+    quote = FALSE,
+    row.names = FALSE,
+    col.names = FALSE,
+    na = ""
+  )
+  link_plink_component(paste0(prefix, ".bed"), safe_bed, "BED")
+  link_plink_component(paste0(prefix, ".fam"), safe_fam, "FAM")
+
+  cat("Excluded", nrow(invalid), "BIM row(s) with duplicate allele codes before PLINK2 conversion; report:", report_path, "\n")
+  c("--bfile", safe_prefix, "--exclude", exclude_path)
+}
+
+
+# Create a lightweight PGEN view whose PVAR metadata can be parsed by PLINK2,
+# while excluding malformed source rows from the downstream dataset.
+plink_safe_pgen_args <- function(block, out_prefix, label = "genotype input") {
+  prefix <- block$prefix
+  pvar_path <- paste0(prefix, ".pvar")
+  rows <- read_tsv(pvar_path)
+  chrom_col <- if ("#CHROM" %in% names(rows)) "#CHROM" else "CHROM"
+  require_columns(rows, c(chrom_col, "POS", "ID", "REF", "ALT"), paste(label, "PVAR file"))
+  ref <- toupper(trimws(as.character(rows$REF)))
+  alt <- toupper(trimws(as.character(rows$ALT)))
+  invalid <- rows[nzchar(ref) & nzchar(alt) & !grepl(",", alt, fixed = TRUE) & ref == alt, , drop = FALSE]
+  if (!nrow(invalid)) return(c("--pfile", prefix))
+
+  if (blank(out_prefix)) die("out_prefix is required to sanitize malformed PVAR alleles for ", label)
+  safe_prefix <- paste0(out_prefix, ".plink_safe_input")
+  safe_pgen <- paste0(safe_prefix, ".pgen")
+  safe_psam <- paste0(safe_prefix, ".psam")
+  safe_pvar <- paste0(safe_prefix, ".pvar")
+  exclude_path <- paste0(out_prefix, ".invalid_pvar_alleles.exclude.txt")
+  report_path <- paste0(out_prefix, ".invalid_pvar_alleles.tsv")
+
+  ensure_parent(safe_pvar)
+  for (path in c(safe_pgen, safe_psam, safe_pvar, exclude_path, report_path)) {
+    if (path_exists_or_symlink(path)) unlink(path)
+  }
+
+  safe_rows <- rows
+  invalid_rows <- match(rownames(invalid), rownames(safe_rows))
+  safe_ids <- paste0("__stage1_excluded_invalid_pvar_", invalid_rows)
+  safe_rows$ID[invalid_rows] <- safe_ids
+  safe_rows$REF[invalid_rows] <- "A"
+  safe_rows$ALT[invalid_rows] <- "C"
+
+  report <- data.frame(
+    row_number = invalid_rows,
+    variant_id = invalid$ID,
+    chrom = invalid[[chrom_col]],
+    pos = invalid$POS,
+    ref = invalid$REF,
+    alt = invalid$ALT,
+    replacement_variant_id = safe_ids,
+    reason = "duplicate_allele_code",
+    stringsAsFactors = FALSE
+  )
+  write_tsv(report, report_path)
+  writeLines(safe_ids, exclude_path)
+  write_tsv(safe_rows, safe_pvar)
+  link_plink_component(paste0(prefix, ".pgen"), safe_pgen, "PGEN")
+  link_plink_component(paste0(prefix, ".psam"), safe_psam, "PSAM")
+
+  cat("Excluded", nrow(invalid), "PVAR row(s) with duplicate allele codes before PLINK2 conversion; report:", report_path, "\n")
+  c("--pfile", safe_prefix, "--exclude", exclude_path)
+}
+
+
+# Convert genotype config to PLINK2 input arguments, sanitizing BED metadata
+# rows that PLINK2 cannot parse before normal --exclude/--snps-only filters.
+plink_input_args <- function(block, out_prefix = "", label = "genotype input") {
+  kind <- tolower(block$type)
+  if (kind == "pgen") return(plink_safe_pgen_args(block, out_prefix, label))
+  if (kind == "bed") return(plink_safe_bed_args(block, out_prefix, label))
+  die("unsupported genotype type '", kind, "'. Use 'pgen' or 'bed'.")
+}
+
+
 # Expand a configured PLINK prefix into the component files used by reports.
 genotype_component_paths <- function(block, label = "genotype") {
   kind <- tolower(block$type)

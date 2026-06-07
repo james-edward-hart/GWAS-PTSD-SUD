@@ -132,7 +132,7 @@ if (!truthy(settings$enabled %||% TRUE)) {
 
   # Run PLINK2 native sex check.
   command <- c(
-    genotype_args(config$genotypes),
+    plink_input_args(config$genotypes, args[["plink-out-prefix"]], "sex-check genotype input"),
     "--check-sex", thresholds, "cols=fid,pedsex,status,xf,ycount,yrate",
     "--threads", args$threads,
     "--out", args[["plink-out-prefix"]]
