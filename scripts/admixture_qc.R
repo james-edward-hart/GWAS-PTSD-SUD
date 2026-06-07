@@ -71,9 +71,7 @@ read_pvar <- function(prefix_or_path) {
   rows <- rows[keep, , drop = FALSE]
   duplicate_ids <- unique(rows$ID[duplicated(rows$ID)])
   if (length(duplicate_ids)) die("duplicate target variant IDs in ", path, ": ", paste(head(duplicate_ids, 5), collapse = ", "))
-  coords <- paste(rows$chrom_clean, rows$POS, sep = ":")
-  duplicate_coords <- unique(coords[duplicated(coords)])
-  if (length(duplicate_coords)) die("duplicate target variant mappings in ", path, ": ", paste(head(duplicate_coords, 5), collapse = ", "))
+  rows <- drop_duplicate_variant_mappings(rows, "chrom_clean", "POS", path)
   data.frame(
     ID = rows$ID,
     chrom = rows$chrom_clean,

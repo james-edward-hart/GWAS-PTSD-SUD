@@ -74,6 +74,33 @@ status <- run_cmd(c(
 stopifnot(!identical(status, 0L))
 stopifnot(any(grepl("minimum required is 10000", readLines(fail_log), fixed = TRUE)))
 
+dup_config <- file.path(tmp, "dup_config.yaml")
+write_config(dup_config, min_shared = 1, warn_below = 1)
+dup_ref_prefix <- file.path(tmp, "ref_dup")
+dup_study_prefix <- file.path(tmp, "study_dup")
+dup_rows <- data.frame(
+  `#CHROM` = c("1", "1", "1"),
+  POS = c(100, 200, 200),
+  ID = c("rs_keep", "rs_dup_a", "rs_dup_b"),
+  REF = "A",
+  ALT = "G",
+  check.names = FALSE
+)
+write.table(dup_rows, paste0(dup_ref_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(dup_rows, paste0(dup_study_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
+dup_log <- file.path(tmp, "dup.log")
+status <- run_cmd(c(
+  "shared-variants",
+  "--config", dup_config,
+  "--reference-prefix", dup_ref_prefix,
+  "--study-prefix", dup_study_prefix,
+  "--out", file.path(tmp, "shared_dup.txt"),
+  "--mismatch-report", file.path(tmp, "mismatch_dup.tsv")
+), dup_log)
+stopifnot(identical(status, 0L))
+stopifnot(identical(readLines(file.path(tmp, "shared_dup.txt")), "rs_keep"))
+stopifnot(any(grepl("duplicated chromosome/position mappings", readLines(dup_log), fixed = TRUE)))
+
 shared <- file.path(tmp, "shared_for_prune.txt")
 writeLines(c("rs1", "rs2", "rs3"), shared)
 prune_prefix <- file.path(tmp, "ld_prune", "ancestry_ld_prune")

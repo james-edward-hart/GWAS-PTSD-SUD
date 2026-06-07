@@ -190,6 +190,19 @@ clean_chrom <- function(value) {
 }
 
 
+# Drop variants whose chromosome/position mapping is not unique within a PVAR.
+drop_duplicate_variant_mappings <- function(rows, chrom_col, pos_col, label) {
+  coords <- paste(rows[[chrom_col]], rows[[pos_col]], sep = ":")
+  duplicated_coord <- coords %in% coords[duplicated(coords)]
+  if (!any(duplicated_coord)) return(rows)
+  duplicate_coords <- sort(unique(coords[duplicated_coord]))
+  warning("excluded ", sum(duplicated_coord), " variants at ", length(duplicate_coords),
+    " duplicated chromosome/position mappings from ", label, "; first: ",
+    paste(head(duplicate_coords, 5), collapse = ", "))
+  rows[!duplicated_coord, , drop = FALSE]
+}
+
+
 # Resolve the configured PLINK2 executable.
 plink_tool <- function(config) {
   config$tools$plink2 %||% "plink2"

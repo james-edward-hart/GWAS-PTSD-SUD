@@ -31,6 +31,32 @@ writeLines(c(
   "  exclusion_regions: resources/ancestry/long_range_ld_regions.GRCh38.tsv"
 ), config)
 
+dup_ref_prefix <- file.path(tmp, "admixture_ref_dup")
+dup_study_prefix <- file.path(tmp, "admixture_study_dup")
+dup_rows <- data.frame(
+  `#CHROM` = c("1", "1", "1"),
+  POS = c(100, 200, 200),
+  ID = c("rs_keep", "rs_dup_a", "rs_dup_b"),
+  REF = "A",
+  ALT = "G",
+  check.names = FALSE
+)
+write.table(dup_rows, paste0(dup_ref_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(dup_rows, paste0(dup_study_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
+dup_log <- file.path(tmp, "dup_shared.log")
+status <- system2("Rscript", c(
+  "scripts/admixture_qc.R",
+  "shared-variants",
+  "--config", config,
+  "--reference-prefix", dup_ref_prefix,
+  "--study-prefix", dup_study_prefix,
+  "--out", file.path(tmp, "dup_shared.txt"),
+  "--mismatch-report", file.path(tmp, "dup_mismatch.tsv")
+), stdout = dup_log, stderr = dup_log)
+stopifnot(identical(status, 0L))
+stopifnot(identical(readLines(file.path(tmp, "dup_shared.txt")), "rs_keep"))
+stopifnot(any(grepl("duplicated chromosome/position mappings", readLines(dup_log), fixed = TRUE)))
+
 
 fam <- file.path(tmp, "merged.fam")
 write.table(data.frame(
