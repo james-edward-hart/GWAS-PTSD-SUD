@@ -185,7 +185,8 @@ shared_variants <- function(config, reference_prefix, study_prefix, out, mismatc
   write_tsv(mismatch_rows, mismatch_report)
   hard_mismatches <- mismatch_rows$reason %in% c("chromosome_mismatch", "position_mismatch")
   if (any(hard_mismatches)) {
-    die("ADMIXTURE reference/study variant position mismatch found; review ", mismatch_report)
+    warning("excluded ", sum(hard_mismatches),
+      " ADMIXTURE variants with chromosome/position mismatches; review ", mismatch_report)
   }
   cat("Wrote", length(keep), "shared ADMIXTURE markers;", nrow(mismatch_rows), "variants excluded\n")
 }

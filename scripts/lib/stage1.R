@@ -44,6 +44,14 @@ write_tsv <- function(x, path) {
 }
 
 
+# Write a PLINK ID file with no header for direct --keep/--remove use.
+write_plink_id_file <- function(ids, path) {
+  ensure_parent(path)
+  write.table(ids[c("FID", "IID")], path, sep = "\t", quote = FALSE,
+    row.names = FALSE, col.names = FALSE, na = "")
+}
+
+
 # Parse simple --key value CLI arguments.
 parse_args <- function(defaults = list(), repeated = character(), flags = character(), raw = commandArgs(trailingOnly = TRUE)) {
   out <- defaults
@@ -148,6 +156,25 @@ require_unique_ids <- function(df, label) {
   if (length(duplicates)) {
     die(label, " has duplicate FID/IID rows: ", paste(head(gsub("\t", " ", duplicates), 5), collapse = ", "))
   }
+}
+
+
+# Read a headered pipeline keep/remove file and normalize FID/IID names.
+read_id_file <- function(path, label = path) {
+  rows <- read_tsv(path)
+  fid_col <- if ("FID" %in% names(rows)) "FID" else "#FID"
+  require_columns(rows, c(fid_col, "IID"), label)
+  data.frame(FID = rows[[fid_col]], IID = rows$IID, stringsAsFactors = FALSE)
+}
+
+
+# Convert a pipeline ID TSV to a headerless file for PLINK2 --keep.
+plink_keep_args <- function(path, out_prefix, label = "keep file") {
+  ids <- read_id_file(path, label)
+  if (!nrow(ids)) die(label, " is empty: ", path)
+  keep_path <- paste0(out_prefix, ".plink_keep.txt")
+  write_plink_id_file(ids, keep_path)
+  c("--keep", keep_path)
 }
 
 

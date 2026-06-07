@@ -92,4 +92,12 @@ stopifnot(identical(safe_pvar$REF[[2]], "A"))
 stopifnot(identical(safe_pvar$ALT[[2]], "C"))
 stopifnot(identical(safe_pvar$ID[[3]], "rs_multiallelic"))
 
+
+# Headered pipeline keep files should be rewritten as headerless PLINK input.
+keep_path <- file.path(tmp, "sex_checked.keep.tsv")
+write_tsv(data.frame(FID = c("F1", "F2"), IID = c("I1", "I2")), keep_path)
+keep_args <- plink_keep_args(keep_path, file.path(tmp, "plink_keep_out"), "test keep file")
+stopifnot(identical(keep_args[[1]], "--keep"))
+stopifnot(identical(readLines(keep_args[[2]], warn = FALSE), c("F1\tI1", "F2\tI2")))
+
 cat("Genotype input sanitizer tests passed\n")

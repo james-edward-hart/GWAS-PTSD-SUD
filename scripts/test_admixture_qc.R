@@ -57,6 +57,37 @@ stopifnot(identical(status, 0L))
 stopifnot(identical(readLines(file.path(tmp, "dup_shared.txt")), "rs_keep"))
 stopifnot(any(grepl("duplicated chromosome/position mappings", readLines(dup_log), fixed = TRUE)))
 
+pos_ref_prefix <- file.path(tmp, "admixture_ref_pos")
+pos_study_prefix <- file.path(tmp, "admixture_study_pos")
+pos_ref <- data.frame(
+  `#CHROM` = c("1", "1"),
+  POS = c(100, 200),
+  ID = c("rs_keep", "rs_pos_mismatch"),
+  REF = "A",
+  ALT = "G",
+  check.names = FALSE
+)
+pos_study <- pos_ref
+pos_study$POS[[2]] <- 250
+write.table(pos_ref, paste0(pos_ref_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(pos_study, paste0(pos_study_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
+pos_log <- file.path(tmp, "pos_shared.log")
+pos_mismatch <- file.path(tmp, "pos_mismatch.tsv")
+status <- system2("Rscript", c(
+  "scripts/admixture_qc.R",
+  "shared-variants",
+  "--config", config,
+  "--reference-prefix", pos_ref_prefix,
+  "--study-prefix", pos_study_prefix,
+  "--out", file.path(tmp, "pos_shared.txt"),
+  "--mismatch-report", pos_mismatch
+), stdout = pos_log, stderr = pos_log)
+stopifnot(identical(status, 0L))
+stopifnot(identical(readLines(file.path(tmp, "pos_shared.txt")), "rs_keep"))
+pos_rows <- read.delim(pos_mismatch, sep = "\t", stringsAsFactors = FALSE)
+stopifnot(identical(pos_rows$reason, "position_mismatch"))
+stopifnot(any(grepl("chromosome/position mismatches", readLines(pos_log), fixed = TRUE)))
+
 
 fam <- file.path(tmp, "merged.fam")
 write.table(data.frame(

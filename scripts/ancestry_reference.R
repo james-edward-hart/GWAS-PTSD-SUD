@@ -355,7 +355,7 @@ if (subtask == "convert-reference") {
   pcs <- as.integer(config$popmad$pcs %||% 10)
   pca_args <- as.character(pcs)
   if (truthy(config$ancestry_reference$pca$approx %||% TRUE)) pca_args <- c(pca_args, "approx")
-  run_command(plink_tool(config), c("--pfile", args[["pfile-prefix"]], "--keep", args$keep, "--extract", args$variants, "--pca", pca_args,
+  run_command(plink_tool(config), c("--pfile", args[["pfile-prefix"]], plink_keep_args(args$keep, args[["out-prefix"]], "within-ancestry PCA keep file"), "--extract", args$variants, "--pca", pca_args,
     "--threads", threads, "--out", args[["out-prefix"]]))
 } else if (subtask == "combine-within-pcs") {
   # Combine per-ancestry PCA outputs into one table.
