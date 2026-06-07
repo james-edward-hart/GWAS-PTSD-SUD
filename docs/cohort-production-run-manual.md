@@ -375,6 +375,12 @@ gwas:
   allow_missing_pcs: false
 ```
 
+When the sex-check threshold fields are blank, the workflow uses chrX defaults
+of `max-female-xf=0.2` and `min-male-xf=0.8`. If sex check removes every
+sample, review `results/qc/sex/sexcheck.tsv` and adjust thresholds or fix
+manifest/genotype sex coding before continuing. Custom thresholds must include
+both chrX fields; Y-rate thresholds are optional but must be supplied as a pair.
+
 If the genotype data are autosome-only, set
 `sex_check.allow_no_sex_markers: true` only after external sex QC has already
 been completed and documented.

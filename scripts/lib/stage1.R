@@ -24,15 +24,20 @@ load_config <- function(path) {
 
 # Read tab-delimited files while preserving literal NA strings.
 read_tsv <- function(path) {
-  read.delim(
-    path,
-    sep = "\t",
-    header = TRUE,
-    check.names = FALSE,
-    stringsAsFactors = FALSE,
-    quote = "",
-    comment.char = "",
-    na.strings = character()
+  if (!file.exists(path)) die("tab-delimited file not found: ", path)
+  if (file.info(path)$size == 0) die("tab-delimited file is empty: ", path)
+  tryCatch(
+    read.delim(
+      path,
+      sep = "\t",
+      header = TRUE,
+      check.names = FALSE,
+      stringsAsFactors = FALSE,
+      quote = "",
+      comment.char = "",
+      na.strings = character()
+    ),
+    error = function(err) die("could not read tab-delimited file ", path, ": ", conditionMessage(err))
   )
 }
 
@@ -175,6 +180,42 @@ plink_keep_args <- function(path, out_prefix, label = "keep file") {
   keep_path <- paste0(out_prefix, ".plink_keep.txt")
   write_plink_id_file(ids, keep_path)
   c("--keep", keep_path)
+}
+
+
+# Convert sex-check config thresholds to PLINK2 --check-sex modifiers.
+sex_check_threshold_args <- function(settings) {
+  threshold_map <- c(
+    max_female_xf = "max-female-xf",
+    min_male_xf = "min-male-xf",
+    max_female_yrate = "max-female-yrate",
+    min_male_yrate = "min-male-yrate"
+  )
+  configured <- vapply(names(threshold_map), function(name) {
+    value <- settings[[name]] %||% ""
+    nzchar(as.character(value[[1]]))
+  }, logical(1))
+  if (!any(configured)) {
+    thresholds <- c("max-female-xf=0.2", "min-male-xf=0.8")
+    attr(thresholds, "using_defaults") <- TRUE
+    return(thresholds)
+  }
+  if (!all(configured[c("max_female_xf", "min_male_xf")])) {
+    die("custom sex_check thresholds must include both max_female_xf and min_male_xf, or leave all threshold fields blank to use defaults")
+  }
+  if (xor(configured[["max_female_yrate"]], configured[["min_male_yrate"]])) {
+    die("sex_check Y-rate thresholds must include both max_female_yrate and min_male_yrate, or leave both blank")
+  }
+
+  thresholds <- character()
+  for (name in names(threshold_map)) {
+    value <- settings[[name]] %||% ""
+    if (configured[[name]] && is.na(suppressWarnings(as.numeric(value)))) {
+      die("sex_check.", name, " must be numeric when nonblank")
+    }
+    if (nzchar(value)) thresholds <- c(thresholds, paste0(threshold_map[[name]], "=", value))
+  }
+  thresholds
 }
 
 

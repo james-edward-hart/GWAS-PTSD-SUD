@@ -419,6 +419,12 @@ results/qc/relatedness/relatedness_summary.tsv
 | `max_female_yrate` | Optional | Custom PLINK `--check-sex` female Y-rate threshold when nonblank. |
 | `min_male_yrate` | Optional | Custom PLINK `--check-sex` male Y-rate threshold when nonblank. |
 
+If all four threshold fields are blank, the workflow uses `max-female-xf=0.2`
+and `min-male-xf=0.8`. Set cohort-specific thresholds after reviewing the
+`XF` and `YRATE` distributions in `results/qc/sex/sexcheck.tsv`. Custom
+settings must include both `max_female_xf` and `min_male_xf`; Y-rate thresholds
+are optional but must be supplied as a pair.
+
 Outputs:
 
 ```text

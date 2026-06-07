@@ -167,6 +167,9 @@ sex_check:
   action: "exclude"
   # Production fails without X/Y markers unless this explicit override is true.
   allow_no_sex_markers: false
+  # If all threshold fields are blank, the workflow uses chrX defaults:
+  # max_female_xf: 0.2 and min_male_xf: 0.8. Custom settings must include
+  # both chrX thresholds; Y-rate thresholds are optional but must be paired.
   max_female_xf: ""
   min_male_xf: ""
   max_female_yrate: ""

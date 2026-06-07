@@ -100,4 +100,59 @@ keep_args <- plink_keep_args(keep_path, file.path(tmp, "plink_keep_out"), "test 
 stopifnot(identical(keep_args[[1]], "--keep"))
 stopifnot(identical(readLines(keep_args[[2]], warn = FALSE), c("F1\tI1", "F2\tI2")))
 
+empty_keep_path <- file.path(tmp, "empty_keep.tsv")
+write_tsv(data.frame(FID = character(), IID = character()), empty_keep_path)
+empty_keep_error <- tryCatch({
+  plink_keep_args(empty_keep_path, file.path(tmp, "empty_plink_keep_out"), "empty keep file")
+  ""
+}, error = function(err) conditionMessage(err))
+stopifnot(grepl("empty keep file is empty", empty_keep_error, fixed = TRUE))
+
+empty_tsv_path <- file.path(tmp, "zero_byte.tsv")
+invisible(file.create(empty_tsv_path))
+empty_tsv_error <- tryCatch({
+  read_tsv(empty_tsv_path)
+  ""
+}, error = function(err) conditionMessage(err))
+stopifnot(grepl("tab-delimited file is empty", empty_tsv_error, fixed = TRUE))
+
+
+# Blank sex-check thresholds should use conventional chrX defaults instead of
+# PLINK2's strict no-threshold sanity-check defaults.
+default_thresholds <- sex_check_threshold_args(list())
+stopifnot(identical(as.character(default_thresholds), c("max-female-xf=0.2", "min-male-xf=0.8")))
+stopifnot(isTRUE(attr(default_thresholds, "using_defaults")))
+
+custom_thresholds <- sex_check_threshold_args(list(
+  max_female_xf = "0.1",
+  min_male_xf = "0.7",
+  max_female_yrate = "0.01",
+  min_male_yrate = "0.05"
+))
+stopifnot(identical(as.character(custom_thresholds), c(
+  "max-female-xf=0.1",
+  "min-male-xf=0.7",
+  "max-female-yrate=0.01",
+  "min-male-yrate=0.05"
+)))
+stopifnot(is.null(attr(custom_thresholds, "using_defaults")))
+
+partial_threshold_error <- tryCatch({
+  sex_check_threshold_args(list(max_female_xf = "0.1"))
+  ""
+}, error = function(err) conditionMessage(err))
+stopifnot(grepl("custom sex_check thresholds must include both", partial_threshold_error, fixed = TRUE))
+
+partial_yrate_error <- tryCatch({
+  sex_check_threshold_args(list(max_female_xf = "0.1", min_male_xf = "0.7", max_female_yrate = "0.01"))
+  ""
+}, error = function(err) conditionMessage(err))
+stopifnot(grepl("Y-rate thresholds must include both", partial_yrate_error, fixed = TRUE))
+
+non_numeric_threshold_error <- tryCatch({
+  sex_check_threshold_args(list(max_female_xf = "low", min_male_xf = "0.7"))
+  ""
+}, error = function(err) conditionMessage(err))
+stopifnot(grepl("sex_check.max_female_xf must be numeric", non_numeric_threshold_error, fixed = TRUE))
+
 cat("Genotype input sanitizer tests passed\n")

@@ -20,6 +20,13 @@ samples <- read_tsv(config$inputs$sample_manifest)
 sample_keys <- paste(samples$FID, samples$IID, sep = "\t")
 
 
+# Split sorted FID/IID keys into a two-column matrix, preserving empty outputs.
+split_id_keys <- function(keys) {
+  if (!length(keys)) return(matrix(character(), ncol = 2))
+  do.call(rbind, strsplit(keys, "\t", fixed = TRUE))
+}
+
+
 # Detect whether the genotype data includes X or Y markers.
 has_sex_markers <- function(config) {
   kind <- tolower(config$genotypes$type)
@@ -72,7 +79,7 @@ write_outputs <- function(rows, skipped_reason = "") {
   # Write detailed status rows and the remove list.
   write_tsv(out_rows, args[["sexcheck-out"]])
   problem_keys <- sort(unique(problem_keys))
-  split_keys <- if (length(problem_keys)) do.call(rbind, strsplit(problem_keys, "\t", fixed = TRUE)) else matrix(character(), ncol = 2)
+  split_keys <- split_id_keys(problem_keys)
   remove <- data.frame(FID = split_keys[, 1], IID = split_keys[, 2], stringsAsFactors = FALSE)
   write_tsv(remove, args[["remove-out"]])
 
@@ -80,7 +87,7 @@ write_outputs <- function(rows, skipped_reason = "") {
   # Keep all samples unless action=exclude.
   keep_keys <- if (action == "exclude") setdiff(sample_keys, problem_keys) else sample_keys
   keep_keys <- sort(keep_keys)
-  keep_parts <- do.call(rbind, strsplit(keep_keys, "\t", fixed = TRUE))
+  keep_parts <- split_id_keys(keep_keys)
   keep <- data.frame(FID = keep_parts[, 1], IID = keep_parts[, 2], stringsAsFactors = FALSE)
   write_tsv(keep, args[["keep-out"]])
 
@@ -102,6 +109,10 @@ write_outputs <- function(rows, skipped_reason = "") {
     stringsAsFactors = FALSE
   )
   write_tsv(summary, args[["summary-out"]])
+  if (action == "exclude" && nrow(keep) == 0 && length(sample_keys) > 0) {
+    die("sex_check.action: exclude removed every sample. Review ", args[["sexcheck-out"]],
+      " and configure sex_check thresholds or fix manifest/genotype sex coding.")
+  }
   length(problem_keys)
 }
 
@@ -117,17 +128,11 @@ if (!truthy(settings$enabled %||% TRUE)) {
   cat("WARNING: sex_check.action=", action, " requested but no sex-chromosome markers were found; keeping all samples\n", sep = "")
 } else {
 
-  # Convert optional configured thresholds to PLINK2 check-sex modifiers.
-  threshold_map <- c(
-    max_female_xf = "max-female-xf",
-    min_male_xf = "min-male-xf",
-    max_female_yrate = "max-female-yrate",
-    min_male_yrate = "min-male-yrate"
-  )
-  thresholds <- character()
-  for (name in names(threshold_map)) {
-    value <- settings[[name]] %||% ""
-    if (nzchar(value)) thresholds <- c(thresholds, paste0(threshold_map[[name]], "=", value))
+  # Use conventional chrX thresholds unless the config provides cohort-specific
+  # values. This avoids PLINK2's very strict no-threshold sanity-check defaults.
+  thresholds <- sex_check_threshold_args(settings)
+  if (isTRUE(attr(thresholds, "using_defaults"))) {
+    cat("No sex_check thresholds configured; using max-female-xf=0.2 and min-male-xf=0.8\n")
   }
 
   # Run PLINK2 native sex check.

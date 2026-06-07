@@ -139,6 +139,7 @@ if (length(deprecated_input_fields)) {
 
 sex_action <- config$sex_check$action %||% "warn"
 if (!sex_action %in% c("warn", "fail", "exclude")) die("sex_check.action must be warn, fail, or exclude")
+invisible(sex_check_threshold_args(config$sex_check %||% list()))
 if (truthy(config$relatedness$remove_sex_mismatches %||% FALSE) && sex_action != "exclude") {
   die("relatedness.remove_sex_mismatches: true requires sex_check.action: exclude")
 }
