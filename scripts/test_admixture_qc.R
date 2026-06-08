@@ -147,6 +147,7 @@ plink2_calls <- merge_calls[grepl(basename(fake_plink2), merge_calls, fixed = TR
 bed_calls <- plink2_calls[grepl("--make-bed", plink2_calls, fixed = TRUE)]
 stopifnot(length(bed_calls) == 2L)
 stopifnot(!any(grepl("--sort-vars", bed_calls, fixed = TRUE)))
+stopifnot(all(grepl("--mind 0.999999", bed_calls, fixed = TRUE)))
 
 
 fam <- file.path(tmp, "merged.fam")
@@ -216,9 +217,9 @@ write.table(data.frame(
   SEX = 0,
   PHENO = -9
 ), write_pop_fam, sep = " ", quote = FALSE, row.names = FALSE, col.names = FALSE)
-write.table(data.frame(IID = "R_AFR"), paste0(file.path(tmp, "write_pop_ref"), ".psam"),
+write.table(data.frame(IID = c("R_AFR", "R_FILTERED")), paste0(file.path(tmp, "write_pop_ref"), ".psam"),
   sep = "\t", quote = FALSE, row.names = FALSE)
-write.table(data.frame(FID = "S1", IID = "S1"), paste0(file.path(tmp, "write_pop_study"), ".psam"),
+write.table(data.frame(FID = c("S1", "S_FILTERED"), IID = c("S1", "S_FILTERED")), paste0(file.path(tmp, "write_pop_study"), ".psam"),
   sep = "\t", quote = FALSE, row.names = FALSE)
 status <- system2("Rscript", c(
   "scripts/admixture_qc.R",

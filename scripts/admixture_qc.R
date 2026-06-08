@@ -289,6 +289,7 @@ merge_for_admixture <- function(config, reference_prefix, study_prefix, out_pref
 
   run_command(plink_tool(config), c(
     "--pfile", reference_prefix,
+    "--mind", "0.999999",
     "--make-bed",
     "--indiv-sort", "none",
     "--threads", threads,
@@ -296,6 +297,7 @@ merge_for_admixture <- function(config, reference_prefix, study_prefix, out_pref
   ))
   run_command(plink_tool(config), c(
     "--pfile", study_prefix,
+    "--mind", "0.999999",
     "--make-bed",
     "--indiv-sort", "none",
     "--threads", threads,
