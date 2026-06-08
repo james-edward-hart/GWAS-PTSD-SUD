@@ -34,3 +34,31 @@ rule run_plink2_gwas:
           --threads {threads} \
           > {log} 2>&1
         """
+
+
+rule summarize_gwas_run:
+    input:
+        config=RUN_CONFIG,
+        stats="results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv",
+        plink_log="results/gwas/{trait}/{ancestry}/plink2_raw/{trait}.{ancestry}.{build}.log",
+        pheno="results/qc/traits/{trait}.pheno.tsv",
+        covar="results/qc/traits/{trait}.covar.tsv",
+        keep="results/qc/strata/{ancestry}.unrelated.keep.tsv",
+    output:
+        summary="results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv",
+    log:
+        "results/logs/gwas/{trait}.{ancestry}.{build}.summary.log",
+    conda:
+        "../../envs/gwas.yaml",
+    shell:
+        """
+        Rscript scripts/summarize_gwas_run.R \
+          --config {input.config} \
+          --stats {input.stats} \
+          --plink-log {input.plink_log} \
+          --pheno {input.pheno} \
+          --covar {input.covar} \
+          --keep {input.keep} \
+          --out {output.summary} \
+          > {log} 2>&1
+        """

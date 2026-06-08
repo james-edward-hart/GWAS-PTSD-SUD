@@ -24,21 +24,36 @@ if (!"p" %in% names(stats)) die("GWAS stats file is missing p column")
 stats$p_num <- suppressWarnings(as.numeric(stats$p))
 stats <- stats[is.finite(stats$p_num) & stats$p_num > 0 & stats$p_num <= 1, , drop = FALSE]
 
+genomic_lambda <- function(p) {
+  p <- p[is.finite(p) & p > 0 & p <= 1]
+  if (!length(p)) return(NA_real_)
+  chi <- suppressWarnings(qchisq(p, df = 1, lower.tail = FALSE))
+  chi <- chi[is.finite(chi)]
+  if (!length(chi)) return(NA_real_)
+  median(chi, na.rm = TRUE) / qchisq(0.5, df = 1, lower.tail = FALSE)
+}
+
+format_lambda <- function(value) {
+  if (is.finite(value)) sprintf("%.3f", value) else "NA"
+}
+
 
 # Draw the QQ plot, preserving an empty image for empty results.
+lambda_gc <- genomic_lambda(stats$p_num)
 ensure_parent(args$qq)
 png(args$qq, width = 1200, height = 1200, res = 150)
 par(mar = c(5, 5, 2, 1))
 if (!nrow(stats)) {
   plot.new()
-  title("QQ plot")
+  title(paste0("QQ plot (lambda GC = ", format_lambda(lambda_gc), ")"))
 } else {
   observed <- -log10(sort(stats$p_num))
   expected <- -log10(ppoints(length(observed)))
   limit <- max(c(expected, observed), na.rm = TRUE)
   plot(expected, observed, pch = 16, cex = 0.45, col = "#2f5d8c",
        xlab = "Expected -log10(P)", ylab = "Observed -log10(P)",
-       xlim = c(0, limit), ylim = c(0, limit), main = "QQ plot")
+       xlim = c(0, limit), ylim = c(0, limit),
+       main = paste0("QQ plot (lambda GC = ", format_lambda(lambda_gc), ")"))
   abline(0, 1, col = "#7a7a7a", lwd = 1.2)
 }
 invisible(dev.off())
@@ -109,11 +124,11 @@ lead_hit_labels <- function(df, max_labels = 8, window_bp = 500000) {
 }
 
 point_size <- function(n) {
-  if (n >= 1e6) return(0.11)
-  if (n >= 5e5) return(0.14)
-  if (n >= 1e5) return(0.18)
-  if (n >= 2e4) return(0.25)
-  0.36
+  if (n >= 1e6) return(0.14)
+  if (n >= 5e5) return(0.18)
+  if (n >= 1e5) return(0.23)
+  if (n >= 2e4) return(0.30)
+  0.44
 }
 
 draw_empty_manhattan <- function(message) {

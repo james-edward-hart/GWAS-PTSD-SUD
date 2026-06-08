@@ -65,12 +65,14 @@ require_file(model_summary, "missing POP-MaD model summary")
 for (trait in trait_ids) {
   for (ancestry in ancestry_labels) {
     stats <- file.path(results, "gwas", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".plink2.glm.tsv"))
+    summary <- file.path(results, "gwas", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".gwas_filter_summary.tsv"))
     report <- file.path(results, "reports", trait, paste0(trait, ".", ancestry, ".", build, ".report.md"))
     qq <- file.path(results, "plots", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".qq.png"))
     manhattan <- file.path(results, "plots", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".manhattan.png"))
     manhattan_pdf <- file.path(results, "plots", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".manhattan.pdf"))
 
     require_file(stats, "missing GWAS stats")
+    require_file(summary, "missing GWAS filter summary")
     if (count_rows(stats) <= 0) die("GWAS stats are empty: ", stats)
     header <- names(read_tsv(stats))
     for (column in c("a1_freq", "mac", "info", "test")) {
@@ -79,6 +81,11 @@ for (trait in trait_ids) {
     require_file(report, "missing report")
     report_text <- readLines(report, warn = FALSE)
     if (!any(grepl("Covariates used", report_text))) die("report missing covariate section: ", report)
+    if (!any(grepl("Source genotype variants", report_text))) die("report missing variant-flow counts: ", report)
+    if (!any(grepl("Genomic inflation factor", report_text))) die("report missing lambda GC: ", report)
+    if (!any(grepl("Top Association Signals", report_text))) die("report missing top-signal section: ", report)
+    if (!any(grepl("!\\[QQ plot\\]", report_text))) die("report missing embedded QQ plot: ", report)
+    if (!any(grepl("!\\[Manhattan plot\\]", report_text))) die("report missing embedded Manhattan plot: ", report)
     if (!any(grepl("Relatedness LD-pruned variants", report_text))) die("report missing relatedness details: ", report)
     if (!any(grepl("Sex-check problems", report_text))) die("report missing sex-check details: ", report)
     if (!file.exists(qq) || file.info(qq)$size <= 0) die("missing QQ plot: ", qq)

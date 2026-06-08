@@ -589,6 +589,7 @@ results/qc/traits/{trait}.pheno.tsv
 results/qc/traits/{trait}.covar.tsv
 results/qc/strata/{ancestry}.unrelated.keep.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
+results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
 results/reports/{trait}/{trait}.{ancestry}.{build}.report.md
 results/manifests/run_manifest.tsv
 ```

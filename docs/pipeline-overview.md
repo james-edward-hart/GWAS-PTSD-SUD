@@ -15,8 +15,9 @@ Stage 1 is a Snakemake workflow for ancestry-stratified GWAS. It is designed to 
 - Builds ancestry-stratum keep files, excludes ambiguous/unassigned POP-MaD samples, and keeps unrelated samples using the configured KING threshold.
 - Runs PLINK2 `--glm` within each ancestry stratum.
 - Harmonizes PLINK2 outputs into consistent summary statistics.
-- Produces QQ plots and Manhattan plots as PNG, with Manhattan plots also written as PDF.
-- Writes one Markdown QC report per trait-by-ancestry GWAS and a workflow run manifest.
+- Produces QQ plots with lambda GC and Manhattan plots as PNG, with Manhattan plots also written as PDF.
+- Writes one Markdown QC report per trait-by-ancestry GWAS, including embedded plots, sample/variant filter counts, and top association signals.
+- Writes a workflow run manifest.
 
 ## What Stage 1 Does Not Do
 
@@ -61,6 +62,7 @@ Main per-analysis files:
 
 ```text
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
+results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
 results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.qq.png
 results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.png
 results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.pdf

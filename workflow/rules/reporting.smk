@@ -35,6 +35,7 @@ rule make_report:
     input:
         config=RUN_CONFIG,
         stats="results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv",
+        gwas_summary="results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv",
         plink_log="results/gwas/{trait}/{ancestry}/plink2_raw/{trait}.{ancestry}.{build}.log",
         qq="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.qq.png",
         manhattan="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.png",
@@ -68,6 +69,7 @@ rule make_report:
           --ancestry {wildcards.ancestry} \
           --build {wildcards.build} \
           --stats {input.stats} \
+          --gwas-summary {input.gwas_summary} \
           --plink-log {input.plink_log} \
           --qq {input.qq} \
           --manhattan {input.manhattan} \
