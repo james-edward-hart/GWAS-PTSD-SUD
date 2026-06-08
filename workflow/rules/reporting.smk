@@ -7,6 +7,7 @@ reference_prep_report_input = lambda wildcards: [REFERENCE_PREP_REPORT] \
     else []
 
 ancestry_counts_input = lambda wildcards: popmad_counts_file()
+POPMAD_PROJECTION_PLOT = "results/plots/ancestry/popmad_reference_study_pcs.png"
 
 
 rule plot_gwas:
@@ -31,6 +32,30 @@ rule plot_gwas:
         """
 
 
+rule plot_popmad_projection:
+    input:
+        reference_pcs=ancestry_reference_pcs_file(),
+        study_pcs=popmad_study_pcs_file(),
+        assignments=popmad_assignments_file(),
+        excluded=popmad_excluded_file(),
+    output:
+        plot=POPMAD_PROJECTION_PLOT,
+    log:
+        "results/logs/reporting/plot_popmad_projection.log",
+    conda:
+        "../../envs/reporting.yaml",
+    shell:
+        """
+        Rscript scripts/plot_popmad_projection.R \
+          --reference-pcs {input.reference_pcs} \
+          --study-pcs {input.study_pcs} \
+          --assignments {input.assignments} \
+          --excluded {input.excluded} \
+          --out {output.plot} \
+          > {log} 2>&1
+        """
+
+
 rule make_report:
     input:
         config=RUN_CONFIG,
@@ -40,6 +65,7 @@ rule make_report:
         qq="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.qq.png",
         manhattan="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.png",
         manhattan_pdf="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.pdf",
+        popmad_plot=POPMAD_PROJECTION_PLOT,
         strata_counts="results/qc/strata/strata_counts.tsv",
         pheno="results/qc/traits/{trait}.pheno.tsv",
         covar="results/qc/traits/{trait}.covar.tsv",
@@ -48,6 +74,10 @@ rule make_report:
         sex_check="results/qc/sex/sex_check_summary.tsv",
         genome_details="results/qc/genome_build/genome_build_marker_matches.tsv",
         ancestry_counts=ancestry_counts_input,
+        admixture_summary="results/qc/admixture/admixture_run_summary.tsv",
+        admixture_study="results/qc/admixture/study_ancestry_proportions.tsv",
+        admixture_comparison="results/qc/admixture/popmad_admixture_comparison.tsv",
+        admixture_report="results/qc/admixture/admixture_report.md",
         software=lambda wildcards: config["resources"]["software_manifest"],
         reference=lambda wildcards: config["resources"]["reference_manifest"],
         reference_prep_report=reference_prep_report_input,
@@ -74,6 +104,7 @@ rule make_report:
           --qq {input.qq} \
           --manhattan {input.manhattan} \
           --manhattan-pdf {input.manhattan_pdf} \
+          --popmad-plot {input.popmad_plot} \
           --strata-counts {input.strata_counts} \
           --pheno {input.pheno} \
           --covar {input.covar} \
@@ -82,6 +113,10 @@ rule make_report:
           --sex-check-summary {input.sex_check} \
           --genome-build-details {input.genome_details} \
           --ancestry-counts {input.ancestry_counts} \
+          --admixture-summary {input.admixture_summary} \
+          --admixture-study {input.admixture_study} \
+          --admixture-comparison {input.admixture_comparison} \
+          --admixture-report {input.admixture_report} \
           --software {input.software} \
           --reference {input.reference} \
           --reference-prep-report {params.reference_prep_report} \

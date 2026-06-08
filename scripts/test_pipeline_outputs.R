@@ -61,6 +61,26 @@ require_file(counts, "missing POP-MaD population counts")
 require_file(model_summary, "missing POP-MaD model summary")
 
 
+# Check ADMIXTURE QC outputs.
+admixture_dir <- file.path(results, "qc", "admixture")
+admixture_summary <- file.path(admixture_dir, "admixture_run_summary.tsv")
+require_file(file.path(admixture_dir, "study_ancestry_proportions.tsv"), "missing ADMIXTURE study proportions")
+require_file(file.path(admixture_dir, "reference_ancestry_proportions.tsv"), "missing ADMIXTURE reference proportions")
+require_file(file.path(admixture_dir, "popmad_admixture_comparison.tsv"), "missing POP-MaD/ADMIXTURE comparison")
+require_file(admixture_summary, "missing ADMIXTURE run summary")
+require_file(file.path(admixture_dir, "admixture_report.md"), "missing ADMIXTURE QC report")
+popmad_plot <- file.path(results, "plots", "ancestry", "popmad_reference_study_pcs.png")
+require_file(popmad_plot, "missing POP-MaD projection plot")
+if (file.info(popmad_plot)$size <= 0) die("POP-MaD projection plot is empty: ", popmad_plot)
+admixture_summary_rows <- read_tsv(admixture_summary)
+if (!any(grepl("^mean_study_proportion_", admixture_summary_rows$metric))) {
+  die("ADMIXTURE summary missing per-ancestry mean study proportions")
+}
+if (!any(grepl("^n_study_top_component_", admixture_summary_rows$metric))) {
+  die("ADMIXTURE summary missing per-ancestry top-component counts")
+}
+
+
 # Check each expected trait/ancestry report bundle.
 for (trait in trait_ids) {
   for (ancestry in ancestry_labels) {
@@ -83,7 +103,10 @@ for (trait in trait_ids) {
     if (!any(grepl("Covariates used", report_text))) die("report missing covariate section: ", report)
     if (!any(grepl("Source genotype variants", report_text))) die("report missing variant-flow counts: ", report)
     if (!any(grepl("Genomic inflation factor", report_text))) die("report missing lambda GC: ", report)
+    if (!any(grepl("Ancestry and ADMIXTURE QC", report_text))) die("report missing ancestry/ADMIXTURE summary: ", report)
+    if (!any(grepl("ADMIXTURE Mean Study Proportions", report_text))) die("report missing ADMIXTURE mean proportions: ", report)
     if (!any(grepl("Top Association Signals", report_text))) die("report missing top-signal section: ", report)
+    if (!any(grepl("!\\[POP-MaD projected PC space\\]", report_text))) die("report missing embedded POP-MaD plot: ", report)
     if (!any(grepl("!\\[QQ plot\\]", report_text))) die("report missing embedded QQ plot: ", report)
     if (!any(grepl("!\\[Manhattan plot\\]", report_text))) die("report missing embedded Manhattan plot: ", report)
     if (!any(grepl("Relatedness LD-pruned variants", report_text))) die("report missing relatedness details: ", report)

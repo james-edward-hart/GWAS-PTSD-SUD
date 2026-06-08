@@ -127,6 +127,7 @@ results/config/resolved_config.yaml
 results/qc/
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
+results/plots/ancestry/popmad_reference_study_pcs.png
 results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.qq.png
 results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.png
 results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.pdf
@@ -134,8 +135,9 @@ results/reports/{trait}/{trait}.{ancestry}.{build}.report.md
 results/manifests/run_manifest.tsv
 ```
 
-Each GWAS report embeds the QQ and Manhattan plots and summarizes sample
-filtering, variant filtering, lambda GC, and top association signals.
+Each GWAS report embeds the POP-MaD projection, QQ, and Manhattan plots and
+summarizes ancestry and ADMIXTURE QC, sample filtering, variant filtering,
+lambda GC, and top association signals.
 
 Use the production manual for the review and archive checklist.
 

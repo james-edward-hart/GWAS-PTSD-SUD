@@ -11,8 +11,10 @@ source(file.path(script_dir, "lib", "stage1.R"))
 args <- parse_args(defaults = list("reference-prep-report" = "NA", "manhattan-pdf" = ""))
 require_args(args, c(
   "config", "trait", "ancestry", "build", "stats", "gwas-summary", "qq", "manhattan",
+  "popmad-plot",
   "strata-counts", "pheno", "covar", "keep", "relatedness-summary",
   "sex-check-summary", "genome-build-details", "ancestry-counts",
+  "admixture-summary", "admixture-study", "admixture-comparison", "admixture-report",
   "software", "reference", "plink-log", "out"
 ))
 
@@ -47,6 +49,12 @@ fmt_p <- function(value) {
   value <- fmt(value)
   number <- suppressWarnings(as.numeric(value))
   if (is.finite(number)) format(number, scientific = TRUE, digits = 3) else value
+}
+
+fmt_percent <- function(value) {
+  value <- fmt(value)
+  number <- suppressWarnings(as.numeric(value))
+  if (is.finite(number)) paste0(sprintf("%.1f", 100 * number), "%") else value
 }
 
 markdown_escape <- function(value) {
@@ -135,6 +143,7 @@ metric_value <- function(values, name) {
 relatedness <- kv(args[["relatedness-summary"]])
 sex_check <- kv(args[["sex-check-summary"]])
 gwas_summary <- kv(args[["gwas-summary"]])
+admixture_summary <- kv(args[["admixture-summary"]])
 
 
 # Pull trait/ancestry counts before sex-check and relatedness intersections.
@@ -154,6 +163,43 @@ selected <- selected[1, , drop = FALSE]
 ancestry_counts <- read_tsv(args[["ancestry-counts"]])
 excluded_total <- ancestry_counts$n[ancestry_counts$category == "excluded_total"]
 if (!length(excluded_total)) excluded_total <- "NA"
+
+assigned_counts <- ancestry_counts[ancestry_counts$category == "assigned_ancestry", , drop = FALSE]
+if (nrow(assigned_counts)) {
+  assigned_counts <- assigned_counts[order(assigned_counts$ancestry), , drop = FALSE]
+  assigned_total <- sum(suppressWarnings(as.numeric(assigned_counts$n)), na.rm = TRUE)
+  popmad_assigned_lines <- c(
+    "| Ancestry | POP-MaD assigned samples |",
+    "| --- | ---: |",
+    vapply(seq_len(nrow(assigned_counts)), function(i) {
+      paste0("| ", markdown_escape(assigned_counts$ancestry[[i]]), " | ",
+        fmt_count(assigned_counts$n[[i]]), " |")
+    }, character(1))
+  )
+} else {
+  assigned_total <- "NA"
+  popmad_assigned_lines <- "- No POP-MaD assigned-count rows were available."
+}
+
+admixture_labels <- as.character(unlist(config$admixture$labels %||% character(), use.names = FALSE))
+mean_metrics <- grep("^mean_study_proportion_", names(admixture_summary), value = TRUE)
+mean_metric_labels <- sub("^mean_study_proportion_", "", mean_metrics)
+if (!length(admixture_labels)) admixture_labels <- mean_metric_labels
+admixture_labels <- unique(c(admixture_labels[admixture_labels %in% mean_metric_labels],
+  mean_metric_labels[!mean_metric_labels %in% admixture_labels]))
+if (length(admixture_labels)) {
+  admixture_mean_lines <- c(
+    "| ADMIXTURE ancestry | Mean study proportion | Study top-component samples |",
+    "| --- | ---: | ---: |",
+    vapply(admixture_labels, function(label) {
+      paste0("| ", markdown_escape(label), " | ",
+        fmt_decimal(metric_value(admixture_summary, paste0("mean_study_proportion_", label)), 3), " | ",
+        fmt_count(metric_value(admixture_summary, paste0("n_study_top_component_", label))), " |")
+    }, character(1))
+  )
+} else {
+  admixture_mean_lines <- "- No ADMIXTURE mean-proportion rows were available."
+}
 
 
 # Extract useful one-line highlights from the PLINK log.
@@ -191,11 +237,15 @@ reference_panel_lines <- function(config, section, label) {
 study_components <- genotype_component_paths(config$genotypes, "study")
 qq_link <- report_relative_path(args$qq, args$out)
 manhattan_link <- report_relative_path(args$manhattan, args$out)
+popmad_plot_link <- report_relative_path(args[["popmad-plot"]], args$out)
 plot_lines <- c(
+  paste0("![POP-MaD projected PC space](", popmad_plot_link, ")"),
+  "",
   paste0("![QQ plot](", qq_link, ")"),
   "",
   paste0("![Manhattan plot](", manhattan_link, ")"),
   "",
+  paste0("- POP-MaD projection plot: `", args[["popmad-plot"]], "`"),
   paste0("- QQ plot file: `", args$qq, "`"),
   paste0("- Manhattan plot file (PNG): `", args$manhattan, "`"),
   if (nzchar(args[["manhattan-pdf"]])) paste0("- Manhattan plot (PDF): `", args[["manhattan-pdf"]], "`")
@@ -231,6 +281,32 @@ text <- c(
   reference_panel_lines(config, "ancestry_reference", "POP-MaD"),
   reference_panel_lines(config, "admixture", "ADMIXTURE"),
   input_manifest_release_lines(config$resources$input_manifest %||% ""),
+  "",
+  "## Ancestry and ADMIXTURE QC",
+  "",
+  paste0("- POP-MaD assigned samples: ", fmt_count(assigned_total)),
+  paste0("- POP-MaD excluded samples: ", fmt_count(excluded_total[[1]])),
+  paste0("- ADMIXTURE study samples: ", fmt_count(metric_value(admixture_summary, "n_study_samples"))),
+  paste0("- ADMIXTURE reference samples: ", fmt_count(metric_value(admixture_summary, "n_reference_samples"))),
+  paste0("- ADMIXTURE merged LD-pruned variants: ", fmt_count(metric_value(admixture_summary, "n_merged_variants"))),
+  paste0("- Mean study top ADMIXTURE proportion: ", fmt_decimal(metric_value(admixture_summary, "mean_study_top_proportion"), 3)),
+  paste0("- POP-MaD/ADMIXTURE comparable samples: ", fmt_count(metric_value(admixture_summary, "popmad_comparable_samples"))),
+  paste0("- POP-MaD/ADMIXTURE matches: ", fmt_count(metric_value(admixture_summary, "popmad_matches")),
+    "; discordant: ", fmt_count(metric_value(admixture_summary, "popmad_discordant")),
+    "; match rate: ", fmt_percent(metric_value(admixture_summary, "popmad_match_rate"))),
+  "",
+  "### POP-MaD Assigned Counts",
+  "",
+  popmad_assigned_lines,
+  "",
+  "### ADMIXTURE Mean Study Proportions",
+  "",
+  admixture_mean_lines,
+  "",
+  paste0("- ADMIXTURE run summary: `", args[["admixture-summary"]], "`"),
+  paste0("- ADMIXTURE study proportions: `", args[["admixture-study"]], "`"),
+  paste0("- POP-MaD/ADMIXTURE comparison: `", args[["admixture-comparison"]], "`"),
+  paste0("- ADMIXTURE QC report: `", args[["admixture-report"]], "`"),
   "",
   "## Sample Filtering",
   "",

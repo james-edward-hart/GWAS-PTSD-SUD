@@ -291,8 +291,21 @@ stopifnot(identical(study$top_matches_popmad, c("True", "False")))
 stopifnot(nrow(reference) == 5)
 stopifnot(identical(reference$super_population, labels))
 stopifnot(identical(comparison$comparison_status, c("match", "discordant")))
-stopifnot(summary$value[summary$metric == "popmad_available"] == "True")
-stopifnot(summary$value[summary$metric == "popmad_discordant"] == "1")
+summary_value <- function(metric) {
+  value <- summary$value[summary$metric == metric]
+  stopifnot(length(value) == 1)
+  value
+}
+stopifnot(summary_value("popmad_available") == "True")
+stopifnot(summary_value("popmad_discordant") == "1")
+stopifnot(summary_value("popmad_comparable_samples") == "2")
+stopifnot(summary_value("popmad_match_rate") == "0.500000")
+stopifnot(summary_value("mean_study_proportion_AFR") == "0.435000")
+stopifnot(summary_value("mean_study_proportion_SAS") == "0.395000")
+stopifnot(summary_value("n_study_top_component_AFR") == "1")
+stopifnot(summary_value("n_study_top_component_SAS") == "1")
+report_text <- readLines(report_out, warn = FALSE)
+stopifnot(any(grepl("Study Mean Proportions", report_text, fixed = TRUE)))
 
 bad_sample_populations <- file.path(tmp, "bad_sample_populations.tsv")
 bad_rows <- read.delim(sample_populations, stringsAsFactors = FALSE, check.names = FALSE)

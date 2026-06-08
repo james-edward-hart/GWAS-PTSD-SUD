@@ -660,14 +660,16 @@ Main GWAS outputs are:
 ```text
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
+results/plots/ancestry/popmad_reference_study_pcs.png
 results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.qq.png
 results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.png
 results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.pdf
 results/reports/{trait}/{trait}.{ancestry}.{build}.report.md
 ```
 
-The per-trait report embeds the QQ and Manhattan PNGs and summarizes sample
-filtering, variant filtering, lambda GC, and the top association signals.
+The per-trait report embeds the POP-MaD projection, QQ, and Manhattan PNGs and
+summarizes ancestry/ADMIXTURE QC, sample filtering, variant filtering, lambda
+GC, and the top association signals.
 
 ### 13.3 Archive The Run
 

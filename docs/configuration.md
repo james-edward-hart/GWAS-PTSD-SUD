@@ -154,10 +154,11 @@ results/qc/ancestry/reference/reference_pcs.tsv
 results/qc/ancestry/reference/study_projected_pcs.tsv
 results/qc/ancestry/production/popmad_assignments.tsv
 results/qc/ancestry/within_ancestry_pcs.tsv
+results/plots/ancestry/popmad_reference_study_pcs.png
 ```
 
 `results/qc/ancestry/within_ancestry_pcs.tsv` is the PC table used for GWAS
-covariates.
+covariates. The POP-MaD projection plot is embedded in the final GWAS reports.
 
 ## Parameter Reference
 
@@ -294,7 +295,8 @@ Active and excluded GWAS strata are written to
 ### `admixture`
 
 ADMIXTURE is a report-only QC branch. It does not define ancestry strata or GWAS
-covariates.
+covariates. The run summary reports the mean study ADMIXTURE proportion for
+each configured ancestry label.
 
 | Parameter | Required | Description |
 | --- | --- | --- |

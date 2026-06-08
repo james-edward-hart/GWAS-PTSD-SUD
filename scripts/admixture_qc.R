@@ -561,6 +561,16 @@ parse_report <- function(config, q_path, p_path, fam_path, bim_path, pop_path, s
   n_discordant <- sum(comparison$comparison_status == "discordant")
   n_missing_popmad <- sum(comparison$comparison_status == "missing_popmad")
   n_not_available <- sum(comparison$comparison_status == "popmad_not_available")
+  n_comparable <- n_matches + n_discordant
+  match_rate <- if (n_comparable) n_matches / n_comparable else NA_real_
+  mean_study_top <- if (nrow(study)) mean(as.numeric(study$top_proportion)) else NA_real_
+  mean_study_props <- if (nrow(study)) {
+    vapply(labels, function(label) mean(as.numeric(study[[label]]), na.rm = TRUE), numeric(1))
+  } else {
+    stats::setNames(rep(NA_real_, length(labels)), labels)
+  }
+  study_top_counts <- table(factor(study$top_component, levels = labels))
+  fmt_prop <- function(value) if (is.finite(value)) sprintf("%.6f", value) else "NA"
 
   summary <- data.frame(
     metric = c(
@@ -578,7 +588,11 @@ parse_report <- function(config, q_path, p_path, fam_path, bim_path, pop_path, s
       "popmad_matches",
       "popmad_discordant",
       "popmad_missing",
-      "popmad_not_available"
+      "popmad_not_available",
+      "popmad_comparable_samples",
+      "popmad_match_rate",
+      paste0("mean_study_proportion_", labels),
+      paste0("n_study_top_component_", labels)
     ),
     value = as.character(c(
       config$admixture$mode %||% "supervised",
@@ -590,14 +604,26 @@ parse_report <- function(config, q_path, p_path, fam_path, bim_path, pop_path, s
       nrow(bim),
       nrow(p),
       nrow(metadata),
-      if (nrow(study)) sprintf("%.6f", mean(as.numeric(study$top_proportion))) else "NA",
+      fmt_prop(mean_study_top),
       ifelse(joined$available, "True", "False"),
       n_matches,
       n_discordant,
       n_missing_popmad,
-      n_not_available
+      n_not_available,
+      n_comparable,
+      fmt_prop(match_rate),
+      vapply(mean_study_props, fmt_prop, character(1)),
+      as.integer(study_top_counts[labels])
     )),
     stringsAsFactors = FALSE
+  )
+
+  study_prop_lines <- c(
+    "| Ancestry | Mean study proportion | Study top-component samples |",
+    "| --- | ---: | ---: |",
+    paste0("| ", labels, " | ",
+      vapply(mean_study_props, fmt_prop, character(1)), " | ",
+      as.integer(study_top_counts[labels]), " |")
   )
 
   report <- c(
@@ -616,10 +642,14 @@ parse_report <- function(config, q_path, p_path, fam_path, bim_path, pop_path, s
     paste0("- Merged LD-pruned variants: ", nrow(bim)),
     paste0("- ADMIXTURE P rows: ", nrow(p)),
     paste0("- Mean study top ancestry proportion: ", summary$value[summary$metric == "mean_study_top_proportion"]), "",
+    "## Study Mean Proportions", "",
+    study_prop_lines, "",
     "## POP-MaD Comparison", "",
     paste0("- POP-MaD assignments available: ", ifelse(joined$available, "True", "False")),
+    paste0("- Comparable study samples: ", n_comparable),
     paste0("- Matched study samples: ", n_matches),
     paste0("- Discordant study samples: ", n_discordant),
+    paste0("- Match rate among comparable samples: ", fmt_prop(match_rate)),
     paste0("- Missing POP-MaD study samples: ", n_missing_popmad), "",
     "## Outputs", "",
     paste0("- Study proportions: `", study_out, "`"),
