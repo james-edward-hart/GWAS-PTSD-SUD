@@ -98,6 +98,7 @@ fake_plink2 <- file.path(tmp, "fake_plink2")
 fake_plink1 <- file.path(tmp, "fake_plink1")
 fake_tool(fake_plink2, merge_log, c(
   "args=\"$*\"",
+  "case \" $args \" in *\" --make-bed \"*\" --sort-vars \"*) exit 4;; esac",
   "out=\"\"",
   "while [ \"$#\" -gt 0 ]; do",
   "  if [ \"$1\" = \"--out\" ]; then out=\"$2\"; shift 2; else shift; fi",
@@ -142,6 +143,10 @@ stopifnot(all(file.exists(paste0(merge_prefix, "_pmerge", c(".pgen", ".pvar", ".
 merge_calls <- readLines(merge_log)
 stopifnot(any(grepl("--bmerge", merge_calls, fixed = TRUE)))
 stopifnot(!any(grepl("--pmerge", merge_calls, fixed = TRUE)))
+plink2_calls <- merge_calls[grepl(basename(fake_plink2), merge_calls, fixed = TRUE)]
+bed_calls <- plink2_calls[grepl("--make-bed", plink2_calls, fixed = TRUE)]
+stopifnot(length(bed_calls) == 2L)
+stopifnot(!any(grepl("--sort-vars", bed_calls, fixed = TRUE)))
 
 
 fam <- file.path(tmp, "merged.fam")

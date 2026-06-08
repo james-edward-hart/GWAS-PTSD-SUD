@@ -263,7 +263,6 @@ merge_for_admixture <- function(config, reference_prefix, study_prefix, out_pref
   run_command(plink_tool(config), c(
     "--pfile", reference_prefix,
     "--make-bed",
-    "--sort-vars",
     "--indiv-sort", "none",
     "--threads", threads,
     "--out", reference_bed_prefix
@@ -271,7 +270,6 @@ merge_for_admixture <- function(config, reference_prefix, study_prefix, out_pref
   run_command(plink_tool(config), c(
     "--pfile", study_prefix,
     "--make-bed",
-    "--sort-vars",
     "--indiv-sort", "none",
     "--threads", threads,
     "--out", study_bed_prefix
