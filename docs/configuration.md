@@ -154,7 +154,7 @@ results/qc/ancestry/reference/reference_pcs.tsv
 results/qc/ancestry/reference/study_projected_pcs.tsv
 results/qc/ancestry/production/popmad_assignments.tsv
 results/qc/ancestry/within_ancestry_pcs.tsv
-results/plots/ancestry/popmad_reference_study_pcs.png
+results/plots/ancestry/{analysis_name}.popmad_reference_study_pcs.png
 ```
 
 `results/qc/ancestry/within_ancestry_pcs.tsv` is the PC table used for GWAS
@@ -166,7 +166,7 @@ covariates. The POP-MaD projection plot is embedded in the final GWAS reports.
 
 | Parameter | Required | Description |
 | --- | --- | --- |
-| `analysis_name` | Yes | Human-readable run name written to reports and manifests. |
+| `analysis_name` | Yes | Human-readable run name written to reports and manifests. A filename-safe version is used as the prefix for final plot and report filenames. |
 | `cohort_data_release` | Recommended | Cohort freeze or release label written to provenance outputs. |
 | `genome_build` | Yes | Must be `auto`. The workflow infers the build from genotype markers. |
 
@@ -592,6 +592,6 @@ results/qc/traits/{trait}.covar.tsv
 results/qc/strata/{ancestry}.unrelated.keep.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
-results/reports/{trait}/{trait}.{ancestry}.{build}.report.md
+results/reports/{trait}/{analysis_name}.{trait}.{ancestry}.{build}.report.md
 results/manifests/run_manifest.tsv
 ```

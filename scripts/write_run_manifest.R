@@ -46,13 +46,17 @@ tool_rows <- function(name, path, version_args = character()) {
 
 
 # Record final text/image output checksums while leaving raw genotype artifacts as path/count records.
-final_output_rows <- function(results_dir = "results") {
+final_output_rows <- function(results_dir = "results", analysis_name = "") {
   if (!dir.exists(results_dir)) return(data.frame(key = character(), value = character()))
+  current_analysis <- function(paths) {
+    if (!nzchar(analysis_name) || !length(paths)) return(paths)
+    paths[startsWith(basename(paths), paste0(analysis_name, "."))]
+  }
   candidates <- c(
     list.files(file.path(results_dir, "qc"), recursive = TRUE, full.names = TRUE),
-    list.files(file.path(results_dir, "reports"), recursive = TRUE, full.names = TRUE),
+    current_analysis(list.files(file.path(results_dir, "reports"), recursive = TRUE, full.names = TRUE)),
     list.files(file.path(results_dir, "gwas"), pattern = "\\.tsv$", recursive = TRUE, full.names = TRUE),
-    list.files(file.path(results_dir, "plots"), pattern = "\\.(png|pdf)$", recursive = TRUE, full.names = TRUE)
+    current_analysis(list.files(file.path(results_dir, "plots"), pattern = "\\.(png|pdf)$", recursive = TRUE, full.names = TRUE))
   )
   candidates <- candidates[file.exists(candidates) & !dir.exists(candidates)]
   raw_ext <- "\\.(bed|bim|fam|pgen|pvar|psam|eigenvec|eigenval|sscore|acount|log)$"
@@ -186,7 +190,7 @@ rows <- rbind(
   tool_rows("plink2", config$tools$plink2 %||% "plink2", "--version"),
   tool_rows("plink1", plink1_tool(config), "--version"),
   tool_rows("admixture", config$tools$admixture %||% "admixture"),
-  final_output_rows("results")
+  final_output_rows("results", analysis_output_name(config))
 )
 
 

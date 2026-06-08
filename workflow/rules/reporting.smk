@@ -7,16 +7,17 @@ reference_prep_report_input = lambda wildcards: [REFERENCE_PREP_REPORT] \
     else []
 
 ancestry_counts_input = lambda wildcards: popmad_counts_file()
-POPMAD_PROJECTION_PLOT = "results/plots/ancestry/popmad_reference_study_pcs.png"
+POPMAD_PROJECTION_PLOT = f"results/plots/ancestry/{ANALYSIS_OUTPUT_NAME}.popmad_reference_study_pcs.png"
 
 
 rule plot_gwas:
     input:
+        config=RUN_CONFIG,
         stats="results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv",
     output:
-        qq="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.qq.png",
-        manhattan="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.png",
-        manhattan_pdf="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.pdf",
+        qq=f"results/plots/{{trait}}/{{ancestry}}/{ANALYSIS_OUTPUT_NAME}.{{trait}}.{{ancestry}}.{{build}}.qq.png",
+        manhattan=f"results/plots/{{trait}}/{{ancestry}}/{ANALYSIS_OUTPUT_NAME}.{{trait}}.{{ancestry}}.{{build}}.manhattan.png",
+        manhattan_pdf=f"results/plots/{{trait}}/{{ancestry}}/{ANALYSIS_OUTPUT_NAME}.{{trait}}.{{ancestry}}.{{build}}.manhattan.pdf",
     log:
         "results/logs/reporting/plot_gwas.{trait}.{ancestry}.{build}.log",
     conda:
@@ -24,6 +25,7 @@ rule plot_gwas:
     shell:
         """
         Rscript scripts/plot_gwas.R \
+          --config {input.config} \
           --stats {input.stats} \
           --qq {output.qq} \
           --manhattan {output.manhattan} \
@@ -34,6 +36,7 @@ rule plot_gwas:
 
 rule plot_popmad_projection:
     input:
+        config=RUN_CONFIG,
         reference_pcs=ancestry_reference_pcs_file(),
         study_pcs=popmad_study_pcs_file(),
         assignments=popmad_assignments_file(),
@@ -47,6 +50,7 @@ rule plot_popmad_projection:
     shell:
         """
         Rscript scripts/plot_popmad_projection.R \
+          --config {input.config} \
           --reference-pcs {input.reference_pcs} \
           --study-pcs {input.study_pcs} \
           --assignments {input.assignments} \
@@ -62,9 +66,9 @@ rule make_report:
         stats="results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv",
         gwas_summary="results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv",
         plink_log="results/gwas/{trait}/{ancestry}/plink2_raw/{trait}.{ancestry}.{build}.log",
-        qq="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.qq.png",
-        manhattan="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.png",
-        manhattan_pdf="results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.pdf",
+        qq=f"results/plots/{{trait}}/{{ancestry}}/{ANALYSIS_OUTPUT_NAME}.{{trait}}.{{ancestry}}.{{build}}.qq.png",
+        manhattan=f"results/plots/{{trait}}/{{ancestry}}/{ANALYSIS_OUTPUT_NAME}.{{trait}}.{{ancestry}}.{{build}}.manhattan.png",
+        manhattan_pdf=f"results/plots/{{trait}}/{{ancestry}}/{ANALYSIS_OUTPUT_NAME}.{{trait}}.{{ancestry}}.{{build}}.manhattan.pdf",
         popmad_plot=POPMAD_PROJECTION_PLOT,
         strata_counts="results/qc/strata/strata_counts.tsv",
         pheno="results/qc/traits/{trait}.pheno.tsv",
@@ -82,7 +86,7 @@ rule make_report:
         reference=lambda wildcards: config["resources"]["reference_manifest"],
         reference_prep_report=reference_prep_report_input,
     output:
-        report="results/reports/{trait}/{trait}.{ancestry}.{build}.report.md",
+        report=f"results/reports/{{trait}}/{ANALYSIS_OUTPUT_NAME}.{{trait}}.{{ancestry}}.{{build}}.report.md",
     log:
         "results/logs/reporting/make_report.{trait}.{ancestry}.{build}.log",
     conda:

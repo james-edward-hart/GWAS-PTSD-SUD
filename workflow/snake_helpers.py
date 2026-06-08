@@ -2,6 +2,7 @@
 
 import csv
 import os
+import re
 
 
 def workflow_error(message):
@@ -31,6 +32,16 @@ def trait_ids(config):
     if not ids:
         workflow_error(f"trait registry contains no non-empty trait_id values: {path}")
     return ids
+
+
+def analysis_output_name(config):
+    name = str(config.get("project", {}).get("analysis_name", "")).strip()
+    if not name:
+        workflow_error("config project.analysis_name is empty")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._-")
+    if not safe:
+        workflow_error("config project.analysis_name must contain at least one letter or number")
+    return safe
 
 
 # Track every manifest-listed package file so edits invalidate the resolved config.
@@ -171,11 +182,12 @@ def active_within_ancestry_eigenvecs(checkpoints, wildcards):
 
 
 # Expand final report targets after genome-build and strata checkpoints complete.
-def report_targets(checkpoints, traits, wildcards):
+def report_targets(checkpoints, traits, wildcards, config):
     build = inferred_build(checkpoints)
     ancestries = active_ancestries(checkpoints, wildcards)
+    analysis_name = analysis_output_name(config)
     return [
-        f"results/reports/{trait}/{trait}.{ancestry}.{build}.report.md"
+        f"results/reports/{trait}/{analysis_name}.{trait}.{ancestry}.{build}.report.md"
         for trait in traits
         for ancestry in ancestries
     ]

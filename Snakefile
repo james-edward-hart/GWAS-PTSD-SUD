@@ -6,6 +6,7 @@ from glob import glob
 from workflow.snake_helpers import (
     active_unrelated_keep_files as active_unrelated_keep_files_for_context,
     active_within_ancestry_eigenvecs as active_within_ancestry_eigenvecs_for_context,
+    analysis_output_name as analysis_output_name_for_config,
     admixture_targets as admixture_targets_for_config,
     admixture_validation_inputs as admixture_validation_inputs_for_config,
     ancestry_file as ancestry_file_for_config,
@@ -51,13 +52,14 @@ PIPELINE_CODE = sorted(
 TRAITS = trait_ids_for_config(config)
 ANCESTRIES = config["analysis"]["ancestries"]
 ANCESTRY_REFERENCE_ENABLED = bool(config.get("ancestry_reference", {}).get("enabled", False))
+ANALYSIS_OUTPUT_NAME = analysis_output_name_for_config(config)
 
 # These lambdas delay parts of target expansion until checkpoint outputs exist.
 ancestry_reference_targets = lambda: ancestry_reference_targets_for_config(config)
 ancestry_reference_validation_inputs = lambda wildcards: ancestry_reference_validation_inputs_for_config(config, wildcards)
 admixture_targets = lambda: admixture_targets_for_config(config)
 admixture_validation_inputs = lambda wildcards: admixture_validation_inputs_for_config(config, wildcards)
-report_targets = lambda wildcards: report_targets_for_context(checkpoints, TRAITS, wildcards)
+report_targets = lambda wildcards: report_targets_for_context(checkpoints, TRAITS, wildcards, config)
 active_unrelated_keep_files = lambda wildcards: active_unrelated_keep_files_for_context(checkpoints, wildcards)
 active_within_ancestry_eigenvecs = lambda wildcards: active_within_ancestry_eigenvecs_for_context(checkpoints, wildcards)
 ancestry_file = lambda: ancestry_file_for_config(config)

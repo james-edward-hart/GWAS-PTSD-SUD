@@ -13,9 +13,19 @@ dir.create(font_cache, recursive = TRUE, showWarnings = FALSE)
 if (!nzchar(Sys.getenv("XDG_CACHE_HOME"))) Sys.setenv(XDG_CACHE_HOME = font_cache)
 
 
-args <- parse_args()
+args <- parse_args(defaults = list("config" = ""))
 require_args(args, c("reference-pcs", "study-pcs", "assignments", "excluded", "out"))
 
+analysis_name <- ""
+if (nzchar(args$config)) {
+  config <- load_config(args$config)
+  analysis_name <- config$project$analysis_name %||% ""
+}
+plot_title <- if (nzchar(analysis_name)) {
+  paste0(analysis_name, "\nPOP-MaD projected PC space")
+} else {
+  "POP-MaD projected PC space"
+}
 
 reference <- read_tsv(args[["reference-pcs"]])
 study <- read_tsv(args[["study-pcs"]])
@@ -126,7 +136,7 @@ draw_2d <- function() {
     points(study$PC1[!assigned], study$PC2[!assigned], pch = 4, cex = 0.74,
       col = "#444444", lwd = 1.1)
   }
-  title("POP-MaD projected PC space")
+  title(plot_title)
   draw_legend(labels)
 }
 
@@ -155,7 +165,7 @@ draw_3d <- function() {
     zlab = "PC3",
     col = NA,
     border = "#D8D8D8",
-    main = "POP-MaD projected PC space"
+    main = plot_title
   )
 
   ref_order <- order(reference$PC3)

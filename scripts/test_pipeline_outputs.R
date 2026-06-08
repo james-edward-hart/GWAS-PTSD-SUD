@@ -14,6 +14,7 @@ config_path <- args$config
 if (blank(config_path)) config_path <- file.path(results, "config", "resolved_config.yaml")
 require_existing_file(config_path, "resolved run config")
 config <- load_config(config_path)
+analysis_name <- analysis_output_name(config)
 
 trait_ids <- if (blank(args$trait)) {
   traits <- read_tsv(config$inputs$trait_registry)
@@ -69,7 +70,7 @@ require_file(file.path(admixture_dir, "reference_ancestry_proportions.tsv"), "mi
 require_file(file.path(admixture_dir, "popmad_admixture_comparison.tsv"), "missing POP-MaD/ADMIXTURE comparison")
 require_file(admixture_summary, "missing ADMIXTURE run summary")
 require_file(file.path(admixture_dir, "admixture_report.md"), "missing ADMIXTURE QC report")
-popmad_plot <- file.path(results, "plots", "ancestry", "popmad_reference_study_pcs.png")
+popmad_plot <- file.path(results, "plots", "ancestry", paste0(analysis_name, ".popmad_reference_study_pcs.png"))
 require_file(popmad_plot, "missing POP-MaD projection plot")
 if (file.info(popmad_plot)$size <= 0) die("POP-MaD projection plot is empty: ", popmad_plot)
 admixture_summary_rows <- read_tsv(admixture_summary)
@@ -86,10 +87,10 @@ for (trait in trait_ids) {
   for (ancestry in ancestry_labels) {
     stats <- file.path(results, "gwas", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".plink2.glm.tsv"))
     summary <- file.path(results, "gwas", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".gwas_filter_summary.tsv"))
-    report <- file.path(results, "reports", trait, paste0(trait, ".", ancestry, ".", build, ".report.md"))
-    qq <- file.path(results, "plots", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".qq.png"))
-    manhattan <- file.path(results, "plots", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".manhattan.png"))
-    manhattan_pdf <- file.path(results, "plots", trait, ancestry, paste0(trait, ".", ancestry, ".", build, ".manhattan.pdf"))
+    report <- file.path(results, "reports", trait, paste0(analysis_name, ".", trait, ".", ancestry, ".", build, ".report.md"))
+    qq <- file.path(results, "plots", trait, ancestry, paste0(analysis_name, ".", trait, ".", ancestry, ".", build, ".qq.png"))
+    manhattan <- file.path(results, "plots", trait, ancestry, paste0(analysis_name, ".", trait, ".", ancestry, ".", build, ".manhattan.png"))
+    manhattan_pdf <- file.path(results, "plots", trait, ancestry, paste0(analysis_name, ".", trait, ".", ancestry, ".", build, ".manhattan.pdf"))
 
     require_file(stats, "missing GWAS stats")
     require_file(summary, "missing GWAS filter summary")

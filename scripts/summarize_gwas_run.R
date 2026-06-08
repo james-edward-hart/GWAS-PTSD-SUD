@@ -39,7 +39,9 @@ genotype_record_counts <- function(block) {
 }
 
 clean_log_number <- function(value) {
-  if (is.null(value) || !length(value) || is.na(value)) return("NA")
+  if (is.null(value) || !length(value)) return("NA")
+  value <- as.character(value)
+  value[is.na(value) | !nzchar(value)] <- "NA"
   gsub(",", "", value)
 }
 
@@ -132,7 +134,7 @@ summary <- data.frame(
     initial_variant_filter[[1]],
     initial_variant_filter[[2]],
     extract_log_value(log_lines, c("^--geno: ([0-9,]+) variants? removed")),
-    extract_log_value(log_lines, c("^--maf: ([0-9,]+) variants? removed")),
+    extract_log_value(log_lines, c("^--maf: ([0-9,]+) variants? removed", "^([0-9,]+) variants removed due to allele frequency threshold")),
     extract_log_value(log_lines, c("^--hwe: ([0-9,]+) variants? removed")),
     extract_log_value(log_lines, c("^--mach-r2-filter: ([0-9,]+) variants? removed")),
     extract_log_value(log_lines, c("^([0-9,]+) variants remaining after main filters\\.?")),

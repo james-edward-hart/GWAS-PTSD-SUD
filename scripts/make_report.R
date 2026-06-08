@@ -254,7 +254,7 @@ plot_lines <- c(
 
 # Keep reports compact while retaining enough QC evidence for review.
 text <- c(
-  paste0("# GWAS Report: ", args$trait, " / ", args$ancestry),
+  paste0("# GWAS Report: ", config$project$analysis_name, " / ", args$trait, " / ", args$ancestry),
   "",
   "## Run",
   "",

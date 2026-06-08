@@ -133,6 +133,22 @@ covariates_for_trait <- function(config, trait_id) {
 }
 
 
+# Convert project.analysis_name to the filename-safe prefix used for final outputs.
+analysis_output_name <- function(config_or_name) {
+  name <- if (is.list(config_or_name)) {
+    config_or_name$project$analysis_name %||% ""
+  } else {
+    config_or_name
+  }
+  name <- trimws(as.character(name[[1]] %||% ""))
+  if (!nzchar(name)) die("project.analysis_name is required")
+  safe <- gsub("[^A-Za-z0-9._-]+", "_", name)
+  safe <- gsub("^[._-]+|[._-]+$", "", safe)
+  if (!nzchar(safe)) die("project.analysis_name must contain at least one letter or number")
+  safe
+}
+
+
 # Return the first non-missing value from a row.
 first_value <- function(row, names) {
   for (name in names) {

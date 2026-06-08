@@ -63,12 +63,13 @@ Main per-analysis files:
 ```text
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
-results/plots/ancestry/popmad_reference_study_pcs.png
-results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.qq.png
-results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.png
-results/plots/{trait}/{ancestry}/{trait}.{ancestry}.{build}.manhattan.pdf
-results/reports/{trait}/{trait}.{ancestry}.{build}.report.md
+results/plots/ancestry/{analysis_name}.popmad_reference_study_pcs.png
+results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.qq.png
+results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manhattan.png
+results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manhattan.pdf
+results/reports/{trait}/{analysis_name}.{trait}.{ancestry}.{build}.report.md
 results/manifests/run_manifest.tsv
 ```
 
+`{analysis_name}` is the filename-safe version of `project.analysis_name`.
 The production review and archive sequence is in [cohort-production-run-manual.md](cohort-production-run-manual.md).

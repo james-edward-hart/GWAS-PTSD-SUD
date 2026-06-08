@@ -14,13 +14,20 @@ if (!nzchar(Sys.getenv("XDG_CACHE_HOME"))) Sys.setenv(XDG_CACHE_HOME = font_cach
 
 
 # Parse input summary stats and output image paths.
-args <- parse_args(defaults = list("manhattan-pdf" = ""))
+args <- parse_args(defaults = list("config" = "", "manhattan-pdf" = ""))
 require_args(args, c("stats", "qq", "manhattan"))
+
+analysis_name <- ""
+if (nzchar(args$config)) {
+  config <- load_config(args$config)
+  analysis_name <- config$project$analysis_name %||% ""
+}
 
 
 # Keep only valid P values for plotting.
 stats <- read_tsv(args$stats)
 if (!"p" %in% names(stats)) die("GWAS stats file is missing p column")
+stats_for_title <- stats
 stats$p_num <- suppressWarnings(as.numeric(stats$p))
 stats <- stats[is.finite(stats$p_num) & stats$p_num > 0 & stats$p_num <= 1, , drop = FALSE]
 
@@ -37,15 +44,29 @@ format_lambda <- function(value) {
   if (is.finite(value)) sprintf("%.3f", value) else "NA"
 }
 
+plot_title <- function(df, analysis_name = "") {
+  pieces <- character()
+  for (column in c("trait", "ancestry", "build")) {
+    if (column %in% names(df)) {
+      value <- unique(as.character(df[[column]][nzchar(as.character(df[[column]]))]))
+      value <- value[!is.na(value) & value != "NA"]
+      if (length(value) == 1) pieces <- c(pieces, value)
+    }
+  }
+  label <- if (length(pieces)) paste(pieces, collapse = " / ") else "GWAS"
+  if (nzchar(analysis_name)) paste(analysis_name, label, sep = " / ") else label
+}
+
 
 # Draw the QQ plot, preserving an empty image for empty results.
 lambda_gc <- genomic_lambda(stats$p_num)
+gwas_title <- plot_title(stats_for_title, analysis_name)
 ensure_parent(args$qq)
 png(args$qq, width = 1200, height = 1200, res = 150)
-par(mar = c(5, 5, 2, 1))
+par(mar = c(5, 5, 3.5, 1))
 if (!nrow(stats)) {
   plot.new()
-  title(paste0("QQ plot (lambda GC = ", format_lambda(lambda_gc), ")"))
+  title(paste0(gwas_title, "\nQQ plot (lambda GC = ", format_lambda(lambda_gc), ")"))
 } else {
   observed <- -log10(sort(stats$p_num))
   expected <- -log10(ppoints(length(observed)))
@@ -53,7 +74,7 @@ if (!nrow(stats)) {
   plot(expected, observed, pch = 16, cex = 0.45, col = "#2f5d8c",
        xlab = "Expected -log10(P)", ylab = "Observed -log10(P)",
        xlim = c(0, limit), ylim = c(0, limit),
-       main = paste0("QQ plot (lambda GC = ", format_lambda(lambda_gc), ")"))
+       main = paste0(gwas_title, "\nQQ plot (lambda GC = ", format_lambda(lambda_gc), ")"))
   abline(0, 1, col = "#7a7a7a", lwd = 1.2)
 }
 invisible(dev.off())
@@ -92,18 +113,6 @@ chrom_key <- function(value) {
   mapped
 }
 
-plot_title <- function(df) {
-  pieces <- character()
-  for (column in c("trait", "ancestry", "build")) {
-    if (column %in% names(df)) {
-      value <- unique(as.character(df[[column]][nzchar(as.character(df[[column]]))]))
-      value <- value[!is.na(value) & value != "NA"]
-      if (length(value) == 1) pieces <- c(pieces, value)
-    }
-  }
-  if (length(pieces)) paste(pieces, collapse = " / ") else "Manhattan plot"
-}
-
 lead_hit_labels <- function(df, max_labels = 8, window_bp = 500000) {
   if (!"variant_id" %in% names(df)) df$variant_id <- ""
   candidates <- df[df$p_num <= 5e-8, , drop = FALSE]
@@ -134,7 +143,7 @@ point_size <- function(n) {
 draw_empty_manhattan <- function(message) {
   par(mar = c(4.4, 5.2, 2.4, 0.8), xaxs = "i", yaxs = "i", las = 1, family = "sans")
   plot.new()
-  title("Manhattan plot")
+  title(paste0(gwas_title, "\nManhattan plot"))
   text(0.5, 0.5, message, col = "#4D4D4D", cex = 0.95)
 }
 
@@ -179,7 +188,7 @@ draw_manhattan <- function(plot_data) {
   }
 
   df <- plot_data$df
-  title <- plot_title(df)
+  title <- plot_title(df, analysis_name)
   genomewide <- -log10(5e-8)
   suggestive <- -log10(1e-5)
   label_idx <- lead_hit_labels(df)
