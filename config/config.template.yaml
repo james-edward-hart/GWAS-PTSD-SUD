@@ -36,6 +36,7 @@ inputs:
 # PATH entries. Do not reuse workstation-specific macOS binaries on the cluster.
 tools:
   plink2: "plink2"
+  plink1: "plink"
   admixture: "admixture"
 
 

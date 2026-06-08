@@ -88,6 +88,61 @@ pos_rows <- read.delim(pos_mismatch, sep = "\t", stringsAsFactors = FALSE)
 stopifnot(identical(pos_rows$reason, "position_mismatch"))
 stopifnot(any(grepl("chromosome/position mismatches", readLines(pos_log), fixed = TRUE)))
 
+fake_tool <- function(path, log, body) {
+  writeLines(c("#!/bin/sh", paste0("echo \"$0 $@\" >> ", shQuote(log)), body), path)
+  Sys.chmod(path, mode = "0755")
+}
+
+merge_log <- file.path(tmp, "fake_merge_tools.log")
+fake_plink2 <- file.path(tmp, "fake_plink2")
+fake_plink1 <- file.path(tmp, "fake_plink1")
+fake_tool(fake_plink2, merge_log, c(
+  "args=\"$*\"",
+  "out=\"\"",
+  "while [ \"$#\" -gt 0 ]; do",
+  "  if [ \"$1\" = \"--out\" ]; then out=\"$2\"; shift 2; else shift; fi",
+  "done",
+  "[ -n \"$out\" ] || exit 2",
+  "mkdir -p \"$(dirname \"$out\")\"",
+  "case \" $args \" in *\" --make-bed \"*) : > \"$out.bed\"; : > \"$out.bim\"; : > \"$out.fam\";; esac",
+  "case \" $args \" in *\" --make-pgen \"*) : > \"$out.pgen\"; : > \"$out.pvar\"; : > \"$out.psam\";; esac",
+  "exit 0"
+))
+fake_tool(fake_plink1, merge_log, c(
+  "args=\"$*\"",
+  "out=\"\"",
+  "while [ \"$#\" -gt 0 ]; do",
+  "  if [ \"$1\" = \"--out\" ]; then out=\"$2\"; shift 2; else shift; fi",
+  "done",
+  "case \" $args \" in *\" --bmerge \"*) ;; *) exit 3;; esac",
+  "[ -n \"$out\" ] || exit 2",
+  "mkdir -p \"$(dirname \"$out\")\"",
+  ": > \"$out.bed\"; : > \"$out.bim\"; : > \"$out.fam\"",
+  "exit 0"
+))
+merge_config <- file.path(tmp, "merge_config.yaml")
+writeLines(c(
+  "tools:",
+  paste0("  plink2: ", shQuote(fake_plink2)),
+  paste0("  plink1: ", shQuote(fake_plink1))
+), merge_config)
+merge_prefix <- file.path(tmp, "merged")
+status <- system2("Rscript", c(
+  "scripts/admixture_qc.R",
+  "merge",
+  "--config", merge_config,
+  "--reference-prefix", file.path(tmp, "reference_pruned"),
+  "--study-prefix", file.path(tmp, "study_pruned"),
+  "--out-prefix", merge_prefix,
+  "--threads", "3"
+), stdout = file.path(tmp, "merge.log"), stderr = file.path(tmp, "merge.log"))
+stopifnot(identical(status, 0L))
+stopifnot(all(file.exists(paste0(merge_prefix, c(".bed", ".bim", ".fam")))))
+stopifnot(all(file.exists(paste0(merge_prefix, "_pmerge", c(".pgen", ".pvar", ".psam")))))
+merge_calls <- readLines(merge_log)
+stopifnot(any(grepl("--bmerge", merge_calls, fixed = TRUE)))
+stopifnot(!any(grepl("--pmerge", merge_calls, fixed = TRUE)))
+
 
 fam <- file.path(tmp, "merged.fam")
 write.table(data.frame(

@@ -114,9 +114,10 @@ shared_variants <- function(config, reference_prefix, study_prefix, out, mismatc
   ensure_parent(out)
   writeLines(keep, out)
   write_tsv(mismatches, mismatch_report)
-  hard_mismatches <- mismatches$reason %in% c("chromosome_mismatch", "position_mismatch")
-  if (any(hard_mismatches)) {
-    die("ancestry reference/study variant position mismatch found; review ", mismatch_report)
+  coordinate_mismatches <- mismatches$reason %in% c("chromosome_mismatch", "position_mismatch")
+  if (any(coordinate_mismatches)) {
+    warning("excluded ", sum(coordinate_mismatches),
+      " ancestry reference variants with chromosome/position mismatches; review ", mismatch_report)
   }
   cat("POP-MaD study/reference overlapping variants:", length(keep), "\n")
   cat("Wrote", length(keep), "shared ancestry markers;", nrow(mismatches), "variants excluded\n")

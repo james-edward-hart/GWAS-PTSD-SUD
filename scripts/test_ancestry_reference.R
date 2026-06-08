@@ -76,6 +76,36 @@ stopifnot(any(grepl("minimum required is 10000", readLines(fail_log), fixed = TR
 
 dup_config <- file.path(tmp, "dup_config.yaml")
 write_config(dup_config, min_shared = 1, warn_below = 1)
+pos_ref_prefix <- file.path(tmp, "ref_pos")
+pos_study_prefix <- file.path(tmp, "study_pos")
+pos_ref <- data.frame(
+  `#CHROM` = c("1", "1"),
+  POS = c(100, 200),
+  ID = c("rs_keep", "rs_pos_mismatch"),
+  REF = "A",
+  ALT = "G",
+  check.names = FALSE
+)
+pos_study <- pos_ref
+pos_study$POS[[2]] <- 250
+write.table(pos_ref, paste0(pos_ref_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(pos_study, paste0(pos_study_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
+pos_log <- file.path(tmp, "pos.log")
+pos_mismatch <- file.path(tmp, "mismatch_pos.tsv")
+status <- run_cmd(c(
+  "shared-variants",
+  "--config", dup_config,
+  "--reference-prefix", pos_ref_prefix,
+  "--study-prefix", pos_study_prefix,
+  "--out", file.path(tmp, "shared_pos.txt"),
+  "--mismatch-report", pos_mismatch
+), pos_log)
+stopifnot(identical(status, 0L))
+stopifnot(identical(readLines(file.path(tmp, "shared_pos.txt")), "rs_keep"))
+pos_rows <- read.delim(pos_mismatch, sep = "\t", stringsAsFactors = FALSE)
+stopifnot(identical(pos_rows$reason, "position_mismatch"))
+stopifnot(any(grepl("chromosome/position mismatches", readLines(pos_log), fixed = TRUE)))
+
 dup_ref_prefix <- file.path(tmp, "ref_dup")
 dup_study_prefix <- file.path(tmp, "study_dup")
 dup_rows <- data.frame(

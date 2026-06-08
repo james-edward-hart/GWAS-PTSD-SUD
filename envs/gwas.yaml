@@ -6,4 +6,5 @@ dependencies:
   - r-base>=4.3,<5
   - r-yaml>=2.3
   - r-jsonlite>=1.8
+  - plink
   - plink2

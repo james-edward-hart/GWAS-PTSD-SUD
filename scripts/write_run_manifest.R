@@ -184,6 +184,7 @@ rows <- rbind(
   reference_panel_rows(config, "ancestry_reference", "ancestry_reference"),
   reference_panel_rows(config, "admixture", "admixture"),
   tool_rows("plink2", config$tools$plink2 %||% "plink2", "--version"),
+  tool_rows("plink1", plink1_tool(config), "--version"),
   tool_rows("admixture", config$tools$admixture %||% "admixture"),
   final_output_rows("results")
 )

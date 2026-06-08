@@ -218,6 +218,7 @@ fingerprinted reference package. Do not add ancestry-label or PC-path fields to
 | Parameter | Required | Description |
 | --- | --- | --- |
 | `plink2` | Yes | PLINK2 executable path or `PATH` command. Validation checks that it can run `--version`. |
+| `plink1` | When ADMIXTURE enabled | PLINK 1.9 executable path or `PATH` command. Used for the supervised ADMIXTURE sample merge. |
 | `admixture` | When ADMIXTURE enabled | ADMIXTURE executable path or `PATH` command. Required when `admixture.enabled: true`. |
 
 On HPC, these must resolve to Linux executables, module shims, or active

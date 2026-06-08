@@ -301,6 +301,7 @@ if (admixture_enabled) {
     die("ADMIXTURE reference metadata is missing configured super-population labels: ", paste(missing_labels, collapse = ", "))
   }
 
+  invisible(require_executable(plink1_tool(config), "PLINK1", "--version"))
   min_pruned <- as.integer(config$admixture$min_pruned_variants %||% NA)
   if (is.na(min_pruned) || min_pruned < 1) die("admixture.min_pruned_variants must be a positive integer")
   pruning <- config$admixture$ld_prune

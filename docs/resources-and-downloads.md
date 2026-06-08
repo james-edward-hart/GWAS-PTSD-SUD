@@ -20,6 +20,17 @@ https://www.cog-genomics.org/plink/2.0/
 
 Use a Linux x86_64 build on HPC systems. The workflow uses PLINK2 for genotype input, filtering, relatedness pruning, PCA, projection, and `--glm` GWAS.
 
+### PLINK 1.9
+
+Official source:
+
+```text
+https://www.cog-genomics.org/plink/1.9/
+```
+
+The workflow uses PLINK1 only for the sample merge that prepares the supervised
+ADMIXTURE BED dataset.
+
 ### ADMIXTURE
 
 Official source:

@@ -256,22 +256,39 @@ ld_prune <- function(config, pfile_prefix, out_prefix, prune_in, excluded_region
 # Merge pruned reference and study samples, then export ADMIXTURE BED format.
 merge_for_admixture <- function(config, reference_prefix, study_prefix, out_prefix, threads) {
   ensure_parent(paste0(out_prefix, ".bed"))
+  reference_bed_prefix <- paste0(out_prefix, "_reference_pruned_bed")
+  study_bed_prefix <- paste0(out_prefix, "_study_pruned_bed")
   pmerge_prefix <- paste0(out_prefix, "_pmerge")
+
   run_command(plink_tool(config), c(
     "--pfile", reference_prefix,
-    "--pmerge", study_prefix,
+    "--make-bed",
+    "--sort-vars",
     "--indiv-sort", "none",
-    "--merge-max-alleles", "2",
-    "--make-pgen", "--sort-vars",
     "--threads", threads,
-    "--out", pmerge_prefix
+    "--out", reference_bed_prefix
   ))
   run_command(plink_tool(config), c(
-    "--pfile", pmerge_prefix,
+    "--pfile", study_prefix,
     "--make-bed",
+    "--sort-vars",
     "--indiv-sort", "none",
     "--threads", threads,
+    "--out", study_bed_prefix
+  ))
+  run_command(plink1_tool(config), c(
+    "--bfile", reference_bed_prefix,
+    "--bmerge", paste0(study_bed_prefix, ".bed"), paste0(study_bed_prefix, ".bim"), paste0(study_bed_prefix, ".fam"),
+    "--make-bed",
     "--out", out_prefix
+  ))
+  run_command(plink_tool(config), c(
+    "--bfile", out_prefix,
+    "--make-pgen",
+    "--indiv-sort", "none",
+    "--sort-vars",
+    "--threads", threads,
+    "--out", pmerge_prefix
   ))
 }
 

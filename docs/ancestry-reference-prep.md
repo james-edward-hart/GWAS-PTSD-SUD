@@ -88,7 +88,7 @@ results/qc/ancestry/reference/reference_prep_report.md
 results/qc/ancestry/within_ancestry_pcs.tsv
 ```
 
-The pipeline is conservative: package fingerprint mismatch fails validation, build mismatch fails validation, raw Hail/VCF/BCF artifacts fail package validation, chromosome/position mismatches fail harmonization, strand-ambiguous palindromic SNPs are excluded by default, allele mismatches are reported rather than flipped silently, fewer than 10,000 shared POP-MaD variants fails harmonization, 10,000-49,999 shared variants warns and continues, reference projection is checked by comparing original reference PCs with reprojected reference samples, and POP-MaD model cutoffs are written for review.
+The pipeline is conservative: package fingerprint mismatch fails validation, build mismatch fails validation, raw Hail/VCF/BCF artifacts fail package validation, chromosome/position mismatches are excluded and reported during harmonization, strand-ambiguous palindromic SNPs are excluded by default, allele mismatches are reported rather than flipped silently, fewer than 10,000 shared POP-MaD variants fails harmonization, 10,000-49,999 shared variants warns and continues, reference projection is checked by comparing original reference PCs with reprojected reference samples, and POP-MaD model cutoffs are written for review.
 
 ADMIXTURE is available as an independent report-only QC branch when `admixture.enabled: true`. In production it uses the build-matched ADMIXTURE panel resolved from the reference package, writes proportions and POP-MaD comparison tables under `results/qc/admixture/`, and does not alter POP-MaD labels, strata, keep files, within-ancestry PCs, or GWAS covariates.
 

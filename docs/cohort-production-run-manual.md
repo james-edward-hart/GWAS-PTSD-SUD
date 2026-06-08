@@ -300,6 +300,7 @@ inputs:
 
 tools:
   plink2: "plink2"
+  plink1: "plink"
   admixture: "admixture"
 
 genotypes:
@@ -310,7 +311,7 @@ resources:
   input_manifest: ""
 ```
 
-Use `plink2` and `admixture` only if those commands resolve inside cluster
+Use `plink2`, `plink1`, and `admixture` only if those commands resolve inside cluster
 jobs. Otherwise, set each field to a full Linux executable path or a
 site-approved module shim, and record the same tool versions in
 `resources/manifests/software.tsv`.
@@ -667,8 +668,9 @@ plots according to cohort policy.
 
 - If `snakemake` says `invalid choice: 'slurm'`, activate the driver
   environment and confirm `snakemake_executor_plugin_slurm` is installed.
-- If PLINK2 or ADMIXTURE is not found, set `tools.plink2` or
-  `tools.admixture` to a Linux executable path or cluster module shim.
+- If PLINK2, PLINK1, or ADMIXTURE is not found, set `tools.plink2`,
+  `tools.plink1`, or `tools.admixture` to a Linux executable path or cluster
+  module shim.
 - If conda fails on compute nodes, create environments on a login/build node
   with `snakemake --profile profiles/slurm --conda-create-envs-only`.
 

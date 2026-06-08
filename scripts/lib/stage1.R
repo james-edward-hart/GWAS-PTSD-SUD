@@ -277,6 +277,13 @@ plink_tool <- function(config) {
 }
 
 
+# Resolve the configured PLINK1 executable for sample merges not supported by
+# current PLINK2 pmerge builds.
+plink1_tool <- function(config) {
+  config$tools$plink1 %||% config$tools$plink %||% "plink"
+}
+
+
 # Convert genotype config to PLINK2 input arguments.
 genotype_args <- function(block) {
   kind <- tolower(block$type)
