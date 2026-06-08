@@ -207,6 +207,35 @@ write.table(data.frame(
   super_population = labels
 ), metadata, sep = "\t", quote = FALSE, row.names = FALSE)
 
+write_pop_fam <- file.path(tmp, "write_pop.fam")
+write.table(data.frame(
+  FID = c("0", "S1"),
+  IID = c("R_AFR", "S1"),
+  PAT = 0,
+  MAT = 0,
+  SEX = 0,
+  PHENO = -9
+), write_pop_fam, sep = " ", quote = FALSE, row.names = FALSE, col.names = FALSE)
+write.table(data.frame(IID = "R_AFR"), paste0(file.path(tmp, "write_pop_ref"), ".psam"),
+  sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(data.frame(FID = "S1", IID = "S1"), paste0(file.path(tmp, "write_pop_study"), ".psam"),
+  sep = "\t", quote = FALSE, row.names = FALSE)
+status <- system2("Rscript", c(
+  "scripts/admixture_qc.R",
+  "write-pop",
+  "--config", config,
+  "--fam", write_pop_fam,
+  "--reference-prefix", file.path(tmp, "write_pop_ref"),
+  "--study-prefix", file.path(tmp, "write_pop_study"),
+  "--metadata", metadata,
+  "--pop-out", file.path(tmp, "write_pop.pop"),
+  "--sample-populations", file.path(tmp, "write_pop_samples.tsv")
+), stdout = file.path(tmp, "write_pop.log"), stderr = file.path(tmp, "write_pop.log"))
+stopifnot(identical(status, 0L))
+stopifnot(identical(readLines(file.path(tmp, "write_pop.pop")), c("AFR", "-")))
+write_pop_samples <- read.delim(file.path(tmp, "write_pop_samples.tsv"), stringsAsFactors = FALSE, check.names = FALSE)
+stopifnot(identical(write_pop_samples$sample_set, c("reference", "study")))
+
 popmad <- file.path(tmp, "popmad.tsv")
 write.table(data.frame(
   FID = c("S1", "S2"),

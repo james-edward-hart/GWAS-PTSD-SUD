@@ -106,6 +106,33 @@ read_psam_ids <- function(prefix_or_path) {
 }
 
 
+sample_key_variants <- function(fid, iid) {
+  unique(paste(c(fid, iid, "0"), iid, sep = "\t"))
+}
+
+
+sample_key_map <- function(ids, label) {
+  variants <- mapply(sample_key_variants, ids$FID, ids$IID, SIMPLIFY = FALSE)
+  out <- data.frame(
+    key = unlist(variants, use.names = FALSE),
+    row = rep(seq_len(nrow(ids)), lengths(variants)),
+    stringsAsFactors = FALSE
+  )
+  conflict <- names(which(tapply(out$row, out$key, function(x) length(unique(x)) > 1)))
+  if (length(conflict)) die(label, " has ambiguous sample IDs under FID/IID alias matching: ",
+    paste(head(gsub("\t", " ", conflict), 5), collapse = ", "))
+  out[!duplicated(out$key), , drop = FALSE]
+}
+
+
+match_sample_row <- function(fid, iid, key_map) {
+  idx <- match(sample_key_variants(fid, iid), key_map$key)
+  idx <- idx[!is.na(idx)]
+  if (!length(idx)) return(NA_integer_)
+  key_map$row[[idx[[1]]]]
+}
+
+
 # Read a BIM file for variant counts in reports.
 read_bim <- function(path) {
   rows <- read.table(path, stringsAsFactors = FALSE, quote = "", comment.char = "")
@@ -331,6 +358,8 @@ write_supervised_pop <- function(config, fam_path, reference_prefix, study_prefi
   study <- read_psam_ids(study_prefix)
   if (any(duplicated(reference$key))) die("ADMIXTURE reference samples contain duplicate FID/IID rows")
   if (any(duplicated(study$key))) die("ADMIXTURE study samples contain duplicate FID/IID rows")
+  reference_map <- sample_key_map(reference, "ADMIXTURE reference samples")
+  study_map <- sample_key_map(study, "ADMIXTURE study samples")
   lookup <- metadata_lookup(config, metadata_path)
 
   out <- data.frame(
@@ -343,13 +372,16 @@ write_supervised_pop <- function(config, fam_path, reference_prefix, study_prefi
     stringsAsFactors = FALSE
   )
   for (i in seq_len(nrow(out))) {
-    key <- fam$key[[i]]
-    in_reference <- key %in% reference$key
-    in_study <- key %in% study$key
+    reference_row <- match_sample_row(out$FID[[i]], out$IID[[i]], reference_map)
+    study_row <- match_sample_row(out$FID[[i]], out$IID[[i]], study_map)
+    in_reference <- !is.na(reference_row)
+    in_study <- !is.na(study_row)
     if (in_reference && in_study) die("sample appears in both ADMIXTURE reference and study sets: ", out$FID[[i]], " ", out$IID[[i]])
     if (in_reference) {
-      idx <- match(key, lookup$key)
-      if (is.na(idx)) die("ADMIXTURE reference metadata missing for sample: ", out$FID[[i]], " ", out$IID[[i]])
+      idx <- match(sample_key_variants(out$FID[[i]], out$IID[[i]]), lookup$key)
+      idx <- idx[!is.na(idx)]
+      if (!length(idx)) die("ADMIXTURE reference metadata missing for sample: ", out$FID[[i]], " ", out$IID[[i]])
+      idx <- idx[[1]]
       super_population <- lookup$super_population[[idx]]
       if (!super_population %in% labels) {
         die("ADMIXTURE reference sample ", out$FID[[i]], " ", out$IID[[i]],

@@ -26,9 +26,11 @@ for (i in 0:11) {
   )
 }
 
-# Write one assignable study sample and one outlier.
+# Write one assignable study sample, one outlier, and one sample with an invalid
+# projected PC.
 write.table(ref, reference, sep = "\t", quote = FALSE, row.names = FALSE)
-write.table(data.frame(FID = c("S1", "S2"), IID = c("S1", "S2"), PC1 = c("0.03", "100"), PC2 = c("0.03", "100")),
+write.table(data.frame(FID = c("S1", "S2", "S3"), IID = c("S1", "S2", "S3"),
+  PC1 = c("0.03", "100", "NA"), PC2 = c("0.03", "100", "0.03")),
   study, sep = "\t", quote = FALSE, row.names = FALSE)
 
 
@@ -57,8 +59,11 @@ stopifnot(status == 0L)
 # Confirm the expected assignment and exclusion counts.
 count_rows <- function(path) max(length(readLines(path)) - 1, 0)
 stopifnot(count_rows(file.path(tmp, "assignments.tsv")) == 1)
-stopifnot(count_rows(file.path(tmp, "excluded.tsv")) == 1)
+stopifnot(count_rows(file.path(tmp, "excluded.tsv")) == 2)
 stopifnot(count_rows(file.path(tmp, "models.tsv")) == 2)
+excluded <- read.delim(file.path(tmp, "excluded.tsv"), sep = "\t", stringsAsFactors = FALSE,
+  check.names = FALSE, na.strings = character())
+stopifnot("missing_or_nonfinite_PC1" %in% excluded$reason)
 
 status <- system2("Rscript", c(
   "scripts/infer_popmad_ancestry.R",

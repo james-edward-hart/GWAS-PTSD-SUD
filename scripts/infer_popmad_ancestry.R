@@ -41,18 +41,47 @@ conflicts <- unique(mapping$population[duplicated(mapping$population)])
 if (length(conflicts)) die("reference PC file has conflicting population -> super_population mappings: ",
   paste(head(conflicts, 5), collapse = ", "))
 
-validate_numeric_pcs <- function(rows, label) {
+empty_excluded <- function() {
+  data.frame(FID = character(), IID = character(), best_ancestry = character(), best_population = character(),
+    best_distance = numeric(), confidence = numeric(), reason = character())
+}
+
+validate_numeric_pcs <- function(rows, label, allow_invalid = FALSE) {
+  invalid_rows <- rep(FALSE, nrow(rows))
+  invalid_pc <- rep("", nrow(rows))
   for (pc in pcs) {
     value <- suppressWarnings(as.numeric(rows[[pc]]))
-    if (any(is.na(value) | !is.finite(value))) {
-      bad <- which(is.na(value) | !is.finite(value))[[1]]
+    invalid <- is.na(value) | !is.finite(value)
+    if (any(invalid) && !allow_invalid) {
+      bad <- which(invalid)[[1]]
       die(label, " has missing or non-finite ", pc, " for ", rows$FID[[bad]], " ", rows$IID[[bad]])
     }
+    first_invalid <- invalid & !invalid_rows
+    invalid_pc[first_invalid] <- pc
+    invalid_rows <- invalid_rows | invalid
     rows[[pc]] <- value
   }
-  rows
+  if (!allow_invalid) return(rows)
+
+  excluded <- empty_excluded()
+  if (any(invalid_rows)) {
+    excluded <- data.frame(
+      FID = rows$FID[invalid_rows],
+      IID = rows$IID[invalid_rows],
+      best_ancestry = "",
+      best_population = "",
+      best_distance = NA_real_,
+      confidence = NA_real_,
+      reason = paste0("missing_or_nonfinite_", invalid_pc[invalid_rows]),
+      stringsAsFactors = FALSE
+    )
+    warning("excluded ", nrow(excluded), " study sample(s) with missing or non-finite projected PCs")
+  }
+  list(valid = rows[!invalid_rows, , drop = FALSE], excluded = excluded)
 }
-study <- validate_numeric_pcs(study, "study PC file")
+study_check <- validate_numeric_pcs(study, "study PC file", allow_invalid = TRUE)
+study <- study_check$valid
+invalid_study <- study_check$excluded
 reference <- validate_numeric_pcs(reference, "reference PC file")
 if (!nrow(reference)) die("reference PC file contains no rows")
 
@@ -164,8 +193,7 @@ populations <- names(models)
 # Prepare assignment and diagnostic output tables.
 assignments <- data.frame(FID = character(), IID = character(), ancestry = character(), population = character(),
   mahalanobis_distance = numeric(), method = character(), confidence = numeric(), status = character())
-excluded <- data.frame(FID = character(), IID = character(), best_ancestry = character(), best_population = character(),
-  best_distance = numeric(), confidence = numeric(), reason = character())
+excluded <- invalid_study
 distance_rows <- data.frame(FID = character(), IID = character(), population = character(),
   super_population = character(), mahalanobis_distance = numeric())
 within <- data.frame(FID = character(), IID = character(), ancestry = character(), stringsAsFactors = FALSE)
@@ -279,4 +307,4 @@ write_tsv(counts, args$counts)
 
 
 # Print a compact summary for the Snakemake log.
-cat("Assigned", nrow(assignments), "samples with POP-MaD; excluded", nrow(excluded), "ambiguous/outlying samples\n")
+cat("Assigned", nrow(assignments), "samples with POP-MaD; excluded", nrow(excluded), "samples\n")
