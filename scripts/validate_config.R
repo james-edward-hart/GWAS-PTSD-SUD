@@ -128,6 +128,12 @@ if (!is.null(config$project$run_mode) && !identical(config$project$run_mode, "pr
   die("project.run_mode is not part of the production config schema; remove project.run_mode or set it to 'production'")
 }
 if (!length(config$analysis$ancestries)) die("analysis.ancestries must list at least one ancestry")
+min_stratum_n <- suppressWarnings(as.integer(config$analysis$min_stratum_n %||% 50))
+if (!is.finite(min_stratum_n) || min_stratum_n < 1) die("analysis.min_stratum_n must be a positive integer")
+max_unassigned_fraction <- suppressWarnings(as.numeric(config$popmad$max_unassigned_fraction %||% 0.07))
+if (!is.finite(max_unassigned_fraction) || max_unassigned_fraction < 0 || max_unassigned_fraction > 1) {
+  die("popmad.max_unassigned_fraction must be between 0 and 1")
+}
 
 deprecated_input_fields <- intersect(names(config$inputs), c(
   "ancestry_mode", "ancestry_file", "pcs_file", "projected_pcs_file", "reference_pcs_file"

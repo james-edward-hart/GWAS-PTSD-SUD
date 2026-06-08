@@ -388,8 +388,17 @@ been completed and documented.
 
 ### 5.7 Set Analysis Strata And QC Options
 
-Set `analysis.ancestries` to the ancestry strata you intend to run. Each
-configured trait/ancestry cell must have at least one case and one control.
+Set `analysis.ancestries` to the candidate GWAS ancestry strata you are willing
+to analyze. The pipeline keeps only strata with at least
+`analysis.min_stratum_n` assigned samples, writes the active list to
+`results/qc/strata/active_ancestries.tsv`, and skips lower-count strata before
+within-ancestry PCs or GWAS jobs are created. ADMIXTURE reference labels stay in
+`admixture.labels` and can still include all report-only QC groups.
+
+If POP-MaD excludes the expected samples but the run fails on
+`popmad.max_unassigned_fraction`, raise that value deliberately in
+`config/config.yaml`. Treat this as a documented QC decision, not a routine
+workaround.
 
 For imputed dosage data with MACH_R2/INFO annotations, set:
 

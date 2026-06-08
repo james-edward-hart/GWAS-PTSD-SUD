@@ -4,6 +4,8 @@ configfile: "config/config.yaml"
 
 from glob import glob
 from workflow.snake_helpers import (
+    active_unrelated_keep_files as active_unrelated_keep_files_for_context,
+    active_within_ancestry_eigenvecs as active_within_ancestry_eigenvecs_for_context,
     admixture_targets as admixture_targets_for_config,
     admixture_validation_inputs as admixture_validation_inputs_for_config,
     ancestry_file as ancestry_file_for_config,
@@ -55,7 +57,9 @@ ancestry_reference_targets = lambda: ancestry_reference_targets_for_config(confi
 ancestry_reference_validation_inputs = lambda wildcards: ancestry_reference_validation_inputs_for_config(config, wildcards)
 admixture_targets = lambda: admixture_targets_for_config(config)
 admixture_validation_inputs = lambda wildcards: admixture_validation_inputs_for_config(config, wildcards)
-report_targets = lambda wildcards: report_targets_for_context(checkpoints, TRAITS, ANCESTRIES, wildcards)
+report_targets = lambda wildcards: report_targets_for_context(checkpoints, TRAITS, wildcards)
+active_unrelated_keep_files = lambda wildcards: active_unrelated_keep_files_for_context(checkpoints, wildcards)
+active_within_ancestry_eigenvecs = lambda wildcards: active_within_ancestry_eigenvecs_for_context(checkpoints, wildcards)
 ancestry_file = lambda: ancestry_file_for_config(config)
 popmad_assignments_file = lambda: popmad_path(config, "popmad_assignments.tsv")
 popmad_study_pcs_file = lambda: popmad_path(config, "study_pcs.tsv")

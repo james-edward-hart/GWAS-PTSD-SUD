@@ -12,8 +12,12 @@ reference_package:
   fingerprint: "sha256-from-content_fingerprint.sha256"
 
 
-# Ancestry strata to run; options: labels present in POP-MaD super_population output.
+# Candidate GWAS ancestry strata. Strata with fewer than min_stratum_n assigned
+# samples are reported and skipped before within-ancestry PCs or GWAS jobs are
+# created. These labels must exist in POP-MaD super_population output. ADMIXTURE
+# reference labels are configured separately under admixture.labels.
 analysis:
+  min_stratum_n: 50
   ancestries:
     - AFR
     - AMR
@@ -63,7 +67,7 @@ popmad:
   reference_outlier_sd: 4.0
   min_confidence: 0.05
   min_reference_population_n: 20
-  max_unassigned_fraction: 0.02
+  max_unassigned_fraction: 0.07
 
 
 # Report-only supervised ADMIXTURE QC. Production requires enabled: true.

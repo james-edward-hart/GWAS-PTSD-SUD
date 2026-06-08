@@ -443,7 +443,7 @@ rule run_within_ancestry_pca:
 rule combine_within_ancestry_pcs:
     input:
         config=RUN_CONFIG,
-        eigenvecs=expand(f"{ANCESTRY_WITHIN_DIR}/{{ancestry}}.eigenvec", ancestry=ANCESTRIES),
+        eigenvecs=active_within_ancestry_eigenvecs,
     output:
         pcs="results/qc/ancestry/within_ancestry_pcs.tsv",
     log:
@@ -452,8 +452,8 @@ rule combine_within_ancestry_pcs:
         "../../envs/gwas.yaml",
     params:
         eigenvecs=lambda wildcards, input: " ".join(
-            f"--eigenvec {ancestry}:{path}"
-            for ancestry, path in zip(ANCESTRIES, input.eigenvecs)
+            f"--eigenvec {str(path).split('/')[-1].removesuffix('.eigenvec')}:{path}"
+            for path in input.eigenvecs
         ),
     shell:
         """

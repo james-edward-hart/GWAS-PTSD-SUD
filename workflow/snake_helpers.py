@@ -143,9 +143,37 @@ def inferred_build(checkpoints):
         return handle.read().strip()
 
 
-# Expand final report targets after the genome-build checkpoint completes.
-def report_targets(checkpoints, traits, ancestries, wildcards):
+# Read active GWAS strata after strata creation has reviewed assigned ancestry counts.
+def active_ancestries(checkpoints, wildcards):
+    active_path = checkpoints.make_strata_files.get().output.active
+    rows = read_tsv(str(active_path))
+    if not rows or "ancestry" not in rows[0]:
+        workflow_error(f"active ancestry table is empty or missing column 'ancestry': {active_path}")
+    ancestries = [row["ancestry"] for row in rows if row.get("ancestry", "")]
+    if not ancestries:
+        workflow_error(f"no active ancestry strata were written: {active_path}")
+    return ancestries
+
+
+# Build active-stratum paths after the strata checkpoint completes.
+def active_unrelated_keep_files(checkpoints, wildcards):
+    return [
+        f"results/qc/strata/{ancestry}.unrelated.keep.tsv"
+        for ancestry in active_ancestries(checkpoints, wildcards)
+    ]
+
+
+def active_within_ancestry_eigenvecs(checkpoints, wildcards):
+    return [
+        f"results/qc/ancestry/within/{ancestry}.eigenvec"
+        for ancestry in active_ancestries(checkpoints, wildcards)
+    ]
+
+
+# Expand final report targets after genome-build and strata checkpoints complete.
+def report_targets(checkpoints, traits, wildcards):
     build = inferred_build(checkpoints)
+    ancestries = active_ancestries(checkpoints, wildcards)
     return [
         f"results/reports/{trait}/{trait}.{ancestry}.{build}.report.md"
         for trait in traits

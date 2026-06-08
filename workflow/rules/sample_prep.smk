@@ -30,13 +30,16 @@ rule run_sex_check:
         """
 
 
-rule make_strata_files:
+checkpoint make_strata_files:
     input:
         config=RUN_CONFIG,
         ok="results/qc/input_validation/validation.ok",
         ancestry=ancestry_file(),
     output:
         counts="results/qc/strata/strata_counts.tsv",
+        active="results/qc/strata/active_ancestries.tsv",
+        excluded="results/qc/strata/excluded_ancestries.tsv",
+        unassigned="results/qc/strata/unassigned_ancestry.tsv",
         keep=expand("results/qc/strata/{ancestry}.keep.tsv", ancestry=ANCESTRIES),
     log:
         "results/logs/sample_prep/make_strata_files.log",
@@ -59,7 +62,7 @@ rule build_trait_files:
         pcs=pcs_file(),
         # All final keep files are inputs so PC completeness is checked only
         # for samples that can actually enter one of the ancestry GWAS jobs.
-        keep=expand("results/qc/strata/{ancestry}.unrelated.keep.tsv", ancestry=ANCESTRIES),
+        keep=active_unrelated_keep_files,
     output:
         pheno="results/qc/traits/{trait}.pheno.tsv",
         covar="results/qc/traits/{trait}.covar.tsv",

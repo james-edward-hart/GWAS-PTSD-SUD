@@ -196,10 +196,15 @@ add `observed_fingerprint`.
 
 | Parameter | Required | Description |
 | --- | --- | --- |
-| `ancestries` | Yes | List of ancestry strata to analyze. Labels must exist in the resolved POP-MaD reference metadata `super_population` values. |
+| `ancestries` | Yes | Candidate GWAS ancestry strata. Labels must exist in the resolved POP-MaD reference metadata `super_population` values. |
+| `min_stratum_n` | Recommended | Minimum assigned sample count required for a candidate ancestry to become an active GWAS stratum. Template uses `50`; lower-count candidate strata are reported and excluded from downstream GWAS. |
 
-Each listed ancestry expands GWAS, plot, and report targets. In production, each
-configured trait/ancestry cell must contain at least one case and one control.
+Each listed ancestry is evaluated during strata creation. Only active strata
+expand within-ancestry PCs, GWAS, plots, and reports. In production, each active
+trait/ancestry cell must contain at least one case and one control.
+This setting is separate from `admixture.labels`: ADMIXTURE can use all
+reference ancestry labels for report-only QC even when GWAS is run for fewer
+analysis strata.
 
 ### `inputs`
 
@@ -277,11 +282,14 @@ The pipeline does not lift genotype coordinates or summary statistics.
 | `reference_outlier_sd` | Yes | Reference-population outlier cutoff in SD units before assignment. |
 | `min_confidence` | Yes | Minimum assignment confidence. Lower-confidence samples are excluded as ambiguous. |
 | `min_reference_population_n` | Recommended | Minimum reference samples required for a fine-scale population to contribute a POP-MaD model. Populations below this threshold are skipped; production fails only if a configured ancestry has no retained population model. |
-| `max_unassigned_fraction` | Recommended | Maximum allowed fraction of samples without a configured ancestry assignment before strata creation fails. |
+| `max_unassigned_fraction` | Recommended | Maximum allowed fraction of samples dropped from active GWAS strata because they are unassigned, ambiguous/outlying, assigned to an ancestry not listed in `analysis.ancestries`, or assigned to a candidate stratum below `analysis.min_stratum_n`. Template uses `0.07`. |
 
 POP-MaD ancestry outputs are written under
 `results/qc/ancestry/production/`. Within-ancestry GWAS PCs are written to
 `results/qc/ancestry/within_ancestry_pcs.tsv`.
+Active and excluded GWAS strata are written to
+`results/qc/strata/active_ancestries.tsv` and
+`results/qc/strata/excluded_ancestries.tsv`.
 
 ### `admixture`
 
