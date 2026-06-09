@@ -218,11 +218,13 @@ gwas:
 **Symptom:** Validation or a cluster job cannot find `plink2`, `plink`, or
 `admixture`.
 
-**Likely cause:** Commands resolve on the login node but not inside compute
-jobs, or the config points to a non-Linux binary.
+**Likely cause:** The Snakemake rule environment was not created or is not
+visible on compute nodes, or `tools.*` points to an invalid site-specific
+binary.
 
-**Fix:** Use Linux executables that work in SLURM jobs. If needed, set full
-paths or site-approved module shims in `tools.*`, and record versions in
+**Fix:** Leave `tools.*` as `plink2`, `plink`, and `admixture` when using the
+default conda rule environment. If using site-managed software instead, set full
+Linux paths or approved module shims and record versions in
 `resources/manifests/software.tsv`.
 
 ### Optional Input Manifest Fails
@@ -342,7 +344,7 @@ mamba install -n gwas-stage1-driver -c conda-forge "conda>=24.7.1"
 **Symptom:** Preflight fails with `R package 'yaml' is required` or
 `gwas-stage1` cannot be found.
 
-**Likely cause:** The utility R environment was not created or is stale.
+**Likely cause:** The workflow utility environment was not created or is stale.
 
 **Fix:** Create or update it:
 

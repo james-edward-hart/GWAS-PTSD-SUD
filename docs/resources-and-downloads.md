@@ -2,11 +2,12 @@
 
 This pipeline keeps software and reference downloads separate from analysis rules.
 
-Production HPC deployments should prefer site-managed modules, conda
-environments, and approved data-transfer procedures. The workflow does not
-download HGDP+1KG reference data. For a cohort run, use the approved unpacked
-reference package and its `content_fingerprint.sha256`; record package-level
-provenance in `resources/manifests/reference_data.tsv`.
+Production HPC deployments should use conda environments or site-managed
+modules and approved data-transfer procedures. The default Snakemake rule
+environment installs PLINK 1.9, PLINK2, and ADMIXTURE from conda channels. The
+workflow does not download HGDP+1KG reference data. For a cohort run, use the
+approved unpacked reference package and its `content_fingerprint.sha256`; record
+package-level provenance in `resources/manifests/reference_data.tsv`.
 
 ## Software
 
@@ -19,6 +20,7 @@ https://www.cog-genomics.org/plink/2.0/
 ```
 
 Use a Linux x86_64 build on HPC systems. The workflow uses PLINK2 for genotype input, filtering, relatedness pruning, PCA, projection, and `--glm` GWAS.
+The default rule environment installs PLINK2 from conda.
 
 ### PLINK 1.9
 
@@ -30,6 +32,7 @@ https://www.cog-genomics.org/plink/1.9/
 
 The workflow uses PLINK1 only for the sample merge that prepares the supervised
 ADMIXTURE BED dataset.
+The default rule environment installs PLINK1 from conda.
 
 ### ADMIXTURE
 
@@ -40,6 +43,8 @@ https://dalexander.github.io/admixture/download.html
 ```
 
 The workflow can run supervised ADMIXTURE as a report-only QC branch when `admixture.enabled: true`. Stage 1 ancestry labels, strata, keep files, and GWAS covariates still come from POP-MaD PCA/Mahalanobis assignment.
+The default rule environment installs ADMIXTURE from conda. Use a site-managed
+or official Linux binary only when required by local cluster policy.
 
 ### Snakemake
 

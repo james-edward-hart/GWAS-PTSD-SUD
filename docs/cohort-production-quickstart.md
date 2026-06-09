@@ -128,6 +128,10 @@ analysis:
     - SAS
 ```
 
+The default Snakemake rule environment installs these tools. Change `tools.*`
+only when your cluster requires site-managed modules or explicit executable
+paths.
+
 Keep these production safety settings unless the analysis plan says otherwise:
 
 ```yaml
@@ -183,11 +187,14 @@ mamba env create -f envs/snakemake-driver.yaml
 conda activate gwas-stage1-driver
 ```
 
-Create the utility R environment used for preflight:
+Create the workflow utility environment used for preflight:
 
 ```bash
 mamba env create -f envs/gwas.yaml
 ```
+
+This same environment definition is used by Snakemake jobs and installs PLINK
+1.9, PLINK2, and ADMIXTURE from conda channels.
 
 If either environment already exists, update it instead:
 

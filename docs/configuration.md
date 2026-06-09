@@ -223,12 +223,12 @@ fingerprinted reference package. Do not add ancestry-label or PC-path fields to
 
 | Parameter | Required | Description |
 | --- | --- | --- |
-| `plink2` | Yes | PLINK2 executable path or `PATH` command. Validation checks that it can run `--version`. |
-| `plink1` | When ADMIXTURE enabled | PLINK 1.9 executable path or `PATH` command. Used for the supervised ADMIXTURE sample merge. |
-| `admixture` | When ADMIXTURE enabled | ADMIXTURE executable path or `PATH` command. Required when `admixture.enabled: true`. |
+| `plink2` | Yes | PLINK2 command or executable path. The default rule environment installs it from conda. Validation checks that it can run `--version`. |
+| `plink1` | When ADMIXTURE enabled | PLINK 1.9 command or executable path. The default rule environment installs it from conda. Used for the supervised ADMIXTURE sample merge. |
+| `admixture` | When ADMIXTURE enabled | ADMIXTURE command or executable path. The default rule environment installs it from conda. Required when `admixture.enabled: true`. |
 
-On HPC, these must resolve to Linux executables, module shims, or active
-environment commands. Do not reuse workstation-specific macOS binaries on the
+Leave the defaults unless your cluster requires site-managed modules or explicit
+Linux executable paths. Do not reuse workstation-specific macOS binaries on the
 cluster.
 
 ### `genotypes`

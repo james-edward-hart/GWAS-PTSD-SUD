@@ -36,8 +36,8 @@ inputs:
   trait_registry: "/path/to/cohort/trait_registry.tsv"
 
 
-# Tool paths; on HPC these must resolve to Linux executables, module shims, or
-# PATH entries. Do not reuse workstation-specific macOS binaries on the cluster.
+# Tool commands. The default Snakemake conda environment provides these.
+# Override only when using site-managed modules or explicit Linux executable paths.
 tools:
   plink2: "plink2"
   plink1: "plink"

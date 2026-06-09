@@ -8,3 +8,4 @@ dependencies:
   - r-jsonlite>=1.8
   - plink
   - plink2
+  - admixture

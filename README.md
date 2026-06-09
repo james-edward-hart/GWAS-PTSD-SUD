@@ -90,7 +90,7 @@ Production runs require:
 - a sample manifest TSV (phenotype + covariate file)
 - a trait registry TSV
 - the unpacked prebuilt ancestry reference package
-- Linux-compatible PLINK2 and ADMIXTURE executables
+- conda/mamba access for the Snakemake driver and rule environments
 - reviewed software and reference manifests
 
 The sample manifest (phenotype + covariate file) must include unique

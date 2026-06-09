@@ -1,10 +1,10 @@
 tool	version	install_method	source_url	local_path	download_date	sha256	notes
-snakemake	>=8	conda/mamba	https://snakemake.readthedocs.io/			Workflow engine; install on login node or managed environment.
+snakemake	>=8	conda/mamba	https://snakemake.readthedocs.io/				Workflow engine; install on login node or managed environment.
 plink2	alpha 7.1 or newer	official Linux binary or conda	https://s3.amazonaws.com/plink2-assets/plink2_linux_x86_64_latest.zip	software/downloads/plink2_linux_x86_64.zip	2026-05-21	9ca81bea7fab4b435441a136390914f14c542281f5f0853d6f273fbc76ab2304	Primary GWAS engine. Use Linux x86_64 build on HPC.
-plink1	1.9 or newer	site module or conda	https://www.cog-genomics.org/plink/1.9/			PLINK1 sample merge engine used to prepare the supervised ADMIXTURE BED dataset.
+plink1	1.9 or newer	site module or conda	https://www.cog-genomics.org/plink/1.9/				PLINK1 sample merge engine used to prepare the supervised ADMIXTURE BED dataset.
 plink2_local_macos_arm64	alpha 7.1	official macOS ARM64 binary	https://s3.amazonaws.com/plink2-assets/alpha7/plink2_mac_arm64_20260504.zip	software/downloads/plink2_mac_arm64.zip	2026-05-21	02f3894091ad9ebd020d534cff071e4a565f062bb5ac7f39fd83f3937cf7aa27	Local test binary for this macOS ARM64 workstation; production HPC should use Linux/module/conda path.
-admixture	1.4.0	official Linux binary	https://dalexander.github.io/admixture/binaries/admixture_linux-1.4.0.tar.gz	software/downloads/admixture_linux-1.4.0.tar.gz	2026-05-21	5520c4f18525f49ab2c715d711b40f4a0818ef1485361a94ec8954d1364e6f19	Ancestry component; binary supports Linux x86_64.
-R	>=4.3	conda/mamba	https://www.r-project.org/			Pipeline task scripts, reports, and plotting.
-r-yaml	>=2.3	conda/mamba	https://cran.r-project.org/package=yaml			Config parsing and effective config snapshots.
-r-jsonlite	>=1.8	conda/mamba	https://cran.r-project.org/package=jsonlite			Genome-build marker panel rebuild helper.
-python	>=3.10	conda/mamba	https://www.python.org/			Snakemake driver and DAG helper runtime only.
+admixture	1.3.0 or site-approved newer	conda/mamba or official Linux binary	https://bioconda.github.io/recipes/admixture/README.html				Report-only supervised ADMIXTURE QC. Default Snakemake rule environment installs the Bioconda package; record the exact runtime version in the run manifest.
+R	>=4.3	conda/mamba	https://www.r-project.org/				Pipeline task scripts, reports, and plotting.
+r-yaml	>=2.3	conda/mamba	https://cran.r-project.org/package=yaml				Config parsing and effective config snapshots.
+r-jsonlite	>=1.8	conda/mamba	https://cran.r-project.org/package=jsonlite				Genome-build marker panel rebuild helper.
+python	>=3.10	conda/mamba	https://www.python.org/				Snakemake driver and DAG helper runtime only.

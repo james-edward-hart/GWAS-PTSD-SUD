@@ -13,8 +13,8 @@ curl -L \
 
 unzip -o software/downloads/plink2_linux_x86_64.zip -d software/bin
 
-# Download ADMIXTURE for the optional report-only QC branch.
-echo "Downloading Linux x86_64 ADMIXTURE..."
+# Download ADMIXTURE only for deployments that prefer a manual/site-managed binary.
+echo "Downloading optional Linux x86_64 ADMIXTURE..."
 curl -L \
   --fail \
   --output software/downloads/admixture_linux-1.4.0.tar.gz \
