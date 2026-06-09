@@ -226,25 +226,28 @@ and rerun the same command. Snakemake will continue from completed outputs.
 
 ## 8. Review Outputs
 
-Start with:
+Start with the final GWAS reports. Each report is written per trait and active
+ancestry stratum:
+
+```text
+results/reports/
+```
+
+The report is the primary review file. It includes the run inputs, reference
+package fingerprint, ancestry and ADMIXTURE summaries, active/skipped strata,
+sample filtering counts, covariates, variant filtering counts, lambda GC, top
+association signals, QQ and Manhattan plots, and POP-MaD projection plot.
+
+Use these supporting files when you need the underlying tables:
 
 ```text
 results/manifests/run_manifest.tsv
 results/config/resolved_config.yaml
 results/qc/strata/strata_counts.tsv
-results/qc/sex/sex_check_summary.tsv
-results/qc/relatedness/relatedness_summary.tsv
 results/qc/admixture/admixture_report.md
-results/reports/
-```
-
-Main GWAS outputs are:
-
-```text
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
 results/plots/{trait}/{ancestry}/
-results/reports/{trait}/
 ```
 
 ## 9. Compress And Export Results

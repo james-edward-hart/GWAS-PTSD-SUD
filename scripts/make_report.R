@@ -150,6 +150,28 @@ admixture_summary <- kv(args[["admixture-summary"]])
 strata_counts <- read_tsv(args[["strata-counts"]])
 stratum <- strata_counts[strata_counts$trait_id == args$trait & strata_counts$ancestry == args$ancestry, , drop = FALSE]
 stratum <- stratum[1, , drop = FALSE]
+trait_strata <- strata_counts[strata_counts$trait_id == args$trait, , drop = FALSE]
+if (nrow(trait_strata)) {
+  trait_strata <- trait_strata[order(trait_strata$ancestry), , drop = FALSE]
+  strata_lines <- c(
+    "| Ancestry | Phenotype-complete N | Cases | Controls | Active | Exclusion reason | Underpowered |",
+    "| --- | ---: | ---: | ---: | --- | --- | --- |",
+    vapply(seq_len(nrow(trait_strata)), function(i) {
+      paste0(
+        "| ", markdown_escape(trait_strata$ancestry[[i]]),
+        " | ", fmt_count(trait_strata$n[[i]]),
+        " | ", fmt_count(trait_strata$cases[[i]]),
+        " | ", fmt_count(trait_strata$controls[[i]]),
+        " | ", markdown_escape(trait_strata$active[[i]]),
+        " | ", markdown_escape(trait_strata$excluded_reason[[i]]),
+        " | ", markdown_escape(trait_strata$underpowered[[i]]),
+        " |"
+      )
+    }, character(1))
+  )
+} else {
+  strata_lines <- "- No trait-level strata rows were available."
+}
 
 
 # Select the chosen genome-build detail row.
@@ -307,6 +329,10 @@ text <- c(
   paste0("- ADMIXTURE study proportions: `", args[["admixture-study"]], "`"),
   paste0("- POP-MaD/ADMIXTURE comparison: `", args[["admixture-comparison"]], "`"),
   paste0("- ADMIXTURE QC report: `", args[["admixture-report"]], "`"),
+  "",
+  "### Trait GWAS Strata",
+  "",
+  strata_lines,
   "",
   "## Sample Filtering",
   "",
