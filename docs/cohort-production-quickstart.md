@@ -23,15 +23,23 @@ explicitly allow them to be stored there.
 
 ## 2. Download The Reference Package
 
-Replace the URL below with the approved reference-package URL.
+Download the approved Stage 1 reference package from Zenodo:
 
 ```bash
 mkdir -p reference-data
-curl -L "<REFERENCE_PACKAGE_URL>" -o reference-data/stage1_reference_package.tar.gz
+curl -L \
+  "https://zenodo.org/api/records/20615958/files/stage1_reference_package.tar.gz/content" \
+  -o reference-data/stage1_reference_package.tar.gz
+curl -L \
+  "https://zenodo.org/api/records/20615958/files/stage1_reference_package.tar.gz.sha256/content" \
+  -o reference-data/stage1_reference_package.tar.gz.sha256
+sha256sum reference-data/stage1_reference_package.tar.gz
+cat reference-data/stage1_reference_package.tar.gz.sha256
 tar -xzf reference-data/stage1_reference_package.tar.gz -C reference-data
 cat reference-data/stage1_reference_package/content_fingerprint.sha256
 ```
 
+Confirm that the printed archive hash matches the hash in the `.sha256` file.
 Use the unpacked package directory as `reference_package.root`. Use the printed
 fingerprint as `reference_package.fingerprint`.
 
