@@ -1,8 +1,7 @@
 # Cohort Production Quickstart
 
-This is the short run manual for launching a production cohort GWAS. Use it
-when you already have approved cohort data, a reference package, and cluster
-access.
+This is the run manual for launching a production cohort GWAS. Use it
+when you have prepared phenotypic data and a cluster with access to conda channels.
 
 For full parameter details, see the
 [Configuration Guide](configuration.md). If a run fails, use the
@@ -39,13 +38,13 @@ tar -xzf reference-data/stage1_reference_package.tar.gz -C reference-data
 cat reference-data/stage1_reference_package/content_fingerprint.sha256
 ```
 
-Confirm that the printed archive hash matches the hash in the `.sha256` file.
+IMPORTANT: You will use this info in the config later.
 Use the unpacked package directory as `reference_package.root`. Use the printed
-fingerprint as `reference_package.fingerprint`.
+fingerprint (that printed to terminal) as `reference_package.fingerprint`.
 
 ## 3. Prepare Cohort Inputs
 
-Prepare one PLINK genotype dataset:
+Prepare one PLINK genotype dataset (already imputed):
 
 ```text
 PGEN/PVAR/PSAM
