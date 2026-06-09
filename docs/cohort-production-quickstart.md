@@ -271,9 +271,6 @@ Create a run archive:
 ```bash
 tar -czf cohort_stage1_gwas_results_YYYY-MM-DD.tar.gz \
   config/config.yaml \
-  profiles/slurm/config.yaml \
-  resources/manifests/software.tsv \
-  resources/manifests/reference_data.tsv \
   results/
 ```
 
