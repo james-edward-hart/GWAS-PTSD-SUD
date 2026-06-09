@@ -75,7 +75,7 @@ mean_age <- mean(manifest$age, na.rm = TRUE)
 manifest$age2 <- (manifest$age - mean_age)^2
 ```
 
-Prepare a trait registry TSV:
+Prepare a trait registry TSV (editable example at config/example_traits.tsv):
 
 ```text
 trait_id	phenotype_column	case_value	control_value	missing_values
