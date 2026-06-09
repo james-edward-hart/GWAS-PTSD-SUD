@@ -72,4 +72,5 @@ results/manifests/run_manifest.tsv
 ```
 
 `{analysis_name}` is the filename-safe version of `project.analysis_name`.
-The production review and archive sequence is in [cohort-production-run-manual.md](cohort-production-run-manual.md).
+The production review and archive sequence is in
+[cohort-production-quickstart.md](cohort-production-quickstart.md).

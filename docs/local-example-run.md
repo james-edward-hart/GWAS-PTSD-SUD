@@ -8,7 +8,7 @@ Do not use these files as a template for cohort analysis. Full Stage 1 runs
 require one cohort genotype dataset, a sample manifest (phenotype + covariate
 file), a trait registry, a build-matched fingerprinted reference package, and
 the production workflow described in
-[cohort-production-run-manual.md](cohort-production-run-manual.md).
+[cohort-production-quickstart.md](cohort-production-quickstart.md).
 
 ## Fixture Setup
 
@@ -37,4 +37,4 @@ mamba run -n gwas-stage1 Rscript scripts/test_ancestry_reference.R
 mamba run -n gwas-stage1 Rscript scripts/test_admixture_qc.R
 ```
 
-Use the full production run manual for real cohort analyses.
+Use the production quickstart for real cohort analyses.

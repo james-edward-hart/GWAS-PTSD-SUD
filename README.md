@@ -41,8 +41,8 @@ flowchart LR
 ## Start Here
 
 If you are running cohort data, go straight to the
-[Cohort Production Run Manual](docs/cohort-production-run-manual.md). It is the
-complete step-by-step operating guide for a production SLURM run.
+[Cohort Production Quickstart](docs/cohort-production-quickstart.md). It is the
+short step-by-step operating guide for a production SLURM run.
 
 Use this README as the project front page and documentation index.
 
@@ -50,7 +50,8 @@ Use this README as the project front page and documentation index.
 
 | Area | Document | Purpose |
 | --- | --- | --- |
-| Run | [Cohort Production Run Manual](docs/cohort-production-run-manual.md) | Complete start-to-finish production runbook for SLURM cohort analyses. |
+| Run | [Cohort Production Quickstart](docs/cohort-production-quickstart.md) | Short start-to-finish runbook for SLURM cohort analyses. |
+| Troubleshoot | [Cohort Production Troubleshooting Guide](docs/cohort-production-run-manual.md) | Step-organized fixes for setup, validation, QC, GWAS, reporting, and export failures. |
 | Configure | [Configuration Guide](docs/configuration.md) | Field-by-field instructions for `config/config.yaml`, sample manifests (phenotype + covariate files), and trait registries. |
 | Orient | [Pipeline Overview](docs/pipeline-overview.md) | Stage descriptions, expected outputs, and how the workflow is organized. |
 | Reference | [Ancestry Reference Preparation](docs/ancestry-reference-prep.md) | How to use, validate, and document the ancestry reference package. |

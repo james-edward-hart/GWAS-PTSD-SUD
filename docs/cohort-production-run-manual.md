@@ -1,364 +1,201 @@
-# Cohort Production Run Manual
+# Cohort Production Troubleshooting Guide
 
-This is the complete operating guide for running the Stage 1
-ancestry-stratified GWAS pipeline on real cohort data. You should be able to run
-a cohort analysis from this page without switching back to the main README.
+Use this guide when the
+[Cohort Production Quickstart](cohort-production-quickstart.md) fails or when a
+cohort run needs a targeted check before rerunning.
 
-Use the production reference package supplied for the analysis. Set its path and
-fingerprint in `config/config.yaml`; do not run development-data setup commands
-or rebuild the reference package as part of a cohort run.
+For any failure, start with the rule log named by Snakemake. Most logs are under
+`results/logs/`. SLURM wrapper logs are under `.snakemake/slurm_logs/`, and
+Snakemake engine logs are under `.snakemake/log/`.
 
-## 1. Put The Pipeline On The Cluster
+After fixing the cause, rerun the same Snakemake command. Completed outputs are
+reused automatically.
 
-### 1.1 Copy Or Clone The Repository
+## Step 1: Clone The Repository
 
-Copy or clone the repository into a project directory on the cluster.
+### SLURM Jobs Cannot See Files
 
-```bash
-cd /path/to/project
-git clone https://github.com/james-edward-hart/GWAS-PTSD-SUD.git
-cd GWAS-PTSD-SUD
-```
+**Symptom:** Dry-run works, but submitted jobs fail with missing input files.
 
-### 1.2 Keep Protected Data Outside The Repository
+**Likely cause:** The repository, input genotypes, reference package,
+`conda-prefix`, or `results/` directory is only visible from the login node.
 
-Keep protected cohort data outside the repository when required by your data-use
-rules. Do not commit cohort data, credentials, or private storage paths.
+**Fix:** Use full paths on storage visible from login and compute nodes. Avoid
+`~` and shell variables in YAML paths.
 
-### 1.3 Use Shared Storage
+### Protected Data Appears In The Repository
 
-Use storage visible from login and compute nodes for the repository, input
-genotypes, prebuilt reference package, conda environments, and `results/`.
-If a path is only visible from the login node, Snakemake may dry-run
-successfully and then fail when the SLURM job starts.
+**Symptom:** Cohort files, private paths, or credentials appear in `git status`
+or are copied into repository folders.
 
-## 2. Set Up Snakemake
+**Likely cause:** Production inputs were placed under the cloned repository.
 
-### 2.1 Use A Login Or Build Node
+**Fix:** Keep protected cohort data outside the repository unless your
+data-use rules explicitly allow it. Point `config/config.yaml` to the protected
+data location.
 
-Use a login/build node for environment setup. Load the cluster module or shell
-setup that provides `conda` or `mamba`. The exact module name is
-site-specific; common choices are Miniforge, Mambaforge, Miniconda, or Anaconda.
-Prefer a current conda/mamba module with conda-forge and bioconda access. Do
-not use a Python-only module for environment creation.
+## Step 2: Download The Reference Package
 
-On the cluster used for this project, load:
+### Reference Fingerprint Fails
 
-```bash
-module load miniforge3/23.3.1
-```
+**Symptom:** Preflight or validation reports a reference fingerprint mismatch.
 
-### 2.2 Create The Driver Environment
+**Likely cause:** `reference_package.root` points to the `.tar.gz`, the
+configured fingerprint is the archive checksum, the wrong package was unpacked,
+or package contents changed after release.
 
-Create and activate the Snakemake driver environment. The repository includes
-this environment in `envs/snakemake-driver.yaml`; it installs Snakemake and the
-SLURM executor plugin needed by the bundled profile. It also installs a current
-`conda`, which Snakemake uses to create rule-specific environments.
+**Fix:** Use the unpacked package directory as `reference_package.root`. Use the
+value in:
 
 ```bash
-mamba env create -f envs/snakemake-driver.yaml
-conda activate gwas-stage1-driver
+cat /path/to/stage1_reference_package/content_fingerprint.sha256
 ```
 
-If the environment already exists from an older checkout, update it from the
-repository environment file:
+Do not edit `reference_package.observed_fingerprint`; the workflow writes it in
+`results/config/resolved_config.yaml`.
 
-```bash
-mamba env update -n gwas-stage1-driver -f envs/snakemake-driver.yaml --prune
+### Reference Package Content Fails Validation
+
+**Symptom:** Validation reports missing manifests, extra package files,
+absolute paths, `..` paths, size mismatches, SHA-256 mismatches, raw Hail/VCF/BCF
+files, or missing panel files.
+
+**Likely cause:** The package is incomplete, was edited, or was repackaged
+incorrectly.
+
+**Fix:** Re-extract the approved package and use that clean directory. macOS
+sidecar files such as `._*`, `.DS_Store`, and `__MACOSX/` are ignored; real
+unmanifested analysis files still fail.
+
+### Reference Panel Build Does Not Match
+
+**Symptom:** Validation reports that the package is missing a POP-MaD or
+ADMIXTURE panel for the inferred study build.
+
+**Likely cause:** The study build and reference package build do not align.
+
+**Fix:** Inspect `results/qc/genome_build/genome_build_marker_matches.tsv`.
+Use a reference package containing the inferred build, or fix genotype marker
+IDs/coordinates if build inference is wrong.
+
+## Step 3: Prepare Cohort Inputs
+
+### Genotype Files Are Missing
+
+**Symptom:** Validation cannot find `.pgen/.pvar/.psam` or `.bed/.bim/.fam`, or
+the expected path looks like `.pgen.pgen`.
+
+**Likely cause:** `genotypes.prefix` includes a file extension.
+
+**Fix:** Set the prefix without an extension:
+
+```yaml
+genotypes:
+  type: "pgen"
+  prefix: "/path/to/cohort/genotypes_without_extension"
 ```
 
-Use the driver environment for Snakemake commands. Do not keep the utility R
-environment active at the same time; use `mamba run -n gwas-stage1 ...` for
-preflight checks instead.
+VCF/BCF is not accepted directly. Convert upstream to PLINK first.
 
-### 2.3 Verify The SLURM Executor
+### Sample Manifest IDs Do Not Match Genotypes
 
-Confirm that the active environment includes the Snakemake SLURM executor
-plugin.
+**Symptom:** Validation reports that sample manifest IDs are absent from the
+genotype files.
 
-```bash
-echo "$CONDA_PREFIX"
-"$CONDA_PREFIX/bin/conda" --version
-python -c "import conda; print(conda.__version__)"
-python -c "import snakemake_executor_plugin_slurm"
-snakemake --version
-```
+**Likely cause:** `FID/IID` formatting differs between the sample manifest TSV
+(phenotype + covariate file) and the FAM/PSAM files.
 
-`$CONDA_PREFIX` should point to the `gwas-stage1-driver` environment, and
-`$CONDA_PREFIX/bin/conda --version` must report `24.7.1` or later. A plain
-`conda --version` command may report the module or base conda version instead,
-so use the explicit path above for this check. If Snakemake reports
-`CreateCondaEnvironmentException: Conda must be version 24.7.1 or later`, update
-`gwas-stage1-driver` from `envs/snakemake-driver.yaml` after loading the
-intended conda/mamba module.
+**Fix:** Compare IDs exactly. Preserve leading zeros, spelling, and whitespace.
+Order does not matter.
 
-If the import command fails, the SLURM executor plugin is not installed in the
-active Snakemake environment. The most common fix is to load the intended
-conda/mamba module, activate `gwas-stage1-driver`, and rebuild or update that
-environment from `envs/snakemake-driver.yaml`.
+### Manifest Columns Or Values Fail Validation
 
-If `mamba env update` does not update the driver environment conda version, run:
+**Symptom:** Validation reports missing phenotype/covariate columns, nonnumeric
+covariates, duplicate `FID/IID`, or invalid sex codes.
 
-```bash
-mamba install -n gwas-stage1-driver -c conda-forge "conda>=24.7.1"
-```
+**Likely cause:** The manifest was exported as CSV/Excel, headers changed, or
+categorical values were not recoded.
 
-Snakemake may also warn if conda channel priority is not strict. This warning is
-not the same as a failed dry run, but strict priority makes rule environment
-creation more reproducible:
+**Fix:** Export tab-delimited TSV with exact headers. Include `FID`, `IID`,
+`age`, `age2`, `sex`, every phenotype column, and every non-PC covariate.
+Sex must be `1`, `2`, `0`, `NA`, `-9`, or `.`.
 
-```bash
-conda config --set channel_priority strict
-```
+### `age2` Looks Wrong
 
-### 2.4 Create The Utility R Environment
+**Symptom:** `age2` values are very large or hard to interpret.
 
-Create the utility R environment used by the production preflight script. This
-environment is separate from the Snakemake driver environment; it provides R,
-`yaml`, `jsonlite`, and the small command-line tools needed for standalone
-checks.
+**Likely cause:** Raw `age^2` was used.
 
-```bash
-mamba env create -f envs/gwas.yaml
-```
-
-If `gwas-stage1` already exists, update it from the repository environment file:
-
-```bash
-mamba env update -n gwas-stage1 -f envs/gwas.yaml --prune
-```
-
-If your cluster provides `conda` but not `mamba`, use:
-
-```bash
-conda env create -f envs/gwas.yaml
-```
-
-### 2.5 Let Snakemake Create Rule Environments
-
-Snakemake creates rule-specific conda environments during the workflow run.
-Create them ahead of time only if compute nodes cannot access conda channels;
-that command is listed in Step 9. The rule environment definitions live in
-`envs/`, so users should not manually install rule dependencies into the driver
-environment.
-
-## 3. Prepare The Real Input Files
-
-### 3.1 Prepare One PLINK Genotype Dataset
-
-Prepare one genome-wide PLINK dataset:
-
-- `PGEN/PVAR/PSAM`, or
-- `BED/BIM/FAM`
-
-VCF/BCF is not accepted directly. Convert it upstream before using this
-pipeline.
-
-Set the config genotype prefix without the file extension. For example, use
-`/path/to/cohort/genotypes` rather than `/path/to/cohort/genotypes.pgen`.
-
-### 3.2 Prepare The Sample Manifest
-
-Prepare a sample manifest TSV (phenotype + covariate file) with at least:
-
-```text
-FID	IID	age	age2	sex
-```
-
-**Also include every phenotype column** and every non-PC covariate used in the
-GWAS. Sex codes must be `1`, `2`, `0`, `NA`, `-9`, or `.`. Do not use `M/F`
-sex codes. `FID/IID` rows must be unique.
-
-Export this file as tab-delimited text, not CSV or Excel. Header names are
-matched exactly, and non-PC covariates used in the model should be numeric after
-missing values are applied.
-
-### 3.3 Calculate `age2`
-
-Calculate `age2` before running the pipeline as a centered quadratic age term:
+**Fix:** Use a centered quadratic term and record the mean age used:
 
 ```r
 mean_age <- mean(manifest$age, na.rm = TRUE)
 manifest$age2 <- (manifest$age - mean_age)^2
 ```
 
-Use the same age units as `age`, usually years. Do not use raw `age^2` unless
-that is an explicitly approved analysis choice, and record the `mean_age` value
-with the cohort release notes.
+### Trait Registry Fails Before Jobs Start
 
-### 3.4 Prepare The Trait Registry
+**Symptom:** Snakemake fails while building the DAG with a missing or empty
+`trait_id` message.
 
-Prepare a trait registry TSV with:
+**Likely cause:** `inputs.trait_registry` is wrong, unreadable, or missing the
+`trait_id` column.
+
+**Fix:** Confirm the trait registry path and required columns:
 
 ```text
 trait_id	phenotype_column	case_value	control_value	missing_values
 ```
 
-Optional trait-specific covariates can be added in a `covariates` column as a
-comma-separated list.
+Use simple, unique `trait_id` values because they are used in output paths.
 
-### 3.5 Confirm ID Matching
+### Unexpected Phenotype Value
 
-Make sure `FID/IID` values match exactly between the sample manifest and
-genotype files before running preflight or Snakemake validation.
-Order does not matter, but spelling, leading zeros, and whitespace do.
+**Symptom:** Trait-file generation reports an unexpected phenotype value.
 
-## 4. Record Cohort Data Release
+**Likely cause:** The sample manifest contains a value not listed as case,
+control, or missing for that trait.
 
-### 4.1 Set A Cohort Release Label
+**Fix:** Update the trait registry `case_value`, `control_value`, and
+`missing_values`, or recode the phenotype column in the manifest.
 
-Set a clear cohort release label in the config.
+## Step 4: Configure The Run
 
-```yaml
-project:
-  cohort_data_release: "cohort_freeze_or_release_label"
-```
+### Wrong File Is Being Edited
 
-### 4.2 Continue With The Config
+**Symptom:** Changes do not affect the run, or validation still sees old paths.
 
-After setting `project.cohort_data_release`, continue to Step 5. No additional
-input log is required here. When the workflow runs, it automatically records the
-resolved config and run-level metadata under `results/`.
+**Likely cause:** The configured production files were not edited.
 
-### 4.3 Review Software And Reference Manifests
-
-Review these repository provenance files during configuration and again before
-sharing final results:
+**Fix:** For a standard run, configure:
 
 ```text
+config/config.yaml
+profiles/slurm/config.yaml
 resources/manifests/software.tsv
 resources/manifests/reference_data.tsv
 ```
 
-Record the Linux PLINK2 and ADMIXTURE versions/paths in `software.tsv`. Record
-cohort-approved reference provenance in `reference_data.tsv`; the prebuilt
-package fingerprint remains the runtime reference validation.
+Start `config/config.yaml` from `config/config.template.yaml`.
 
-## 5. Create The Production Config
+### Old Config Fields Are Still Present
 
-### 5.1 Know Which Files You Configure
+**Symptom:** Validation reports unsupported fields such as `ancestry_file`,
+`pcs_file`, `projected_pcs_file`, or `reference_pcs_file`.
 
-For a standard production run, configure these repository files:
+**Likely cause:** The config still contains precomputed ancestry/PC settings.
 
-| File | Where it lives | What to do |
-| --- | --- | --- |
-| `config/config.yaml` | Copy from `config/config.template.yaml` in the repository root | Main run config. Set paths to cohort inputs, the reference package, tools, genotype files, ancestries, and QC options. |
-| `profiles/slurm/config.yaml` | Bundled SLURM profile in `profiles/slurm/` | Set site scheduler values such as account, partition, QOS, job resources, and `conda-prefix`. |
-| `resources/manifests/software.tsv` | Repository provenance file in `resources/manifests/` | Record the PLINK2, ADMIXTURE, Snakemake, and R versions used for the run. |
-| `resources/manifests/reference_data.tsv` | Repository provenance file in `resources/manifests/` | Record the ancestry reference package provenance. Runtime validation still uses the package fingerprint in `config/config.yaml`. |
+**Fix:** Remove those fields. Production ancestry and PC covariates are computed
+from the reference package.
 
-These cohort files do not have to live in the repository. For production, keep
-protected cohort inputs on secure cluster-visible storage and point to them from
-`config/config.yaml`:
+### Production Safety Gates Fail
 
-| Cohort input | Config field |
-| --- | --- |
-| Sample manifest TSV (phenotype + covariate file) | `inputs.sample_manifest` |
-| Trait registry TSV | `inputs.trait_registry` |
-| Study genotype prefix without extension | `genotypes.prefix` |
-| Unpacked ancestry reference package directory | `reference_package.root` |
+**Symptom:** Preflight or validation requires ancestry, ADMIXTURE, sex-check, or
+PC settings.
 
-Most runs should leave `resources.input_manifest: ""`. Only set it to
-`resources/manifests/input_data.tsv` if your team wants an additional short
-free-text note file about the cohort input release.
+**Likely cause:** Production safety settings were changed.
 
-### 5.2 Copy The Template
-
-Start from the template.
-
-```bash
-cp config/config.template.yaml config/config.yaml
-```
-
-Edit:
-
-```text
-config/config.yaml
-```
-
-Use full paths that are visible on compute nodes. Avoid `~` and shell variables
-inside YAML values because they are not a reliable substitute for explicit
-cluster-visible paths.
-
-### 5.3 Set Required Fields First
-
-Set these fields first:
-
-```yaml
-project:
-  analysis_name: "cohort_stage1_gwas"
-  cohort_data_release: "cohort_freeze_or_release_label"
-  genome_build: "auto"
-
-reference_package:
-  root: "/path/to/unpacked/stage1_reference_package"
-  fingerprint: "value-from-content_fingerprint.sha256"
-
-inputs:
-  sample_manifest: "/path/to/cohort/sample_manifest.tsv"
-  trait_registry: "/path/to/cohort/trait_registry.tsv"
-
-tools:
-  plink2: "plink2"
-  plink1: "plink"
-  admixture: "admixture"
-
-genotypes:
-  type: "pgen"
-  prefix: "/path/to/cohort/genotypes_without_extension"
-
-resources:
-  input_manifest: ""
-```
-
-Use `plink2`, `plink1`, and `admixture` only if those commands resolve inside cluster
-jobs. Otherwise, set each field to a full Linux executable path or a
-site-approved module shim, and record the same tool versions in
-`resources/manifests/software.tsv`.
-
-### 5.4 Set The Reference Fingerprint
-
-Get the reference fingerprint from the unpacked package.
-
-```bash
-cat /path/to/unpacked/stage1_reference_package/content_fingerprint.sha256
-```
-
-For this project reference package, the expected fingerprint may be:
-
-```text
-532a1e34598aa8c92ca72a8c3983dd06c82f19ea0562c45cd75d31054647976f
-```
-
-Use the value provided with your actual package. Use the unpacked package
-directory as `reference_package.root`. Do not use the `.tar.gz` archive path,
-and do not use the archive checksum as the content fingerprint.
-
-Do not manually add or edit `reference_package.observed_fingerprint`;
-Snakemake writes that into `results/config/resolved_config.yaml`.
-
-### 5.5 Confirm The Reference Package Handoff
-
-The reference package handoff must include:
-
-- `content_fingerprint.sha256`
-- `file_manifest.tsv`
-- `panel_manifest.tsv`
-- package-relative paths only
-- exactly one build-matched `popmad` panel for the inferred study build
-- exactly one build-matched `admixture` panel for the inferred study build
-
-The resolver rejects missing manifest files, unmanifested package files,
-absolute paths, `..` paths, file-size or SHA-256 mismatches, raw Hail/VCF/BCF
-artifacts, and package panels whose required genotype, metadata, or
-exclusion-region files are absent from `file_manifest.tsv`. macOS sidecar files
-such as `._*`, `.DS_Store`, and `__MACOSX/` are ignored because they are copy
-metadata, not reference-package content.
-
-### 5.6 Keep Production Safety Settings
-
-Keep these production settings unless there is a documented reason to change
-them:
+**Fix:** Keep these unless the analysis plan explicitly says otherwise:
 
 ```yaml
 ancestry_reference:
@@ -376,31 +213,71 @@ gwas:
   allow_missing_pcs: false
 ```
 
-When the sex-check threshold fields are blank, the workflow uses chrX defaults
-of `max-female-xf=0.2` and `min-male-xf=0.8`. If sex check removes every
-sample, review `results/qc/sex/sexcheck.tsv` and adjust thresholds or fix
-manifest/genotype sex coding before continuing. Custom thresholds must include
-both chrX fields; Y-rate thresholds are optional but must be supplied as a pair.
+### Tool Executables Are Not Found
 
-If the genotype data are autosome-only, set
-`sex_check.allow_no_sex_markers: true` only after external sex QC has already
-been completed and documented.
+**Symptom:** Validation or a cluster job cannot find `plink2`, `plink`, or
+`admixture`.
 
-### 5.7 Set Analysis Strata And QC Options
+**Likely cause:** Commands resolve on the login node but not inside compute
+jobs, or the config points to a non-Linux binary.
 
-Set `analysis.ancestries` to the candidate GWAS ancestry strata you are willing
-to analyze. The pipeline keeps only strata with at least
-`analysis.min_stratum_n` assigned samples, writes the active list to
-`results/qc/strata/active_ancestries.tsv`, and skips lower-count strata before
-within-ancestry PCs or GWAS jobs are created. ADMIXTURE reference labels stay in
-`admixture.labels` and can still include all report-only QC groups.
+**Fix:** Use Linux executables that work in SLURM jobs. If needed, set full
+paths or site-approved module shims in `tools.*`, and record versions in
+`resources/manifests/software.tsv`.
 
-If POP-MaD excludes the expected samples but the run fails on
-`popmad.max_unassigned_fraction`, raise that value deliberately in
-`config/config.yaml`. Treat this as a documented QC decision, not a routine
-workaround.
+### Optional Input Manifest Fails
 
-For imputed dosage data with MACH_R2/INFO annotations, set:
+**Symptom:** Validation reports an error for `resources.input_manifest`.
+
+**Likely cause:** The optional input manifest path is set but the file is
+missing or has the wrong schema.
+
+**Fix:** Most runs should leave `resources.input_manifest: ""`. If your team
+uses the optional note file, keep it small and include only these columns:
+`file_role`, `cohort_data_release`, and `notes`.
+
+### Strata Are Skipped
+
+**Symptom:** A configured ancestry does not launch GWAS jobs.
+
+**Likely cause:** Fewer than `analysis.min_stratum_n` samples were assigned to
+that ancestry, or the ancestry label is not present in POP-MaD output.
+
+**Fix:** Review:
+
+```text
+results/qc/strata/active_ancestries.tsv
+results/qc/strata/excluded_ancestries.tsv
+results/qc/strata/strata_counts.tsv
+```
+
+Adjust `analysis.ancestries` or `analysis.min_stratum_n` only as a documented
+analysis decision.
+
+### Too Many Samples Are Unassigned
+
+**Symptom:** Strata creation fails on `popmad.max_unassigned_fraction`.
+
+**Likely cause:** POP-MaD excluded many samples, ancestry labels are not
+configured, or low-count ancestries were removed from active strata.
+
+**Fix:** Review:
+
+```text
+results/qc/ancestry/production/popmad_excluded.tsv
+results/qc/strata/unassigned_ancestry.tsv
+```
+
+Raise `popmad.max_unassigned_fraction` only when the dropped samples are
+expected and documented.
+
+### Imputed Dosage Filters Are Not Applied
+
+**Symptom:** Imputed variants are present but MACH_R2/INFO filtering is not used.
+
+**Likely cause:** INFO filtering is disabled in the config.
+
+**Fix:** For imputed dosage data with MACH_R2/INFO annotations, set:
 
 ```yaml
 qc:
@@ -408,97 +285,145 @@ qc:
   info_min: 0.8
 ```
 
-## 6. Configure The SLURM Profile
+## Step 5: Set Up The Environment
 
-### 6.1 Find Your Cluster Values
+### Conda Module Is Unclear
 
-On the cluster login node, list available partitions and the account/QOS
-combinations assigned to your user:
+**Symptom:** `conda` or `mamba` is missing, or environment creation uses the
+wrong Python-only module.
+
+**Likely cause:** The conda-providing cluster module is not loaded.
+
+**Fix:** Load the site conda/mamba module first. On the project cluster:
+
+```bash
+module load miniforge3/23.3.1
+```
+
+### SLURM Executor Is Missing
+
+**Symptom:** Snakemake reports `invalid choice: 'slurm'`, or this import fails:
+
+```bash
+python -c "import snakemake_executor_plugin_slurm"
+```
+
+**Likely cause:** The driver environment is not active or is out of date.
+
+**Fix:** Activate or update the Snakemake driver environment:
+
+```bash
+conda activate gwas-stage1-driver
+mamba env update -n gwas-stage1-driver -f envs/snakemake-driver.yaml --prune
+```
+
+### Snakemake Rejects The Conda Version
+
+**Symptom:** Snakemake reports `Conda must be version 24.7.1 or later`.
+
+**Likely cause:** An old base/module conda is shadowing the driver environment.
+
+**Fix:** Check the conda inside the active environment:
+
+```bash
+echo "$CONDA_PREFIX"
+"$CONDA_PREFIX/bin/conda" --version
+python -c "import conda; print(conda.__version__)"
+```
+
+If needed:
+
+```bash
+mamba install -n gwas-stage1-driver -c conda-forge "conda>=24.7.1"
+```
+
+### Utility R Environment Is Missing Packages
+
+**Symptom:** Preflight fails with `R package 'yaml' is required` or
+`gwas-stage1` cannot be found.
+
+**Likely cause:** The utility R environment was not created or is stale.
+
+**Fix:** Create or update it:
+
+```bash
+mamba env create -f envs/gwas.yaml
+mamba env update -n gwas-stage1 -f envs/gwas.yaml --prune
+```
+
+Then check:
+
+```bash
+mamba run -n gwas-stage1 Rscript -e 'library(yaml); library(jsonlite); cat("R utility environment OK\n")'
+```
+
+### Rule Environments Fail On Compute Nodes
+
+**Symptom:** Conda solve or download errors happen only after jobs start.
+
+**Likely cause:** Compute nodes cannot access conda channels, or
+`conda-prefix` is unset or inaccessible.
+
+**Fix:** Set `conda-prefix` in `profiles/slurm/config.yaml` to a writable
+directory accessible to compute nodes. Pre-create rule environments from a
+login/build node:
+
+```bash
+snakemake --profile profiles/slurm --conda-create-envs-only
+```
+
+Strict channel priority warnings are not the same as failed runs, but strict
+priority improves reproducibility:
+
+```bash
+conda config --set channel_priority strict
+```
+
+### SLURM Account, Partition, Or QOS Is Wrong
+
+**Symptom:** Jobs stay pending or fail submission with invalid account,
+partition, or QOS.
+
+**Likely cause:** `profiles/slurm/config.yaml` still has placeholders or uses a
+QOS/partition not assigned to your account.
+
+**Fix:** Check available values:
 
 ```bash
 sinfo -o "%P %a %l %D %C"
 sacctmgr -nP show assoc user=$USER format=Account,Partition,QOS,DefaultQOS
 ```
 
-Use a partition that is available, has a sufficient time limit, and appears in
-your user association. If `sinfo` prints a partition as `cpu*`, use `cpu` in
-the profile; the `*` marks the cluster default and is not part of the partition
-name. Set `slurm-qos` only to a QOS allowed for the selected
-account and partition. If `sacctmgr` is not available on your cluster, use the
-site HPC documentation or ask the cluster support team which account,
-partition, and QOS should be used for batch jobs.
+If `sinfo` shows `cpu*`, use `cpu`; the `*` marks the default. Put account and
+partition under `default-resources`. Set `slurm-qos` separately only if the
+cluster uses QOS.
 
-Choose `conda-prefix` rather than discovering it from SLURM. It should be a
-writable directory for Snakemake-created rule environments, not the path to the
-conda installation itself. A directory in your home folder is acceptable if it
-is accessible to compute nodes and has enough quota.
+`conda-prefix` is not the conda install path. It is a writable directory for
+Snakemake-created rule environments, and it may be in your home directory if
+compute nodes can access it and quota is sufficient.
 
-### 6.2 Edit The Profile
+### Jobs Hit Time Or Memory Limits
 
-Edit:
+**Symptom:** SLURM marks jobs as timed out, out of memory, or killed.
 
-```text
-profiles/slurm/config.yaml
-```
+**Likely cause:** Profile resources are too small for the cohort or selected
+partition.
 
-### 6.3 Set Site Values
+**Fix:** Increase rule resources in `profiles/slurm/config.yaml`. `runtime`
+values are minutes. Keep `default-resources` active; it supplies account,
+partition, memory, and runtime defaults to submitted jobs.
 
-Set site-specific values such as:
+## Step 6: Run Basic Checks
 
-```yaml
-slurm-qos: "normal"
-conda-prefix: "/path/to/shared/conda/envs"
+### Preflight Fails
 
-default-resources:
-  slurm_account: "your_account"
-  slurm_partition: "standard"
-  mem_mb: 4000
-  runtime: 30
-```
+**Symptom:** `production_preflight.R` reports failures.
 
-`default-resources` should stay active. It supplies the account, partition,
-memory, and runtime defaults for each submitted job. `slurm-qos` is separate
-because QOS is a SLURM executor option; leave it commented out or delete it if
-your cluster does not use QOS.
+**Likely cause:** A production gate failed before Snakemake submission.
 
-For example, if your site values are account `hartj5`, QOS `normal`, partition
-`cpu`, and environment directory `/lustre/home/hartj5/environments`, use:
-
-```yaml
-slurm-qos: "normal"
-conda-prefix: "/lustre/home/hartj5/environments"
-
-default-resources:
-  slurm_account: "hartj5"
-  slurm_partition: "cpu"
-  mem_mb: 4000
-  runtime: 30
-```
-
-### 6.4 Confirm Runtime And Environment Storage
-
-Adjust memory, runtime, partition, and job limits if your cluster requires
-different settings. `runtime` values in the profile are minutes. Put
-`conda-prefix` on storage that compute nodes can access, not node-local scratch.
-
-If `conda-prefix` is left unset, Snakemake may create environments under the
-repository `.snakemake/` directory. That can work for small runs, but production
-clusters often require an explicit shared environment directory to avoid home
-quota and compute-node visibility problems.
-
-## 7. Run Preflight Checks
-
-### 7.1 Activate The Driver Environment
-
-From the repository root:
-
-```bash
-<activate-command> gwas-stage1-driver
-```
-
-### 7.2 Run Production Preflight
-
-Run the preflight script through the utility R environment from Step 2.4:
+**Fix:** Read the reported failures directly. Preflight checks the reference
+fingerprint, required ancestry settings, optional input-manifest path, SLURM
+profile placeholders, and whether `results/` is clean.
 
 ```bash
 mamba run -n gwas-stage1 Rscript scripts/production_preflight.R \
@@ -506,80 +431,31 @@ mamba run -n gwas-stage1 Rscript scripts/production_preflight.R \
   --profile profiles/slurm/config.yaml
 ```
 
-If this command cannot find `gwas-stage1`, create the utility environment from
-Step 2.4 after loading the conda/mamba module from Step 2.1. If your cluster
-provides `conda` but not `mamba`, use `conda run -n gwas-stage1` instead.
+If rerunning into an existing `results/` directory is intentional, use the
+script's `--allow-existing-results` option.
 
-If preflight reports `R package 'yaml' is required`, the `gwas-stage1`
-environment is incomplete or older than `envs/gwas.yaml`. Update it with:
+### Dry-Run Passes But Real Jobs Fail
 
-```bash
-mamba env update -n gwas-stage1 -f envs/gwas.yaml --prune
-```
+**Symptom:** `snakemake -n --profile profiles/slurm` succeeds, but submitted
+jobs fail.
 
-Then confirm the required R packages are available:
+**Likely cause:** Dry-run only proves Snakemake can build the DAG. It does not
+prove compute-node path visibility, executables, or conda access.
 
-```bash
-mamba run -n gwas-stage1 Rscript -e 'library(yaml); library(jsonlite); cat("R utility environment OK\n")'
-```
-
-### 7.3 Confirm Preflight Passes
-
-Preflight must pass before submission. It checks the reference package
-fingerprint, required ancestry settings, optional input-manifest path existence,
-SLURM profile placeholders, and whether `results/` is clean.
-If it fails, fix the reported config or profile issue before continuing; do not
-start the workflow and expect Snakemake to correct these settings.
-
-## 8. Dry-Run The Workflow
-
-### 8.1 Run The Dry-Run
-
-```bash
-snakemake -n --profile profiles/slurm
-```
-
-### 8.2 Review Planned Jobs
-
-Review the planned jobs. Do not start the real run until the dry-run completes
-without errors.
-
-A successful dry-run confirms that Snakemake can build the workflow graph. It
-does not prove that compute nodes can read every path or load every executable;
-the validation and QC pilots below check those operational details.
-
-## 9. Create Conda Environments
-
-### 9.1 Pre-Create Environments If Needed
-
-If compute nodes cannot access conda channels, create environments before the
-main run:
-
-```bash
-snakemake --profile profiles/slurm --conda-create-envs-only
-```
-
-Run this from a login/build node that has conda channel access and can write to
-the configured `conda-prefix`. After this step, compute jobs should be able to
-use the prebuilt environments without reaching external channels.
-
-### 9.2 Wait For First-Time Solves
-
-This step may take a while the first time.
-
-## 10. Run A Validation Pilot
-
-### 10.1 Run Input Validation
-
-Run the input validation target before launching the full workflow:
+**Fix:** Run the validation target before the full workflow:
 
 ```bash
 snakemake --profile profiles/slurm results/qc/input_validation/validation.ok
 ```
 
-### 10.2 Review Validation Outputs
+### Validation Fails
 
-Review:
+**Symptom:** The validation target fails.
+
+**Likely cause:** The resolved config, genotype files, manifest, trait registry,
+tools, build inference, or reference package failed a production check.
+
+**Fix:** Start with:
 
 ```text
 results/logs/validation/
@@ -588,23 +464,31 @@ results/config/effective_config.yaml
 results/config/resolved_config.yaml
 ```
 
-Do not continue until validation passes.
-For failures, start with the matching files in `results/logs/validation/`; they
-usually identify the missing column, inaccessible path, or build-resolution
-problem directly.
-
-### 10.3 Use Snakemake Validation For Production
-
 Do not run `scripts/validate_config.R` directly on `config/config.yaml` for
-production. Production validation uses the build-resolved config written by
-Snakemake.
+production. Snakemake validation uses the build-resolved config.
 
-## 11. Run An Ancestry/QC Pilot
+### Genome Build Cannot Be Inferred
 
-### 11.1 Run The QC Targets
+**Symptom:** Build inference reports no marker matches, weak support, or weak
+margin.
 
-Before the full GWAS, run the reference projection, POP-MaD, ADMIXTURE, strata,
-sex-check, and relatedness QC outputs:
+**Likely cause:** The marker panel, variant IDs, or marker coordinates do not
+match the study genotype build.
+
+**Fix:** Inspect:
+
+```text
+results/qc/genome_build/genome_build_marker_matches.tsv
+```
+
+Then verify rsIDs and coordinates in the study BIM/PVAR.
+
+### Smaller QC Pilot Is Needed
+
+**Symptom:** You want to catch ancestry, ADMIXTURE, sex-check, or relatedness
+problems before launching all GWAS jobs.
+
+**Fix:** Run the QC targets:
 
 ```bash
 snakemake --profile profiles/slurm \
@@ -616,30 +500,306 @@ snakemake --profile profiles/slurm \
   results/qc/relatedness/relatedness_summary.tsv
 ```
 
-### 11.2 Review Before GWAS
+## Step 7: Run The Pipeline
 
-Review these files before launching all GWAS jobs.
-This pilot is the best place to catch reference-package, ADMIXTURE, PLINK2,
-sample-strata, and sex-check problems before submitting many association jobs.
+### Finding The Failed Rule
 
-## 12. Run The Full Pipeline
+**Symptom:** A run failed after your SSH session closed.
 
-### 12.1 Submit The Full Workflow
+**Fix:** Check the newest Snakemake engine logs and the rule logs:
 
 ```bash
-snakemake --profile profiles/slurm
+ls -lt .snakemake/log/ | head
+find results/logs -type f -name "*.log" -mtime -2
 ```
 
-### 12.2 Monitor And Resume
+The Snakemake error usually names the failed rule and its log path.
 
-Monitor the scheduler queue and Snakemake logs. If a job fails, fix the cause
-and rerun the same command. Snakemake will continue from completed outputs.
+### Snakemake Keeps Running After A Job Fails
 
-## 13. Review And Archive Results
+**Symptom:** A rule fails, but other jobs continue.
 
-### 13.1 Review Run-Level Files
+**Likely cause:** The SLURM profile uses `keep-going: true`.
 
-Start with these files:
+**Fix:** This is expected. Independent jobs may finish. Fix the failed rule and
+rerun the same command.
+
+### Workflow Is Locked
+
+**Symptom:** Snakemake reports a lock after an interrupted run.
+
+**Likely cause:** A previous Snakemake process was interrupted.
+
+**Fix:** First confirm no Snakemake process is still active. Then unlock:
+
+```bash
+snakemake --unlock --profile profiles/slurm
+```
+
+### Malformed Duplicate Allele Codes
+
+**Symptom:** PLINK2 reports a duplicate allele code such as `A/A` or `C/C`.
+
+**Likely cause:** The source BIM/PVAR contains malformed variant rows.
+
+**Fix:** The workflow excludes those rows before PLINK2 conversion and writes a
+report next to the affected QC prefix, for example:
+
+```text
+*.invalid_bim_alleles.tsv
+*.invalid_pvar_alleles.tsv
+```
+
+Review the report. If many rows are affected, investigate upstream genotype
+preparation.
+
+### Too Few Shared Ancestry Variants
+
+**Symptom:** Ancestry reference preparation reports too few shared variants.
+
+**Likely cause:** Build mismatch, rsID mismatch, allele mismatch, palindromic
+SNP exclusion, or strict filters.
+
+**Fix:** Review:
+
+```text
+results/qc/ancestry/reference/shared_variant_mismatches.tsv
+results/qc/ancestry/reference/reference_prep_report.md
+```
+
+Fix build/ID problems before lowering thresholds.
+
+### POP-MaD Model Or Projection Fails
+
+**Symptom:** POP-MaD reports no valid model for an ancestry, or reference
+projection validation has low PC correlations.
+
+**Likely cause:** Reference metadata labels are wrong, too few fine-population
+samples remain after thresholds, or allele harmonization/scoring does not
+reproduce fitted reference PCs.
+
+**Fix:** Check metadata `population` and `super_population` labels,
+`popmad.min_reference_population_n`, PLINK2 version, and reference panel
+integrity. Review:
+
+```text
+results/qc/ancestry/reference/reference_projection_validation.tsv
+results/qc/ancestry/reference/reference_prep_report.md
+```
+
+### ADMIXTURE QC Fails
+
+**Symptom:** ADMIXTURE validation fails on `k`, labels, harmonization, `.pop`
+writing, or Q-label mapping.
+
+**Likely cause:** `admixture.labels` does not match `admixture.k`, labels are
+absent from reference metadata, study/reference builds differ, sample IDs are
+ambiguous, or supervised components cannot be mapped cleanly.
+
+**Fix:** Align labels exactly with reference super-populations and review:
+
+```text
+results/logs/admixture/
+results/qc/admixture/raw/shared_variant_mismatches.tsv
+results/qc/admixture/raw/ld_prune/admixture_ld_prune.prune.in
+results/qc/admixture/admixture_report.md
+```
+
+ADMIXTURE is report-only QC; it does not replace POP-MaD strata.
+
+### Sex Check Removes Samples
+
+**Symptom:** Sex-check fails or removes every sample.
+
+**Likely cause:** Manifest sex coding conflicts with genotype-inferred sex, or
+thresholds are inappropriate for the dataset.
+
+**Fix:** Review:
+
+```text
+results/qc/sex/sexcheck.tsv
+results/qc/sex/sex_check_summary.tsv
+results/logs/sample_prep/sex_check.log
+```
+
+Fix manifest sex coding first. Custom chrX thresholds must include both
+`max_female_xf` and `min_male_xf`. Y-rate thresholds are optional but must be
+supplied as a pair.
+
+If genotype data are autosome-only, set `sex_check.allow_no_sex_markers: true`
+only after external sex QC has been completed and documented.
+
+### Relatedness Marker Set Is Empty
+
+**Symptom:** Relatedness pruning does not produce a non-empty `prune.in`, or
+the unrelated keep file is empty.
+
+**Likely cause:** MAF, missingness, autosome, SNP, sex-check, or KING filters
+removed all usable markers or samples.
+
+**Fix:** Review:
+
+```text
+results/logs/sample_prep/prepare_relatedness_markers.log
+results/logs/sample_prep/make_unrelated_keep.log
+results/qc/relatedness/relatedness_summary.tsv
+```
+
+Relax relatedness-specific filters only if QC supports the change.
+
+### Keep File Is Empty For One Ancestry
+
+**Symptom:** Downstream GWAS has no samples for an ancestry.
+
+**Likely cause:** The intersection of ancestry, sex-check, and unrelated keep
+files removed the stratum.
+
+**Fix:** Compare:
+
+```text
+results/qc/strata/{ancestry}.keep.tsv
+results/qc/strata/{ancestry}.unrelated.keep.tsv
+results/qc/sex/sex_checked.keep.tsv
+results/qc/relatedness/unrelated.king.cutoff.in.id
+```
+
+### Empty Case/Control Cells
+
+**Symptom:** The workflow stops before GWAS with empty trait/ancestry cells.
+
+**Likely cause:** An active stratum has no cases, no controls, or no
+phenotype-complete samples for a trait.
+
+**Fix:** Inspect:
+
+```text
+results/qc/strata/strata_counts.tsv
+```
+
+Remove the trait or ancestry from the production run, or revise the phenotype
+definition.
+
+### PC Covariates Are Missing
+
+**Symptom:** Trait-file generation reports missing or non-finite `PC` covariates
+for kept samples.
+
+**Likely cause:** Within-ancestry PCA did not produce rows for samples entering
+GWAS.
+
+**Fix:** Review within-ancestry PCA logs and final keep files. Production does
+not support missing PCs.
+
+### PLINK2 GWAS Fails
+
+**Symptom:** A `run_plink2_gwas` job fails.
+
+**Likely cause:** Empty keep file, bad phenotype/covariate file, invalid
+genotype prefix, unavailable PLINK2, or model/QC filters removing data.
+
+**Fix:** Inspect:
+
+```text
+results/logs/gwas/
+results/gwas/{trait}/{ancestry}/plink2_raw/
+```
+
+If harmonization reports no `.glm` output or no requested `TEST` rows, check
+the raw `.glm.*` files and confirm `gwas.test` matches a PLINK2 test value such
+as `ADD`.
+
+## Step 8: Review Outputs
+
+### Final Report Is Missing
+
+**Symptom:** No report appears under `results/reports/`.
+
+**Likely cause:** One of the required upstream report inputs is missing.
+
+**Fix:** Follow the missing input named by Snakemake back to its producing rule
+and log under `results/logs/`.
+
+### GWAS Plots Fail Or Look Empty
+
+**Symptom:** QQ or Manhattan plotting fails, or plots contain very few points.
+
+**Likely cause:** Harmonized GWAS stats are empty or missing required columns.
+
+**Fix:** Inspect the harmonized stats and filter summary:
+
+```text
+results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
+results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
+```
+
+Do not diagnose this as a plotting issue until the summary statistics file is
+confirmed non-empty.
+
+### Report Shows High Lambda Or Heavy Variant Loss
+
+**Symptom:** The final report shows high lambda GC, few valid P values, many
+removed variants, or unexpected sample loss.
+
+**Likely cause:** Model, covariate, phenotype, or QC-filter issues upstream of
+reporting.
+
+**Fix:** Start with the report, then review the filter summary and PLINK logs:
+
+```text
+results/reports/
+results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
+results/gwas/{trait}/{ancestry}/plink2_raw/
+```
+
+### POP-MaD Projection Plot Fails
+
+**Symptom:** The POP-MaD 3D projection plot is missing or fails during
+reporting.
+
+**Likely cause:** PC1/PC2/PC3 columns are absent or projected PC rows are
+non-finite.
+
+**Fix:** Check:
+
+```text
+results/qc/ancestry/reference/reference_pcs.tsv
+results/qc/ancestry/reference/study_projected_pcs.tsv
+results/qc/ancestry/production/popmad_assignments.tsv
+results/qc/ancestry/production/popmad_excluded.tsv
+```
+
+## Step 9: Compress And Export Results
+
+### Archive Contains Old Or Extra Outputs
+
+**Symptom:** The export archive contains outputs from earlier runs.
+
+**Likely cause:** A previous `results/` directory was reused.
+
+**Fix:** For a new production run, archive or move old `results/` first. Before
+sharing, verify that the final report, run manifest, resolved config, QC tables,
+plots, and GWAS files all belong to the intended cohort release.
+
+### Archive Contains Private Runtime Details
+
+**Symptom:** Governance review flags private paths or cohort metadata in the
+archive.
+
+**Likely cause:** Config snapshots, logs, reports, and manifests record runtime
+paths and cohort release labels.
+
+**Fix:** Review archive contents before export. Share only to approved
+destinations under cohort policy.
+
+### What To Review Before Export
+
+Start with the final reports:
+
+```text
+results/reports/
+```
+
+Use these supporting files for audit:
 
 ```text
 results/manifests/run_manifest.tsv
@@ -650,85 +810,7 @@ results/qc/relatedness/relatedness_summary.tsv
 results/qc/ancestry/reference/reference_prep_report.md
 results/qc/ancestry/production/popmad_population_counts.tsv
 results/qc/admixture/admixture_report.md
-results/reports/
-```
-
-### 13.2 Review Main GWAS Outputs
-
-Main GWAS outputs are:
-
-```text
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
-results/plots/ancestry/{analysis_name}.popmad_reference_study_pcs.png
-results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.qq.png
-results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manhattan.png
-results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manhattan.pdf
-results/reports/{trait}/{analysis_name}.{trait}.{ancestry}.{build}.report.md
-```
-
-`{analysis_name}` is the filename-safe version of `project.analysis_name`.
-The per-trait report embeds the POP-MaD projection, QQ, and Manhattan PNGs and
-summarizes ancestry/ADMIXTURE QC, sample filtering, variant filtering, lambda
-GC, and the top association signals.
-
-### 13.3 Archive The Run
-
-Archive the final `config/config.yaml`, `results/config/resolved_config.yaml`,
-`results/manifests/run_manifest.tsv`, QC reports, GWAS summary statistics,
-GWAS filter summaries, and plots according to cohort policy.
-
-## Helpful Tips
-
-### Environment And Scheduler
-
-- If `snakemake` says `invalid choice: 'slurm'`, activate the driver
-  environment and confirm `snakemake_executor_plugin_slurm` is installed.
-- If PLINK2, PLINK1, or ADMIXTURE is not found, set `tools.plink2`,
-  `tools.plink1`, or `tools.admixture` to a Linux executable path or cluster
-  module shim.
-- If conda fails on compute nodes, create environments on a login/build node
-  with `snakemake --profile profiles/slurm --conda-create-envs-only`.
-
-### Inputs And Reference
-
-- If the reference fingerprint fails, check `reference_package.root` and
-  `reference_package.fingerprint`. Do not rebuild the package inside this
-  pipeline.
-- If a reference-package error lists files beginning with `._`, the package has
-  macOS sidecar metadata. Current validation ignores those sidecars; real
-  unmanifested analysis files still fail.
-- If the optional input manifest fails, either leave
-  `resources.input_manifest: ""` or use only `file_role`,
-  `cohort_data_release`, and `notes` columns with rows for `sample_manifest`,
-  `trait_registry`, and `study_genotype`.
-- If genome-build inference fails, check that the genotype prefix is correct
-  and that BIM/PVAR marker positions match the intended genome build.
-- If the source BIM/PVAR contains rows with the same allele recorded twice
-  (`A/A`, `C/C`, and similar), the workflow excludes those malformed variants
-  before PLINK2 conversion and writes an `*.invalid_*_alleles.tsv` report next
-  to the affected QC prefix.
-- If validation warns that fine-scale reference populations are below
-  `popmad.min_reference_population_n`, those populations will be skipped during
-  POP-MaD model fitting. Fix the reference package or adjust the threshold only
-  if a configured ancestry has no retained population model.
-- If sex check fails because no X/Y markers exist, either provide genotype data
-  with sex chromosomes or set `sex_check.allow_no_sex_markers: true` only with
-  documented external sex QC.
-- If production fails for an empty trait/ancestry cell, remove that ancestry or
-  trait from the config/registry before rerunning.
-
-### Reruns And Logs
-
-- If `results/` is not clean before a new production run, move or archive the
-  previous results directory first.
-- For any failed rule, inspect the matching file under `results/logs/` before
-  rerunning.
-- Snakemake engine logs are under `.snakemake/log/`; PLINK2 GWAS logs are under
-  `results/gwas/{trait}/{ancestry}/plink2_raw/`.
-- If a run is interrupted and Snakemake reports a lock, confirm no Snakemake
-  process is still active, then unlock the workflow:
-
-```bash
-snakemake --unlock --profile profiles/slurm
+results/plots/{trait}/{ancestry}/
 ```

@@ -5,8 +5,8 @@ when you already have approved cohort data, a reference package, and cluster
 access.
 
 For full parameter details, see the
-[Configuration Guide](configuration.md). For the expanded operating guide, see
-the [Cohort Production Run Manual](cohort-production-run-manual.md).
+[Configuration Guide](configuration.md). If a run fails, use the
+[Cohort Production Troubleshooting Guide](cohort-production-run-manual.md).
 
 ## 1. Clone The Repository
 
