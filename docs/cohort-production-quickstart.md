@@ -130,7 +130,7 @@ analysis:
 
 The default Snakemake rule environment installs these tools. Change `tools.*`
 only when your cluster requires site-managed modules or explicit executable
-paths.
+paths, becuase it can't access them via conda channels. 
 
 Keep these production safety settings unless the analysis plan says otherwise:
 
