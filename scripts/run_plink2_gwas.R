@@ -9,7 +9,7 @@ source(file.path(script_dir, "lib", "stage1.R"))
 
 # Parse one trait/ancestry GWAS job from Snakemake.
 args <- parse_args(defaults = list(threads = "1"))
-require_args(args, c("config", "trait", "ancestry", "build", "pheno", "covar", "keep", "plink-prefix", "out"))
+require_args(args, c("config", "trait", "ancestry", "build", "pheno", "covar", "keep", "hwe-snplist", "plink-prefix", "out"))
 
 
 # Resolve config and covariate columns for the trait.
@@ -31,7 +31,14 @@ if (truthy(config$gwas$covar_variance_standardize %||% TRUE)) command <- c(comma
 # Preserve free-form PLINK2 glm options from config.
 glm_options <- trimws(config$gwas$glm_options %||% "")
 glm_parts <- if (nzchar(glm_options)) strsplit(glm_options, "\\s+")[[1]] else character()
-command <- c(command, gwas_filters(config), "--glm", glm_parts, "--threads", args$threads, "--out", args[["plink-prefix"]])
+command <- c(
+  command,
+  "--extract", args[["hwe-snplist"]],
+  gwas_filters(config, include_hwe = FALSE),
+  "--glm", glm_parts,
+  "--threads", args$threads,
+  "--out", args[["plink-prefix"]]
+)
 
 
 # Run PLINK2 and keep its raw output under the requested prefix.

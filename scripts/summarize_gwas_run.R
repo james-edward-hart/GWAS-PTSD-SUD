@@ -8,7 +8,7 @@ source(file.path(script_dir, "lib", "stage1.R"))
 
 
 args <- parse_args()
-require_args(args, c("config", "stats", "plink-log", "pheno", "covar", "keep", "out"))
+require_args(args, c("config", "stats", "plink-log", "hwe-snplist", "hwe-log", "pheno", "covar", "keep", "out"))
 
 
 count_records <- function(path, header = FALSE, drop_metadata = FALSE) {
@@ -87,6 +87,7 @@ p <- suppressWarnings(as.numeric(stats$p))
 valid_p <- is.finite(p) & p > 0 & p <= 1
 
 log_lines <- if (file.exists(args[["plink-log"]])) readLines(args[["plink-log"]], warn = FALSE) else character()
+hwe_log_lines <- if (file.exists(args[["hwe-log"]])) readLines(args[["hwe-log"]], warn = FALSE) else character()
 initial_variant_filter <- extract_log_pair(log_lines, c(
   "([0-9,]+) excluded by .*?, ([0-9,]+) remaining\\.?$"
 ))
@@ -107,6 +108,8 @@ summary <- data.frame(
     "plink_loaded_variants",
     "plink_initial_filter_excluded_variants",
     "plink_initial_filter_remaining_variants",
+    "control_hwe_controls",
+    "control_hwe_passing_variants",
     "plink_geno_removed_variants",
     "plink_maf_removed_variants",
     "plink_hwe_removed_variants",
@@ -117,7 +120,8 @@ summary <- data.frame(
     "genomewide_significant_variants",
     "suggestive_variants",
     "lambda_gc",
-    "plink_log"
+    "plink_log",
+    "control_hwe_log"
   ),
   value = as.character(c(
     config$genotypes$type,
@@ -133,9 +137,11 @@ summary <- data.frame(
     extract_log_value(log_lines, c("^([0-9,]+) variants (?:loaded from|in\\b)")),
     initial_variant_filter[[1]],
     initial_variant_filter[[2]],
+    extract_log_value(hwe_log_lines, c("^--keep: ([0-9,]+) samples remaining")),
+    count_records(args[["hwe-snplist"]]),
     extract_log_value(log_lines, c("^--geno: ([0-9,]+) variants? removed")),
     extract_log_value(log_lines, c("^--maf: ([0-9,]+) variants? removed", "^([0-9,]+) variants removed due to allele frequency threshold")),
-    extract_log_value(log_lines, c("^--hwe: ([0-9,]+) variants? removed")),
+    extract_log_value(hwe_log_lines, c("^--hwe: ([0-9,]+) variants? removed")),
     extract_log_value(log_lines, c("^--mach-r2-filter: ([0-9,]+) variants? removed")),
     extract_log_value(log_lines, c("^([0-9,]+) variants remaining after main filters\\.?")),
     nrow(stats),
@@ -143,7 +149,8 @@ summary <- data.frame(
     sum(valid_p & p <= 5e-8),
     sum(valid_p & p <= 1e-5),
     ifelse(is.finite(lambda_gc), sprintf("%.6f", lambda_gc), "NA"),
-    args[["plink-log"]]
+    args[["plink-log"]],
+    args[["hwe-log"]]
   )),
   stringsAsFactors = FALSE
 )
