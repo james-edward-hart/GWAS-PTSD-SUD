@@ -170,7 +170,7 @@ default-resources:
   runtime: 30
 ```
 
-`conda-prefix` must be a writable directory accessible to compute nodes.
+`conda-prefix` must be a writable directory accessible to compute nodes (could be in your home directory).
 
 ## 5. Set Up The Environment
 
