@@ -146,9 +146,16 @@ sex_check:
   action: "exclude"
   allow_no_sex_markers: false
 
+qc:
+  use_mach_r2_filter: true
+  info_min: 0.8
+
 gwas:
   allow_missing_pcs: false
 ```
+
+PLINK2 expects INFO/MaCH R2 annotations for the INFO filter. If your data do
+not have INFO annotations, set `qc.use_mach_r2_filter: false`.
 
 Edit the SLURM profile:
 

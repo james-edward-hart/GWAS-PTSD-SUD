@@ -140,8 +140,8 @@ qc:
   hwe_p_min: 1e-6
   geno_missing_max: 0.05
   sample_missing_max: 0.05
-  # Set true for imputed dosage data with MACH_R2/INFO annotations.
-  use_mach_r2_filter: false
+  # PLINK2 expects INFO/MaCH R2 annotations for this filter; set false if absent.
+  use_mach_r2_filter: true
   snps_only_acgt: false
   autosome_only: true
 

@@ -512,7 +512,7 @@ gwas_filters <- function(config, include_hwe = TRUE) {
   )
   if (truthy(qc$snps_only_acgt %||% TRUE)) filters <- c(filters, "--snps-only", "just-acgt")
   if (truthy(qc$autosome_only %||% TRUE)) filters <- c(filters, "--autosome")
-  if (truthy(qc$use_mach_r2_filter %||% FALSE)) filters <- c(filters, "--mach-r2-filter", as.character(qc$info_min))
+  if (truthy(qc$use_mach_r2_filter %||% TRUE)) filters <- c(filters, "--mach-r2-filter", as.character(qc$info_min))
   filters
 }
 

@@ -275,16 +275,24 @@ expected and documented.
 
 ### Imputed Dosage Filters Are Not Applied
 
-**Symptom:** Imputed variants are present but MACH_R2/INFO filtering is not used.
+**Symptom:** Imputed variants are present but INFO filtering is not used.
 
 **Likely cause:** INFO filtering is disabled in the config.
 
-**Fix:** For imputed dosage data with MACH_R2/INFO annotations, set:
+**Fix:** For imputed dosage data with INFO/MaCH R2 annotations, keep filtering enabled:
 
 ```yaml
 qc:
   use_mach_r2_filter: true
   info_min: 0.8
+```
+
+PLINK2 expects INFO/MaCH R2 annotations for this filter. For unimputed genotype
+data or imputed data without INFO annotations, set:
+
+```yaml
+qc:
+  use_mach_r2_filter: false
 ```
 
 ## Step 5: Set Up The Environment
