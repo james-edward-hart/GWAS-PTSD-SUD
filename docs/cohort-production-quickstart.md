@@ -174,7 +174,7 @@ default-resources:
 
 ## 5. Set Up The Environment
 
-Load the conda-providing module used on your cluster. On my project cluster:
+Load the conda-providing module used on your cluster. On my cluster that's miniforge3 (your's might be anaconda3, mamba, etc.):
 
 ```bash
 module load miniforge3/23.3.1
