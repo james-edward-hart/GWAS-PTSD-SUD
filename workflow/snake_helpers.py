@@ -34,6 +34,150 @@ def trait_ids(config):
     return ids
 
 
+def blank(value):
+    return value is None or str(value).strip() == ""
+
+
+def split_csv(value):
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    items = [item.strip() for item in str(value).split(",")]
+    return [item for item in items if item]
+
+
+def config_list(value):
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value if str(item)]
+    value = str(value)
+    return [value] if value else []
+
+
+def truthy(value):
+    return value is True or str(value) in {"true", "True", "1"}
+
+
+def phase2_enabled(config):
+    return truthy(config.get("phase2_regenie", {}).get("enabled", False))
+
+
+def phase2_default_covariates(config):
+    settings = config.get("phase2_regenie", {})
+    covars = config_list(settings.get("default_covariates"))
+    if covars:
+        return covars
+    pc_count = int(settings.get("global_pcs", 20))
+    return ["age", "age2", "sex"] + [f"PC{i}" for i in range(1, pc_count + 1)]
+
+
+def phase2_covariates_for_trait(config, trait_row):
+    settings = config.get("phase2_regenie", {})
+    covars = phase2_default_covariates(config)
+    covars.extend(config_list(settings.get("extra_covariates")))
+    covars.extend(split_csv(trait_row.get("covariates", "")))
+    out = []
+    for covar in covars:
+        if covar and covar not in out:
+            out.append(covar)
+    return out
+
+
+def phase2_trait_type(samples, trait_row):
+    case_value = str(trait_row.get("case_value", "")).strip()
+    control_value = str(trait_row.get("control_value", "")).strip()
+    if case_value and control_value:
+        return "bt"
+    if case_value or control_value:
+        workflow_error(
+            f"trait {trait_row.get('trait_id', '<unknown>')} has only one of case_value/control_value set"
+        )
+
+    phenotype_column = trait_row.get("phenotype_column", "")
+    if not samples or phenotype_column not in samples[0]:
+        workflow_error(f"phenotype column '{phenotype_column}' is absent from sample manifest")
+    missing = set(split_csv(trait_row.get("missing_values", "")))
+    values = []
+    for sample in samples:
+        value = str(sample.get(phenotype_column, "")).strip()
+        if value in missing or value in {"", "NA", "-9", "."}:
+            continue
+        values.append(value)
+    if not values:
+        workflow_error(f"quantitative trait {trait_row.get('trait_id', '<unknown>')} has no nonmissing values")
+    for value in values:
+        try:
+            float(value)
+        except ValueError:
+            workflow_error(
+                f"trait {trait_row.get('trait_id', '<unknown>')} has blank case/control values "
+                f"but nonnumeric phenotype value '{value}'"
+            )
+    return "qt"
+
+
+def phase2_trait_groups(config):
+    if not phase2_enabled(config):
+        return []
+    trait_path = config.get("inputs", {}).get("trait_registry", "")
+    sample_path = config.get("inputs", {}).get("sample_manifest", "")
+    traits = read_tsv(trait_path)
+    samples = read_tsv(sample_path)
+    grouped = {}
+    order = []
+    for trait in traits:
+        trait_id = trait.get("trait_id", "")
+        if not trait_id:
+            continue
+        trait_type = phase2_trait_type(samples, trait)
+        covars = phase2_covariates_for_trait(config, trait)
+        key = (trait_type, tuple(covars))
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        grouped[key].append(trait_id)
+
+    type_counts = {}
+    rows = []
+    for key in order:
+        trait_type, covars = key
+        type_counts[trait_type] = type_counts.get(trait_type, 0) + 1
+        group_id = f"{trait_type}_g{type_counts[trait_type]}"
+        rows.append(
+            {
+                "group": group_id,
+                "trait_type": trait_type,
+                "covariates": list(covars),
+                "traits": grouped[key],
+            }
+        )
+    return rows
+
+
+def phase2_group_ids(config):
+    return [row["group"] for row in phase2_trait_groups(config)]
+
+
+def phase2_group_row(config, group):
+    for row in phase2_trait_groups(config):
+        if row["group"] == group:
+            return row
+    workflow_error(f"unknown Phase 2 regenie trait group: {group}")
+
+
+def phase2_trait_group(config, trait):
+    for row in phase2_trait_groups(config):
+        if trait in row["traits"]:
+            return row["group"]
+    workflow_error(f"trait is not assigned to a Phase 2 regenie group: {trait}")
+
+
+def phase2_group_traits(config, group):
+    return phase2_group_row(config, group)["traits"]
+
+
 def analysis_output_name(config):
     name = str(config.get("project", {}).get("analysis_name", "")).strip()
     if not name:
@@ -191,6 +335,44 @@ def report_targets(checkpoints, traits, wildcards, config):
         for trait in traits
         for ancestry in ancestries
     ]
+
+
+def phase2_report_targets(checkpoints, traits, wildcards, config):
+    if not phase2_enabled(config):
+        return []
+    build = inferred_build(checkpoints)
+    # Force strata checkpoint completion because Phase 2 consumes Stage 1 QC.
+    active_ancestries(checkpoints, wildcards)
+    analysis_name = analysis_output_name(config)
+    return [
+        f"results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}.regenie.report.md"
+        for trait in traits
+    ]
+
+
+def phase2_group_stage1_stats(checkpoints, wildcards, config):
+    build = inferred_build(checkpoints)
+    ancestries = active_ancestries(checkpoints, wildcards)
+    traits = phase2_group_traits(config, wildcards.group)
+    return [
+        f"results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv"
+        for trait in traits
+        for ancestry in ancestries
+    ]
+
+
+def phase2_trait_stage1_summaries(checkpoints, wildcards, config):
+    build = inferred_build(checkpoints)
+    ancestries = active_ancestries(checkpoints, wildcards)
+    return [
+        f"results/gwas/{wildcards.trait}/{ancestry}/{wildcards.trait}.{ancestry}.{build}.gwas_filter_summary.tsv"
+        for ancestry in ancestries
+    ]
+
+
+def phase2_trait_regenie_done(wildcards, config):
+    group = phase2_trait_group(config, wildcards.trait)
+    return f"results/gwas/PAN/regenie/groups/{group}/{group}.{wildcards.build}.step2.done"
 
 
 # Keep POP-MaD outputs in the production ancestry directory.

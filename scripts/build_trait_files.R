@@ -28,19 +28,36 @@ allow_missing_pcs <- truthy(config$gwas$allow_missing_pcs %||% FALSE)
 
 missing_values <- split_csv(trait$missing_values[[1]])
 phenotype_column <- trait$phenotype_column[[1]]
+case_value <- trait$case_value[[1]]
+control_value <- trait$control_value[[1]]
+is_binary_trait <- !blank(case_value) && !blank(control_value)
 
 
-# PLINK case/control coding is 2=case, 1=control, NA=missing.
+# PLINK case/control coding is 2=case, 1=control, NA=missing. Quantitative
+# traits keep their numeric value and use NA for configured missing values.
 value <- samples[[phenotype_column]]
-pheno <- ifelse(value == trait$case_value[[1]], "2",
-  ifelse(value == trait$control_value[[1]], "1",
-    ifelse(value %in% missing_values, "NA", NA_character_)
+if (is_binary_trait) {
+  pheno <- ifelse(value == case_value, "2",
+    ifelse(value == control_value, "1",
+      ifelse(value %in% missing_values, "NA", NA_character_)
+    )
   )
-)
-bad <- which(is.na(pheno))
-if (length(bad)) {
-  row <- samples[bad[[1]], ]
-  die("unexpected phenotype value '", row[[phenotype_column]], "' for ", row$FID, " ", row$IID, " in trait ", args$trait)
+  bad <- which(is.na(pheno))
+  if (length(bad)) {
+    row <- samples[bad[[1]], ]
+    die("unexpected phenotype value '", row[[phenotype_column]], "' for ", row$FID, " ", row$IID, " in trait ", args$trait)
+  }
+} else {
+  if (!blank(case_value) || !blank(control_value)) {
+    die("trait ", args$trait, " must set both case_value and control_value for binary analysis, or leave both blank for quantitative analysis")
+  }
+  pheno <- ifelse(value %in% c(missing_values, "", "NA", "-9", "."), "NA", value)
+  numeric_pheno <- suppressWarnings(as.numeric(pheno))
+  bad <- pheno != "NA" & (is.na(numeric_pheno) | !is.finite(numeric_pheno))
+  if (any(bad)) {
+    row <- samples[which(bad)[[1]], ]
+    die("nonnumeric quantitative phenotype value '", row[[phenotype_column]], "' for ", row$FID, " ", row$IID, " in trait ", args$trait)
+  }
 }
 
 # Write one phenotype row per sample.

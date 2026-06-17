@@ -86,6 +86,31 @@ require_executable <- function(path, label, version_args = character()) {
 }
 
 
+validate_regenie_option_passthrough <- function(value, label) {
+  value <- trimws(as.character(value %||% ""))
+  if (!nzchar(value)) return(invisible(TRUE))
+  blocked <- c(
+    "--step", "--bed", "--pgen", "--bgen", "--sample", "--bgi", "--keep", "--remove",
+    "--extract", "--exclude", "--extract-or", "--exclude-or", "--phenoFile", "--phenoCol", "--phenoColList",
+    "--phenoExcludeList",
+    "--covarFile", "--covarCol", "--covarColList", "--catCovarList", "--pred",
+    "--covarExcludeList",
+    "--bt", "--qt", "--out", "--bsize", "--lowmem", "--lowmem-prefix", "--threads",
+    "--firth", "--approx", "--pThresh", "--minMAC", "--minINFO", "--apply-rint",
+    "--gz", "--htp", "--no-split", "--chr", "--chrList", "--range", "--cc12", "--force-qt",
+    "--strict", "--force-impute"
+  )
+  parts <- strsplit(value, "\\s+")[[1]]
+  for (part in parts) {
+    flag <- sub("=.*$", "", part)
+    if (flag %in% blocked) {
+      die(label, " cannot override pipeline-owned regenie option: ", flag)
+    }
+  }
+  invisible(TRUE)
+}
+
+
 # Read sample IDs from BED/FAM or PGEN/PSAM input.
 genotype_ids <- function(config) {
   kind <- tolower(config$genotypes$type)
@@ -154,6 +179,9 @@ if (truthy(config$relatedness$remove_sex_mismatches %||% FALSE) && sex_action !=
 # Confirm required files exist before loading their schemas.
 genotype_files(config$genotypes, "genotype input")
 invisible(require_executable(config$tools$plink2 %||% "plink2", "PLINK2", "--version"))
+if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
+  invisible(require_executable(config$tools$regenie %||% "regenie", "regenie", "--version"))
+}
 for (item in list(
   c(config$inputs$sample_manifest, "sample manifest"),
   c(config$inputs$trait_registry, "trait registry"),
@@ -172,6 +200,77 @@ if (pc_count < 1 || pc_count > 20) die("popmad.pcs must be between 1 and 20")
 require_columns(samples, c("FID", "IID", "age", "age2", "sex"), "sample manifest")
 require_unique_ids(samples, "sample manifest")
 require_columns(traits, c("trait_id", "phenotype_column", "case_value", "control_value", "missing_values"), "trait registry")
+
+
+# Validate Phase 2 regenie settings and mixed binary/quantitative trait detection.
+if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
+  pcs <- as.integer(config$phase2_regenie$global_pcs %||% NA)
+  if (is.na(pcs) || pcs < 1 || pcs > 50) die("phase2_regenie.global_pcs must be an integer between 1 and 50")
+  htp_cohort_name <- trimws(as.character(config$phase2_regenie$htp_cohort_name %||% ""))
+  if (nzchar(htp_cohort_name) && !grepl("^[A-Za-z0-9._-]+$", htp_cohort_name)) {
+    die("phase2_regenie.htp_cohort_name must be blank or contain only letters, numbers, dots, underscores, and hyphens")
+  }
+  min_mac <- as.numeric(config$phase2_regenie$min_mac %||% 1)
+  if (!is.finite(min_mac) || min_mac < 1) die("phase2_regenie.min_mac must be a positive number")
+  p_thresh <- as.numeric(config$phase2_regenie$p_thresh %||% 0.01)
+  if (!is.finite(p_thresh) || p_thresh <= 0 || p_thresh > 1) die("phase2_regenie.p_thresh must be between 0 and 1")
+  for (field in c("step1_bsize", "step2_bsize")) {
+    value <- as.integer(config$phase2_regenie[[field]] %||% NA)
+    if (is.na(value) || value < 1) die("phase2_regenie.", field, " must be a positive integer")
+  }
+  validate_regenie_option_passthrough(config$phase2_regenie$step1_options %||% "", "phase2_regenie.step1_options")
+  validate_regenie_option_passthrough(config$phase2_regenie$step2_options %||% "", "phase2_regenie.step2_options")
+
+  phase2_default_covars <- as.character(unlist(config$phase2_regenie$default_covariates %||% character(), use.names = FALSE))
+  if (!length(phase2_default_covars)) phase2_default_covars <- c("age", "age2", "sex", paste0("PC", seq_len(pcs)))
+  phase2_extra_covars <- as.character(unlist(config$phase2_regenie$extra_covariates %||% character(), use.names = FALSE))
+  configured_phase2_covars <- unique(c(phase2_default_covars, phase2_extra_covars))
+  configured_phase2_covars <- configured_phase2_covars[nzchar(configured_phase2_covars)]
+  for (covar in configured_phase2_covars) {
+    if (startsWith(covar, "PC")) {
+      pc_idx <- suppressWarnings(as.integer(sub("^PC", "", covar)))
+      if (is.na(pc_idx) || pc_idx < 1 || pc_idx > pcs) {
+        die("Phase 2 PC covariate '", covar, "' is outside phase2_regenie.global_pcs=", pcs)
+      }
+    } else if (!covar %in% names(samples)) {
+      die("Phase 2 covariate '", covar, "' is absent from sample manifest")
+    }
+  }
+
+  for (branch in c("global_pca", "step1")) {
+    settings <- config$phase2_regenie[[branch]]
+    if (is.null(settings$filters)) die("phase2_regenie.", branch, ".filters section is required")
+    if (is.null(settings$ld_prune)) die("phase2_regenie.", branch, ".ld_prune section is required")
+    pruning <- settings$ld_prune
+    if (is.na(suppressWarnings(as.numeric(pruning$step))) || as.numeric(pruning$step) < 1) {
+      die("phase2_regenie.", branch, ".ld_prune.step must be a positive number")
+    }
+    if (is.na(suppressWarnings(as.numeric(pruning$r2))) || as.numeric(pruning$r2) <= 0 || as.numeric(pruning$r2) >= 1) {
+      die("phase2_regenie.", branch, ".ld_prune.r2 must be between 0 and 1")
+    }
+    if (is.null(pruning$window) || !nzchar(as.character(pruning$window))) {
+      die("phase2_regenie.", branch, ".ld_prune.window must be set")
+    }
+  }
+
+  for (i in seq_len(nrow(traits))) {
+    trait <- traits[i, , drop = FALSE]
+    case_blank <- blank(trait$case_value[[1]])
+    control_blank <- blank(trait$control_value[[1]])
+    if (!case_blank && !control_blank) {
+      next
+    } else if (xor(case_blank, control_blank)) {
+      die("Phase 2 trait autodetection requires both case_value and control_value, or both blank: ", trait$trait_id[[1]])
+    }
+    values <- samples[[trait$phenotype_column[[1]]]]
+    values <- values[!values %in% c(split_csv(trait$missing_values[[1]]), "", "NA", "-9", ".")]
+    if (!length(values)) die("Phase 2 quantitative trait has no nonmissing values: ", trait$trait_id[[1]])
+    numeric_values <- suppressWarnings(as.numeric(values))
+    if (any(is.na(numeric_values) | !is.finite(numeric_values))) {
+      die("Phase 2 trait ", trait$trait_id[[1]], " has blank case/control values but nonnumeric phenotype values")
+    }
+  }
+}
 
 
 # Ensure sample manifest IDs exist in the genotype files.

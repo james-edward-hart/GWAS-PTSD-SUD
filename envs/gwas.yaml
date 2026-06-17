@@ -9,3 +9,4 @@ dependencies:
   - plink
   - plink2
   - admixture
+  - regenie

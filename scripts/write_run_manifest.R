@@ -55,7 +55,7 @@ final_output_rows <- function(results_dir = "results", analysis_name = "") {
   candidates <- c(
     list.files(file.path(results_dir, "qc"), recursive = TRUE, full.names = TRUE),
     current_analysis(list.files(file.path(results_dir, "reports"), recursive = TRUE, full.names = TRUE)),
-    list.files(file.path(results_dir, "gwas"), pattern = "\\.tsv$", recursive = TRUE, full.names = TRUE),
+    list.files(file.path(results_dir, "gwas"), pattern = "\\.(tsv|regenie)$", recursive = TRUE, full.names = TRUE),
     current_analysis(list.files(file.path(results_dir, "plots"), pattern = "\\.(png|pdf)$", recursive = TRUE, full.names = TRUE))
   )
   candidates <- candidates[file.exists(candidates) & !dir.exists(candidates)]
@@ -190,6 +190,7 @@ rows <- rbind(
   tool_rows("plink2", config$tools$plink2 %||% "plink2", "--version"),
   tool_rows("plink1", plink1_tool(config), "--version"),
   tool_rows("admixture", config$tools$admixture %||% "admixture"),
+  tool_rows("regenie", config$tools$regenie %||% "regenie", "--version"),
   final_output_rows("results", analysis_output_name(config))
 )
 

@@ -24,9 +24,43 @@ if (nzchar(args$config)) {
 }
 
 
-# Keep only valid P values for plotting.
-stats <- read_tsv(args$stats)
-if (!"p" %in% names(stats)) die("GWAS stats file is missing p column")
+# Keep only valid P values for plotting. Native regenie files can include
+# metadata lines and LOG10P instead of a literal P column.
+read_stats <- function(path) {
+  lines <- readLines(path, warn = FALSE)
+  lines <- lines[!grepl("^##", lines)]
+  if (!length(lines) || !any(nzchar(trimws(lines)))) die("GWAS stats file is empty: ", path)
+  header <- lines[nzchar(trimws(lines))][[1]]
+  sep <- if (grepl("\t", header, fixed = TRUE)) "\t" else ""
+  rows <- read.table(
+    text = paste(lines, collapse = "\n"),
+    sep = sep,
+    header = TRUE,
+    check.names = FALSE,
+    stringsAsFactors = FALSE,
+    quote = "",
+    comment.char = "",
+    na.strings = character()
+  )
+  if (!"p" %in% names(rows)) {
+    if ("P" %in% names(rows)) rows$p <- rows$P
+    else if ("Pval" %in% names(rows)) rows$p <- rows$Pval
+    else if ("LOG10P" %in% names(rows)) rows$p <- as.character(10 ^ -suppressWarnings(as.numeric(rows$LOG10P)))
+  }
+  if (!"chrom" %in% names(rows) && "CHROM" %in% names(rows)) rows$chrom <- rows$CHROM
+  if (!"chrom" %in% names(rows) && "Chr" %in% names(rows)) rows$chrom <- rows$Chr
+  if (!"pos" %in% names(rows) && "GENPOS" %in% names(rows)) rows$pos <- rows$GENPOS
+  if (!"pos" %in% names(rows) && "Pos" %in% names(rows)) rows$pos <- rows$Pos
+  if (!"variant_id" %in% names(rows) && "ID" %in% names(rows)) rows$variant_id <- rows$ID
+  if (!"variant_id" %in% names(rows) && "Name" %in% names(rows)) rows$variant_id <- rows$Name
+  if (!"effect_allele" %in% names(rows) && "Alt" %in% names(rows)) rows$effect_allele <- rows$Alt
+  if (!"a1_freq" %in% names(rows) && "AAF" %in% names(rows)) rows$a1_freq <- rows$AAF
+  if (!"beta_or_log_or" %in% names(rows) && "Effect" %in% names(rows)) rows$beta_or_log_or <- rows$Effect
+  rows
+}
+
+stats <- read_stats(args$stats)
+if (!"p" %in% names(stats)) die("GWAS stats file is missing p or LOG10P column")
 stats_for_title <- stats
 stats$p_num <- suppressWarnings(as.numeric(stats$p))
 stats <- stats[is.finite(stats$p_num) & stats$p_num > 0 & stats$p_num <= 1, , drop = FALSE]

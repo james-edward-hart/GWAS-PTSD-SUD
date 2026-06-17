@@ -70,13 +70,18 @@ write_tsv(excluded_rows, file.path(args$outdir, "excluded_ancestries.tsv"))
 unassigned_fraction <- length(missing_keys) / max(length(sample_key), 1)
 if (unassigned_fraction > max_unassigned_fraction) {
   first <- if (length(missing_keys)) paste(head(gsub("\t", " ", missing_keys), 20), collapse = ", ") else ""
-  die("inactive or unassigned ancestry fraction is ", sprintf("%.2f%%", 100 * unassigned_fraction),
+  message <- paste0("inactive or unassigned ancestry fraction is ", sprintf("%.2f%%", 100 * unassigned_fraction),
     " (", length(missing_keys), "/", length(sample_key), "), above allowed ",
     sprintf("%.2f%%", 100 * max_unassigned_fraction),
     "; assigned configured ancestry counts: ", assigned_summary,
     if (length(inactive_labels)) paste0("; inactive labels: ", paste(inactive_labels, collapse = ", ")) else "",
     "; first samples: ", first,
     ". Raise popmad.max_unassigned_fraction only when these dropped samples are expected.")
+  if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
+    warning(message, "; continuing because phase2_regenie.enabled is true and Phase 2 models excluded samples as UNKNOWN")
+  } else {
+    die(message)
+  }
 }
 if (length(missing_keys)) {
   cat("WARNING: dropping ", length(missing_keys), " samples outside active ancestry strata (",
@@ -101,16 +106,33 @@ for (label in labels) {
 counts <- list()
 for (i in seq_len(nrow(traits))) {
   trait <- traits[i, ]
+  is_binary_trait <- !blank(trait$case_value) && !blank(trait$control_value)
+  if (blank(trait$case_value) != blank(trait$control_value)) {
+    die("trait ", trait$trait_id, " must set both case_value and control_value for binary analysis, or leave both blank for quantitative analysis")
+  }
   for (label in labels) {
     keep <- ancestry[ancestry$ancestry == label, , drop = FALSE]
     idx <- match(paste(keep$FID, keep$IID, sep = "\t"), sample_key)
     values <- samples[[trait$phenotype_column]][idx]
-    cases <- sum(values == trait$case_value)
-    controls <- sum(values == trait$control_value)
-    n <- cases + controls
-    underpowered <- n < config$warnings$min_n ||
-      cases < config$warnings$min_cases ||
-      controls < config$warnings$min_controls
+    if (is_binary_trait) {
+      cases <- sum(values == trait$case_value)
+      controls <- sum(values == trait$control_value)
+      n <- cases + controls
+      underpowered <- n < config$warnings$min_n ||
+        cases < config$warnings$min_cases ||
+        controls < config$warnings$min_controls
+    } else {
+      missing <- split_csv(trait$missing_values %||% "")
+      observed <- values[!values %in% c(missing, "", "NA", "-9", ".")]
+      numeric_observed <- suppressWarnings(as.numeric(observed))
+      if (any(is.na(numeric_observed) | !is.finite(numeric_observed))) {
+        die("nonnumeric quantitative phenotype values for trait ", trait$trait_id)
+      }
+      cases <- NA_integer_
+      controls <- NA_integer_
+      n <- length(observed)
+      underpowered <- n < config$warnings$min_n
+    }
     counts[[length(counts) + 1]] <- data.frame(
       trait_id = trait$trait_id,
       ancestry = label,
@@ -140,10 +162,18 @@ counts[[length(counts) + 1]] <- data.frame(
 # Do not launch GWAS jobs for configured empty case/control cells.
 count_rows <- do.call(rbind, counts)
 checked <- count_rows[count_rows$trait_id != "ALL" & count_rows$active == "True", , drop = FALSE]
-empty <- checked[checked$n == 0 | checked$cases == 0 | checked$controls == 0, , drop = FALSE]
+binary_checked <- checked[!is.na(checked$cases) & !is.na(checked$controls), , drop = FALSE]
+quant_checked <- checked[is.na(checked$cases) | is.na(checked$controls), , drop = FALSE]
+empty <- rbind(
+  binary_checked[binary_checked$n == 0 | binary_checked$cases == 0 | binary_checked$controls == 0, , drop = FALSE],
+  quant_checked[quant_checked$n == 0, , drop = FALSE]
+)
 if (nrow(empty)) {
-  labels <- paste0(empty$trait_id, "/", empty$ancestry,
-    " n=", empty$n, " cases=", empty$cases, " controls=", empty$controls)
+  labels <- ifelse(
+    is.na(empty$cases) | is.na(empty$controls),
+    paste0(empty$trait_id, "/", empty$ancestry, " n=", empty$n),
+    paste0(empty$trait_id, "/", empty$ancestry, " n=", empty$n, " cases=", empty$cases, " controls=", empty$controls)
+  )
   die("empty GWAS strata or case/control cells: ", paste(labels, collapse = "; "))
 }
 

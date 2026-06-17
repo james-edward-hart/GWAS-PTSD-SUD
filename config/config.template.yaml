@@ -42,6 +42,7 @@ tools:
   plink2: "plink2"
   plink1: "plink"
   admixture: "admixture"
+  regenie: "regenie"
 
 
 # Study genotype dataset; type options: pgen, bed.
@@ -204,6 +205,75 @@ gwas:
   glm_options: "hide-covar firth-fallback"
 
 
+# Phase 2 pooled pan-ancestry GWAS with regenie.
+phase2_regenie:
+  enabled: true
+  global_pcs: 20
+  default_covariates:
+    - age
+    - age2
+    - sex
+    - PC1
+    - PC2
+    - PC3
+    - PC4
+    - PC5
+    - PC6
+    - PC7
+    - PC8
+    - PC9
+    - PC10
+    - PC11
+    - PC12
+    - PC13
+    - PC14
+    - PC15
+    - PC16
+    - PC17
+    - PC18
+    - PC19
+    - PC20
+  extra_covariates: []
+  apply_rint: false
+  # Blank htp_cohort_name uses filename-safe project.analysis_name.
+  htp_cohort_name: ""
+  min_mac: 1
+  p_thresh: 0.01
+  step1_bsize: 1000
+  step2_bsize: 400
+  step1_options: ""
+  step2_options: ""
+
+  # Phase 2 PCA markers. Long-range LD/problem-region exclusions reuse the
+  # resolved ancestry_reference.exclusion_regions file.
+  global_pca:
+    filters:
+      maf_min: 0.01
+      geno_missing_max: 0.02
+      snps_only_acgt: true
+      autosome_only: true
+      max_alleles: 2
+      remove_duplicate_ids: true
+    ld_prune:
+      window: "500kb"
+      step: 1
+      r2: 0.2
+
+  # Regenie Step 1 model markers, independent from the PCA marker set.
+  step1:
+    filters:
+      maf_min: 0.01
+      geno_missing_max: 0.02
+      snps_only_acgt: true
+      autosome_only: true
+      max_alleles: 2
+      remove_duplicate_ids: true
+    ld_prune:
+      window: "500kb"
+      step: 1
+      r2: 0.5
+
+
 # Report warnings only; these thresholds do not stop the workflow.
 warnings:
   min_n: 500
@@ -224,9 +294,18 @@ runtime:
   threads_small: 2
   threads_gwas: 4
   threads_admixture: 4
+  threads_phase2_pca: 4
+  threads_regenie_step1: 4
+  threads_regenie_step2: 4
   mem_mb_small: 4000
   mem_mb_gwas: 16000
   mem_mb_admixture: 16000
+  mem_mb_phase2_pca: 16000
+  mem_mb_regenie_step1: 32000
+  mem_mb_regenie_step2: 32000
   time_min_small: 30
   time_min_gwas: 240
   time_min_admixture: 240
+  time_min_phase2_pca: 240
+  time_min_regenie_step1: 480
+  time_min_regenie_step2: 480

@@ -734,12 +734,16 @@ and log under `results/logs/`.
 **Symptom:** QQ or Manhattan plotting fails, or plots contain very few points.
 
 **Likely cause:** Harmonized GWAS stats are empty or missing required columns.
+For Phase 2 `PAN` outputs, the plotting script reads regenie native or HTP
+columns directly.
 
 **Fix:** Inspect the harmonized stats and filter summary:
 
 ```text
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv
 ```
 
 Do not diagnose this as a plotting issue until the summary statistics file is
@@ -822,5 +826,8 @@ results/qc/ancestry/production/popmad_population_counts.tsv
 results/qc/admixture/admixture_report.md
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv
 results/plots/{trait}/{ancestry}/
+results/plots/{trait}/PAN/
 ```

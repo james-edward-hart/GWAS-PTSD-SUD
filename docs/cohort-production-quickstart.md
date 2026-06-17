@@ -117,6 +117,7 @@ tools:
   plink2: "plink2"
   plink1: "plink"
   admixture: "admixture"
+  regenie: "regenie"
 
 analysis:
   min_stratum_n: 50
@@ -152,6 +153,9 @@ qc:
 
 gwas:
   allow_missing_pcs: false
+
+phase2_regenie:
+  enabled: true
 ```
 
 PLINK2 expects INFO/MaCH R2 annotations for the INFO filter. If your data do
@@ -254,10 +258,11 @@ ancestry stratum:
 results/reports/
 ```
 
-The report is the primary review file. It includes the run inputs, reference
-package fingerprint, ancestry and ADMIXTURE summaries, active/skipped strata,
-sample filtering counts, covariates, variant filtering counts, lambda GC, top
-association signals, QQ and Manhattan plots, and POP-MaD projection plot.
+The Stage 1 reports are written per trait and ancestry. Phase 2 also writes one
+slim `PAN` regenie report per trait. Reports include the run inputs, reference
+package fingerprint, ancestry and ADMIXTURE summaries, sample filtering counts,
+covariates, variant filtering counts, lambda GC, top association signals, QQ and
+Manhattan plots, and POP-MaD or Stage 1 comparison context where relevant.
 
 Use these supporting files when you need the underlying tables:
 
@@ -268,7 +273,10 @@ results/qc/strata/strata_counts.tsv
 results/qc/admixture/admixture_report.md
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv
 results/plots/{trait}/{ancestry}/
+results/plots/{trait}/PAN/
 ```
 
 ## 9. Compress And Export Results

@@ -22,6 +22,7 @@ rule write_control_hwe_variants:
         """
         Rscript scripts/write_control_hwe_variants.R \
           --config {input.config} \
+          --trait {wildcards.trait} \
           --pheno {input.pheno} \
           --keep {input.keep} \
           --plink-prefix {params.prefix} \

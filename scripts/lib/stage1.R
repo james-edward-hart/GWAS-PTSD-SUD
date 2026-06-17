@@ -107,7 +107,8 @@ truthy <- function(value) {
 
 # Normalize comma-separated strings to character vectors.
 split_csv <- function(value) {
-  if (is.null(value) || length(value) == 0 || identical(value, "")) return(character())
+  if (is.null(value) || length(value) == 0) return(character())
+  if (length(value) == 1 && (is.na(value) || identical(value, ""))) return(character())
   if (is.list(value) || length(value) > 1) return(as.character(value))
   items <- trimws(strsplit(as.character(value), ",", fixed = TRUE)[[1]])
   items[nzchar(items)]
@@ -559,7 +560,7 @@ sha256_text <- function(text) {
 
 # Return TRUE when a scalar config string is missing or empty.
 blank <- function(value) {
-  is.null(value) || length(value) == 0 || !nzchar(as.character(value[[1]]))
+  is.null(value) || length(value) == 0 || is.na(value[[1]]) || !nzchar(as.character(value[[1]]))
 }
 
 

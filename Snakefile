@@ -15,6 +15,11 @@ from workflow.snake_helpers import (
     ancestry_reference_validation_inputs as ancestry_reference_validation_inputs_for_config,
     ancestry_study_pcs_file as ancestry_study_pcs_file_for_config,
     pcs_file as pcs_file_for_config,
+    phase2_group_stage1_stats as phase2_group_stage1_stats_for_context,
+    phase2_report_targets as phase2_report_targets_for_context,
+    phase2_trait_group as phase2_trait_group_for_config,
+    phase2_trait_regenie_done as phase2_trait_regenie_done_for_context,
+    phase2_trait_stage1_summaries as phase2_trait_stage1_summaries_for_context,
     popmad_path,
     popmad_within_file as popmad_within_file_for_config,
     reference_package_inputs as reference_package_inputs_for_config,
@@ -27,6 +32,9 @@ from workflow.snake_helpers import (
 # RUN_CONFIG is the build-resolved version consumed by all downstream scripts.
 EFFECTIVE_CONFIG = "results/config/effective_config.yaml"
 RUN_CONFIG = "results/config/resolved_config.yaml"
+
+wildcard_constraints:
+    build="GRCh[0-9]+",
 
 CONFIG_SOURCE_FILES = sorted(str(path) for path in workflow.configfiles)
 if not CONFIG_SOURCE_FILES:
@@ -60,6 +68,11 @@ ancestry_reference_validation_inputs = lambda wildcards: ancestry_reference_vali
 admixture_targets = lambda: admixture_targets_for_config(config)
 admixture_validation_inputs = lambda wildcards: admixture_validation_inputs_for_config(config, wildcards)
 report_targets = lambda wildcards: report_targets_for_context(checkpoints, TRAITS, wildcards, config)
+phase2_report_targets = lambda wildcards: phase2_report_targets_for_context(checkpoints, TRAITS, wildcards, config)
+phase2_group_stage1_stats = lambda wildcards: phase2_group_stage1_stats_for_context(checkpoints, wildcards, config)
+phase2_trait_stage1_summaries = lambda wildcards: phase2_trait_stage1_summaries_for_context(checkpoints, wildcards, config)
+phase2_trait_regenie_done = lambda wildcards: phase2_trait_regenie_done_for_context(wildcards, config)
+phase2_trait_group = lambda wildcards: phase2_trait_group_for_config(config, wildcards.trait)
 active_unrelated_keep_files = lambda wildcards: active_unrelated_keep_files_for_context(checkpoints, wildcards)
 active_within_ancestry_eigenvecs = lambda wildcards: active_within_ancestry_eigenvecs_for_context(checkpoints, wildcards)
 ancestry_file = lambda: ancestry_file_for_config(config)
@@ -82,6 +95,7 @@ rule all:
         # Report filenames include the inferred genome build, so they are
         # expanded after the genome-build checkpoint completes.
         report_targets,
+        phase2_report_targets,
         ancestry_reference_targets(),
         admixture_targets(),
         "results/manifests/run_manifest.tsv",
@@ -93,4 +107,5 @@ include: "workflow/rules/ancestry.smk"
 include: "workflow/rules/admixture.smk"
 include: "workflow/rules/sample_prep.smk"
 include: "workflow/rules/gwas.smk"
+include: "workflow/rules/phase2_regenie.smk"
 include: "workflow/rules/reporting.smk"

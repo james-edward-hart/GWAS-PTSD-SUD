@@ -472,6 +472,41 @@ Use a centered quadratic age term for `age2` when possible, for example
 Trait-specific covariates from the trait registry `covariates` column are
 appended to `default_covariates` and `extra_covariates` for that trait only.
 
+### `phase2_regenie`
+
+Phase 2 runs pooled pan-ancestry regenie GWAS when enabled. It uses the same
+configured study genotype prefix as Stage 1, native regenie output files, and
+`PAN` report/plot labels.
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `enabled` | Recommended | Template uses `true`; when enabled, PAN regenie reports are included in `rule all`. |
+| `global_pcs` | Recommended | Number of cohort-global PCs to compute and expose as Phase 2 covariates. Template uses `20`. |
+| `default_covariates` | Yes | Phase 2 covariates used for every trait. Template uses `age`, `age2`, `sex`, and `PC1`-`PC20`. |
+| `extra_covariates` | Optional | Extra global Phase 2 covariates. |
+| `apply_rint` | Optional | Apply regenie RINT for quantitative traits when `true`. Template uses `false`. |
+| `htp_cohort_name` | Optional | Cohort label passed to regenie `--htp` for RE-META-compatible HTP output. Blank uses the filename-safe `project.analysis_name`. |
+| `min_mac` | Recommended | Regenie `--minMAC` threshold for Step 2. Template uses `1` so polymorphic variants remain available for downstream RE-META gene-based tests. |
+| `p_thresh` | Recommended | Regenie approximate-Firth fallback threshold for binary traits. Template uses `0.01`. |
+| `step1_bsize`, `step2_bsize` | Recommended | Regenie block sizes for Step 1 and Step 2. |
+| `step1_options`, `step2_options` | Optional | Limited extra regenie options. Pipeline-owned input/output/model flags cannot be overridden here. |
+
+`phase2_regenie.global_pca` and `phase2_regenie.step1` each define independent
+marker filters and LD-pruning settings. The template keeps global PCA stricter
+at `500kb/1/0.2` and uses looser Step 1 model pruning at `500kb/1/0.5`. Both
+reuse `ancestry_reference.exclusion_regions` for long-range LD/problem-region
+exclusions.
+
+Phase 2 trait type is detected from the trait registry:
+
+- nonblank `case_value` and `control_value` means binary;
+- both blank plus numeric nonmissing phenotype values means quantitative;
+- any other combination fails validation.
+
+Compatible traits are batched together by detected trait type and covariate
+list. Low or unusable Phase 2 traits are skipped with a placeholder PAN report
+instead of failing the whole workflow.
+
 ### `warnings`
 
 These thresholds are report-only warnings; they do not stop the workflow.
@@ -599,6 +634,9 @@ results/qc/traits/{trait}.covar.tsv
 results/qc/strata/{ancestry}.unrelated.keep.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv
 results/reports/{trait}/{analysis_name}.{trait}.{ancestry}.{build}.report.md
+results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}.regenie.report.md
 results/manifests/run_manifest.tsv
 ```
