@@ -129,9 +129,9 @@ analysis:
     - SAS
 ```
 
-The default Snakemake rule environment installs these tools. Change `tools.*`
+The default Snakemake rule environments install these tools. Change `tools.*`
 only when your cluster requires site-managed modules or explicit executable
-paths, becuase it can't access them via conda channels. 
+paths, because it cannot access them via conda channels.
 
 Keep these production safety settings unless the analysis plan says otherwise:
 
@@ -185,7 +185,8 @@ default-resources:
 
 ## 5. Set Up The Environment
 
-Load the conda-providing module used on your cluster. On my cluster that's miniforge3 (your's might be anaconda3, mamba, etc.):
+Load the conda-providing module used on your cluster. On my cluster that's
+miniforge3 (yours might be anaconda3, mamba, etc.):
 
 ```bash
 module load miniforge3/23.3.1
@@ -206,13 +207,22 @@ mamba env create -f envs/gwas.yaml
 
 This same environment definition is used by most Snakemake jobs and installs
 PLINK 1.9, PLINK2, and ADMIXTURE from conda channels. Phase 2 regenie execution
-uses a separate rule environment from `envs/regenie.yaml`.
+uses a separate Snakemake rule environment from `envs/regenie.yaml`; do not
+create it as the active driver or preflight environment.
 
 If either environment already exists, update it instead:
 
 ```bash
 mamba env update -n gwas-stage1-driver -f envs/snakemake-driver.yaml --prune
 mamba env update -n gwas-stage1 -f envs/gwas.yaml --prune
+```
+
+Snakemake creates hashed rule environments under the profile `conda-prefix`.
+To build all workflow rule environments up front, including the Phase 2 regenie
+environment, run this after activating `gwas-stage1-driver`:
+
+```bash
+snakemake --profile profiles/slurm --conda-create-envs-only
 ```
 
 ## 6. Run Basic Checks
