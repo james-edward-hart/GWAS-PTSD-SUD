@@ -65,23 +65,21 @@ write_tsv(data.frame(FID = samples$FID, IID = samples$IID, PHENO = pheno), args[
 
 
 # Match PC rows back to the manifest order.
-pc_key <- paste(pcs$FID, pcs$IID, sep = "\t")
-sample_key <- paste(samples$FID, samples$IID, sep = "\t")
-pc_index <- match(sample_key, pc_key)
+pc_index <- match_sample_rows(samples[c("FID", "IID")], sample_key_map(pcs[c("FID", "IID")], "within-ancestry PC table"))
 
 
 # PC completeness is enforced only for samples retained by final keep files.
 keep_paths <- args$keep %||% character()
 if (length(keep_paths)) {
-  keep_keys <- character()
+  keep_rows <- data.frame(FID = character(), IID = character())
   for (path in keep_paths) {
     keep <- read_tsv(path)
     require_columns(keep, c("FID", "IID"), paste("keep file", path))
-    keep_keys <- c(keep_keys, paste(keep$FID, keep$IID, sep = "\t"))
+    keep_rows <- rbind(keep_rows, keep[c("FID", "IID")])
   }
-  required_for_gwas <- sample_key %in% unique(keep_keys)
+  required_for_gwas <- !is.na(match_sample_rows(samples[c("FID", "IID")], sample_key_map(keep_rows, "GWAS keep files")))
 } else {
-  required_for_gwas <- rep(TRUE, length(sample_key))
+  required_for_gwas <- rep(TRUE, nrow(samples))
 }
 
 

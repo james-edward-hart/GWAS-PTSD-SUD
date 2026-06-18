@@ -17,6 +17,7 @@ config <- load_config(args$config)
 settings <- config$sex_check %||% list()
 action <- settings$action %||% "warn"
 samples <- read_tsv(config$inputs$sample_manifest)
+require_columns(samples, c("FID", "IID", "sex"), "sample manifest")
 sample_keys <- paste(samples$FID, samples$IID, sep = "\t")
 
 
@@ -148,10 +149,14 @@ if (!truthy(settings$enabled %||% TRUE)) {
 
   # Normalize PLINK2 sex-check output columns.
   native <- read_tsv(paste0(args[["plink-out-prefix"]], ".sexcheck"))
-  fid_col <- if ("#FID" %in% names(native)) "#FID" else "FID"
+  ids <- table_sample_ids(native, paste("PLINK sex-check output", paste0(args[["plink-out-prefix"]], ".sexcheck")))
+  sample_idx <- match_sample_rows(ids, sample_key_map(samples[c("FID", "IID")], "sample manifest"))
+  matched <- !is.na(sample_idx)
+  ids$FID[matched] <- samples$FID[sample_idx[matched]]
+  ids$IID[matched] <- samples$IID[sample_idx[matched]]
   rows <- data.frame(
-    FID = native[[fid_col]],
-    IID = native$IID,
+    FID = ids$FID,
+    IID = ids$IID,
     genotype_pedsex = native$PEDSEX %||% "",
     genetic_sex = native$SNPSEX %||% "",
     plink_status = native$STATUS %||% "",

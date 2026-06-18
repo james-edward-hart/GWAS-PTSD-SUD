@@ -115,6 +115,58 @@ split_csv <- function(value) {
 }
 
 
+# Return common PLINK ID aliases for matching outputs that may omit FID.
+sample_key_variants <- function(fid, iid) {
+  unique(paste(c(fid, iid, "0"), iid, sep = "\t"))
+}
+
+
+# Build an unambiguous lookup from FID/IID aliases to row numbers.
+sample_key_map <- function(ids, label) {
+  missing <- setdiff(c("FID", "IID"), names(ids))
+  if (length(missing)) die(label, " is missing required columns: ", paste(missing, collapse = ", "))
+  if (!nrow(ids)) return(data.frame(key = character(), row = integer(), stringsAsFactors = FALSE))
+  variants <- mapply(sample_key_variants, ids$FID, ids$IID, SIMPLIFY = FALSE)
+  out <- data.frame(
+    key = unlist(variants, use.names = FALSE),
+    row = rep(seq_len(nrow(ids)), lengths(variants)),
+    stringsAsFactors = FALSE
+  )
+  conflict <- names(which(tapply(out$row, out$key, function(x) length(unique(x)) > 1)))
+  if (length(conflict)) {
+    die(label, " has ambiguous sample IDs under FID/IID alias matching: ",
+      paste(head(gsub("\t", " ", conflict), 5), collapse = ", "))
+  }
+  out[!duplicated(out$key), , drop = FALSE]
+}
+
+
+# Match query FID/IID rows against a sample_key_map.
+match_sample_row <- function(fid, iid, key_map) {
+  idx <- match(sample_key_variants(fid, iid), key_map$key)
+  idx <- idx[!is.na(idx)]
+  if (!length(idx)) return(NA_integer_)
+  key_map$row[[idx[[1]]]]
+}
+
+
+match_sample_rows <- function(ids, key_map) {
+  missing <- setdiff(c("FID", "IID"), names(ids))
+  if (length(missing)) die("sample ID table is missing required columns: ", paste(missing, collapse = ", "))
+  vapply(seq_len(nrow(ids)), function(i) match_sample_row(ids$FID[[i]], ids$IID[[i]], key_map), integer(1))
+}
+
+
+# Normalize a table with PLINK-style ID columns to FID/IID, falling back FID=IID.
+table_sample_ids <- function(rows, label) {
+  iid_col <- if ("IID" %in% names(rows)) "IID" else if ("#IID" %in% names(rows)) "#IID" else ""
+  if (!nzchar(iid_col)) die(label, " is missing IID/#IID sample ID column")
+  fid_col <- if ("#FID" %in% names(rows)) "#FID" else if ("FID" %in% names(rows)) "FID" else ""
+  fid <- if (nzchar(fid_col)) rows[[fid_col]] else rows[[iid_col]]
+  data.frame(FID = fid, IID = rows[[iid_col]], stringsAsFactors = FALSE)
+}
+
+
 # Merge global and trait-specific GWAS covariates.
 covariates_for_trait <- function(config, trait_id) {
   covars <- c(

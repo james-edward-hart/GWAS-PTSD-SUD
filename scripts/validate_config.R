@@ -120,9 +120,8 @@ genotype_ids <- function(config) {
     return(paste(fam[[1]], fam[[2]], sep = "\t"))
   }
   psam <- read_tsv(paste0(prefix, ".psam"))
-  fid_col <- if ("#FID" %in% names(psam)) "#FID" else "FID"
-  if (!fid_col %in% names(psam)) psam[[fid_col]] <- psam$IID
-  paste(psam[[fid_col]], psam$IID, sep = "\t")
+  ids <- table_sample_ids(psam, paste("genotype PSAM", paste0(prefix, ".psam")))
+  paste(ids$FID, ids$IID, sep = "\t")
 }
 
 
@@ -271,7 +270,11 @@ if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
 
 
 # Ensure sample manifest IDs exist in the genotype files.
-missing_from_genotypes <- setdiff(paste(samples$FID, samples$IID, sep = "\t"), genotype_ids(config))
+genotype_key <- genotype_ids(config)
+genotype_parts <- do.call(rbind, strsplit(genotype_key, "\t", fixed = TRUE))
+genotype_table <- data.frame(FID = genotype_parts[, 1], IID = genotype_parts[, 2], stringsAsFactors = FALSE)
+genotype_idx <- match_sample_rows(samples[c("FID", "IID")], sample_key_map(genotype_table, "genotype samples"))
+missing_from_genotypes <- paste(samples$FID, samples$IID, sep = "\t")[is.na(genotype_idx)]
 if (length(missing_from_genotypes)) {
   first <- paste(head(gsub("\t", " ", missing_from_genotypes), 5), collapse = ", ")
   die(length(missing_from_genotypes), " sample manifest IDs are absent from genotype files; first: ", first)

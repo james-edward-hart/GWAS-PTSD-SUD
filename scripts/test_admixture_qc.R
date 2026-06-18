@@ -239,7 +239,7 @@ stopifnot(identical(write_pop_samples$sample_set, c("reference", "study")))
 
 popmad <- file.path(tmp, "popmad.tsv")
 write.table(data.frame(
-  FID = c("S1", "S2"),
+  FID = c("0", "S2"),
   IID = c("S1", "S2"),
   ancestry = c("AFR", "EUR"),
   population = c("YRI", "CEU"),

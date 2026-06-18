@@ -108,6 +108,40 @@ write_lines(c("ID\tP", "rs3\t0.3", "rs2\t0.2"), stats2)
 run_phase2(c("stage1-pass-union", "--config", config, "--stage1-stats", stats1, stats2, "--out", union, "--summary-out", union_summary))
 if (!identical(readLines(union), c("rs1", "rs2", "rs3"))) stop("Stage 1 pass-list union is wrong")
 
+sscore <- file.path(tmp, "global_projected.sscore")
+global_pcs <- file.path(tmp, "global_pcs.tsv")
+write_lines(c(
+  "#IID\tALLELE_CT\tPC1_AVG\tPC2_AVG",
+  "I1\t100\t0.11\t0.21",
+  "I2\t100\t0.12\t0.22"
+), sscore)
+run_phase2(c("write-global-pcs", "--config", config, "--sscore", sscore, "--out", global_pcs))
+global_pc_rows <- read_tsv(global_pcs)
+if (!identical(names(global_pc_rows), c("FID", "IID", "PC1", "PC2"))) stop("global PC parser wrote unexpected columns")
+if (!identical(global_pc_rows$FID, global_pc_rows$IID)) stop("IID-only global PC file did not fall back to FID=IID")
+
+alias_keep <- file.path(tmp, "alias.keep.tsv")
+alias_pcs <- file.path(tmp, "alias_pcs.tsv")
+alias_pheno <- file.path(tmp, "alias.pheno.tsv")
+alias_covar <- file.path(tmp, "alias.covar.tsv")
+alias_summary <- file.path(tmp, "alias.summary.tsv")
+alias_traits <- file.path(tmp, "alias.traits.txt")
+alias_covars <- file.path(tmp, "alias.covars.txt")
+alias_plink_keep <- file.path(tmp, "alias.plink.keep.txt")
+bt1_group <- group_rows$group[group_rows$traits == "bt1"][[1]]
+write_lines(c("FID\tIID", "I1\tI1", "I2\tI2"), alias_keep)
+write_lines(c("FID\tIID\tPC1\tPC2", "I1\tI1\t0.11\t0.21", "I2\tI2\t0.12\t0.22"), alias_pcs)
+run_phase2(c(
+  "build-group-inputs", "--config", config, "--group", bt1_group,
+  "--keep", alias_keep, "--pcs", alias_pcs,
+  "--pheno-out", alias_pheno, "--covar-out", alias_covar,
+  "--summary-out", alias_summary, "--trait-list-out", alias_traits,
+  "--covar-list-out", alias_covars, "--keep-plink-out", alias_plink_keep
+))
+alias_covar_rows <- read_tsv(alias_covar)
+if (!identical(as.character(alias_covar_rows$age), c("40", "42"))) stop("Phase 2 group input builder did not match IID-only keep IDs to the manifest")
+if (!identical(as.character(alias_covar_rows$PC1), c("0.11", "0.12"))) stop("Phase 2 group input builder did not match IID-only PC IDs")
+
 group_summary <- file.path(tmp, "group_summary.tsv")
 write_lines(c(
   "group\ttrait\ttrait_type\tcovariates\tphase2_pan_samples\tcomplete_covariate_samples\tusable_n\tcases\tcontrols\tskipped\tskip_reason",
@@ -170,7 +204,7 @@ cmd_lines <- sub("regenie: regenie", paste0("regenie: '", fake_regenie, "'"), cm
 write_lines(cmd_lines, cmd_config)
 trait_list <- file.path(tmp, "bt1.traits.txt")
 write_lines("bt1", trait_list)
-bt_group <- group_rows$group[group_rows$traits == "bt1"][[1]]
+bt_group <- bt1_group
 step1_script <- file.path(tmp, "step1_command.sh")
 run_phase2(c(
   "write-step1-command", "--config", cmd_config, "--group", bt_group, "--pfile-prefix", file.path(tmp, "step1_data"),

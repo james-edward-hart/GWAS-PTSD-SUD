@@ -199,13 +199,13 @@ validate_projection <- function(config, eigenvec, projected_pcs, out) {
   minimum <- as.numeric(config$ancestry_reference$pca$min_projection_pc_correlation %||% 0.95)
   original <- read_tsv(eigenvec)
   projected <- read_tsv(projected_pcs)
-  fid_col <- if ("#FID" %in% names(original)) "#FID" else "FID"
-  key_original <- paste(original[[fid_col]], original$IID, sep = "\t")
-  key_projected <- paste(projected$FID, projected$IID, sep = "\t")
-  shared <- intersect(key_original, key_projected)
-  if (length(shared) < 3) die("fewer than 3 reference samples are shared between PCA eigenvec and projected PC files")
-  oi <- match(shared, key_original)
-  pi <- match(shared, key_projected)
+  original_ids <- table_sample_ids(original, paste("PCA eigenvec file", eigenvec))
+  projected_ids <- table_sample_ids(projected, paste("projected PC file", projected_pcs))
+  pi <- match_sample_rows(original_ids, sample_key_map(projected_ids, "projected PC samples"))
+  shared <- !is.na(pi)
+  if (sum(shared) < 3) die("fewer than 3 reference samples are shared between PCA eigenvec and projected PC files")
+  oi <- which(shared)
+  pi <- pi[shared]
   rows <- lapply(seq_len(pcs), function(i) {
     pc <- paste0("PC", i)
     corr <- cor(as.numeric(original[[pc]][oi]), as.numeric(projected[[pc]][pi]))
@@ -229,8 +229,8 @@ combine_within_pcs <- function(config, eigenvecs, out) {
     ancestry <- parts[[1]]
     path <- paste(parts[-1], collapse = ":")
     eigenvec <- read_tsv(path)
-    fid_col <- if ("#FID" %in% names(eigenvec)) "#FID" else "FID"
-    block <- data.frame(FID = eigenvec[[fid_col]], IID = eigenvec$IID, ancestry = ancestry, stringsAsFactors = FALSE)
+    ids <- table_sample_ids(eigenvec, paste("within-ancestry PCA eigenvec file", path))
+    block <- data.frame(FID = ids$FID, IID = ids$IID, ancestry = ancestry, stringsAsFactors = FALSE)
     for (i in seq_len(pcs)) block[[paste0("PC", i)]] <- eigenvec[[paste0("PC", i)]] %||% "NA"
     rows <- rbind(rows, block)
   }

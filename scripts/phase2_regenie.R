@@ -52,11 +52,7 @@ read_tsv_no_metadata <- function(path) {
 read_psam_ids <- function(prefix_or_path) {
   path <- if (grepl("\\.psam$", prefix_or_path)) prefix_or_path else paste0(prefix_or_path, ".psam")
   rows <- read_tsv_no_metadata(path)
-  iid_col <- if ("IID" %in% names(rows)) "IID" else if ("#IID" %in% names(rows)) "#IID" else ""
-  if (!nzchar(iid_col)) die("PSAM file is missing IID column: ", path)
-  fid_col <- if ("#FID" %in% names(rows)) "#FID" else if ("FID" %in% names(rows)) "FID" else ""
-  fid <- if (nzchar(fid_col)) rows[[fid_col]] else rows[[iid_col]]
-  data.frame(FID = fid, IID = rows[[iid_col]], stringsAsFactors = FALSE)
+  table_sample_ids(rows, paste("PSAM file", path))
 }
 
 
@@ -76,11 +72,11 @@ read_pvar_variants <- function(prefix_or_path) {
 
 read_sscore <- function(path, pcs) {
   rows <- read_tsv_no_metadata(path)
-  fid_col <- if ("#FID" %in% names(rows)) "#FID" else "FID"
+  ids <- table_sample_ids(rows, paste("projected score file", path))
   pc_cols <- grep("_AVG$", names(rows), value = TRUE)
   if (length(pc_cols) < pcs) pc_cols <- grep("^PC[0-9]+$", names(rows), value = TRUE)
   if (length(pc_cols) < pcs) die("expected at least ", pcs, " projected PC columns in ", path)
-  out <- data.frame(FID = rows[[fid_col]], IID = rows$IID, stringsAsFactors = FALSE)
+  out <- ids
   for (i in seq_len(pcs)) out[[paste0("PC", i)]] <- rows[[pc_cols[[i]]]]
   out
 }
@@ -312,9 +308,8 @@ prepare_pan_genotypes <- function(config, sex_keep, assignments_path, excluded_p
   samples <- read_tsv(config$inputs$sample_manifest)
   require_columns(samples, c("FID", "IID"), "sample manifest")
   sex_ids <- read_id_file(sex_keep, "sex-check keep file")
-  sex_key <- paste(sex_ids$FID, sex_ids$IID, sep = "\t")
-  sample_key <- paste(samples$FID, samples$IID, sep = "\t")
-  initial <- samples[sample_key %in% sex_key, c("FID", "IID"), drop = FALSE]
+  sex_idx <- match_sample_rows(samples[c("FID", "IID")], sample_key_map(sex_ids, "sex-check keep file"))
+  initial <- samples[!is.na(sex_idx), c("FID", "IID"), drop = FALSE]
   if (!nrow(initial)) die("no samples passed sex-check for Phase 2")
 
   initial_keep <- paste0(out_prefix, ".sex_checked.keep.txt")
@@ -332,14 +327,13 @@ prepare_pan_genotypes <- function(config, sex_keep, assignments_path, excluded_p
 
   assignments <- if (file.exists(assignments_path)) read_tsv(assignments_path) else data.frame()
   excluded <- if (file.exists(excluded_path)) read_tsv(excluded_path) else data.frame()
-  final_key <- paste(final$FID, final$IID, sep = "\t")
   ancestry <- rep("UNKNOWN", nrow(final))
   population <- rep("", nrow(final))
   reason <- rep("missing_popmad_assignment", nrow(final))
   confidence <- rep("NA", nrow(final))
   if (nrow(assignments)) {
-    assigned_key <- paste(assignments$FID, assignments$IID, sep = "\t")
-    idx <- match(final_key, assigned_key)
+    require_columns(assignments, c("FID", "IID"), "POP-MaD assignments")
+    idx <- match_sample_rows(final, sample_key_map(assignments[c("FID", "IID")], "POP-MaD assignments"))
     hit <- !is.na(idx)
     ancestry[hit] <- assignments$ancestry[idx[hit]]
     population[hit] <- assignments$population[idx[hit]]
@@ -347,8 +341,8 @@ prepare_pan_genotypes <- function(config, sex_keep, assignments_path, excluded_p
     reason[hit] <- "assigned"
   }
   if (nrow(excluded)) {
-    excluded_key <- paste(excluded$FID, excluded$IID, sep = "\t")
-    idx <- match(final_key, excluded_key)
+    require_columns(excluded, c("FID", "IID"), "POP-MaD excluded samples")
+    idx <- match_sample_rows(final, sample_key_map(excluded[c("FID", "IID")], "POP-MaD excluded samples"))
     hit <- !is.na(idx) & reason != "assigned"
     reason[hit] <- excluded$reason[idx[hit]]
   }
@@ -441,14 +435,11 @@ build_group_inputs <- function(config, group, keep_path, pcs_path, pheno_out, co
   info <- group_info(config, group)
   covars <- info$covariates
 
-  sample_key <- paste(samples$FID, samples$IID, sep = "\t")
-  keep_key <- paste(keep$FID, keep$IID, sep = "\t")
-  sample_idx <- match(keep_key, sample_key)
+  sample_idx <- match_sample_rows(keep, sample_key_map(samples[c("FID", "IID")], "sample manifest"))
   if (any(is.na(sample_idx))) die("Phase 2 keep sample missing from sample manifest")
   samples <- samples[sample_idx, , drop = FALSE]
 
-  pc_key <- paste(pcs$FID, pcs$IID, sep = "\t")
-  pc_idx <- match(keep_key, pc_key)
+  pc_idx <- match_sample_rows(keep, sample_key_map(pcs[c("FID", "IID")], "Phase 2 global PC table"))
 
   covar <- data.frame(FID = keep$FID, IID = keep$IID, stringsAsFactors = FALSE)
   for (covar_name in covars) {

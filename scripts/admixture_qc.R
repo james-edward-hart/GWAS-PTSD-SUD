@@ -449,7 +449,7 @@ join_popmad <- function(study, popmad_path) {
 
   popmad <- read_tsv(popmad_path)
   require_columns(popmad, c("FID", "IID", "ancestry", "population", "confidence", "status"), "POP-MaD assignments")
-  idx <- match(paste(study$FID, study$IID, sep = "\t"), paste(popmad$FID, popmad$IID, sep = "\t"))
+  idx <- match_sample_rows(study[c("FID", "IID")], sample_key_map(popmad[c("FID", "IID")], "POP-MaD assignments"))
   matched <- !is.na(idx)
   if (any(matched)) {
     rows <- popmad[idx[matched], , drop = FALSE]
