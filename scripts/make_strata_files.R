@@ -25,9 +25,46 @@ dir.create(args$outdir, recursive = TRUE, showWarnings = FALSE)
 
 
 # Restrict assignments to manifest samples and configured ancestries.
+sample_key_variants <- function(fid, iid) {
+  unique(paste(c(fid, iid, "0"), iid, sep = "\t"))
+}
+
+sample_key_map <- function(ids, label) {
+  variants <- mapply(sample_key_variants, ids$FID, ids$IID, SIMPLIFY = FALSE)
+  out <- data.frame(
+    key = unlist(variants, use.names = FALSE),
+    row = rep(seq_len(nrow(ids)), lengths(variants)),
+    stringsAsFactors = FALSE
+  )
+  conflict <- names(which(tapply(out$row, out$key, function(x) length(unique(x)) > 1)))
+  if (length(conflict)) {
+    die(label, " has ambiguous sample IDs under FID/IID alias matching: ",
+      paste(head(gsub("\t", " ", conflict), 5), collapse = ", "))
+  }
+  out[!duplicated(out$key), , drop = FALSE]
+}
+
+match_sample_row <- function(fid, iid, key_map) {
+  idx <- match(sample_key_variants(fid, iid), key_map$key)
+  idx <- idx[!is.na(idx)]
+  if (!length(idx)) return(NA_integer_)
+  key_map$row[[idx[[1]]]]
+}
+
+require_columns(samples, c("FID", "IID"), "sample manifest")
+require_columns(ancestry, c("FID", "IID", "ancestry"), "POP-MaD assignments")
 sample_key <- paste(samples$FID, samples$IID, sep = "\t")
-ancestry_key <- paste(ancestry$FID, ancestry$IID, sep = "\t")
-valid <- ancestry_key %in% sample_key & ancestry$ancestry %in% labels
+sample_map <- sample_key_map(samples[c("FID", "IID")], "sample manifest")
+ancestry_sample_idx <- vapply(seq_len(nrow(ancestry)), function(i) {
+  match_sample_row(ancestry$FID[[i]], ancestry$IID[[i]], sample_map)
+}, integer(1))
+valid <- !is.na(ancestry_sample_idx) & ancestry$ancestry %in% labels
+matched_sample_idx <- ancestry_sample_idx[valid]
+if (any(duplicated(matched_sample_idx))) {
+  duplicated_samples <- unique(sample_key[matched_sample_idx[duplicated(matched_sample_idx)]])
+  die("POP-MaD assignments contain duplicate rows for manifest samples under FID/IID alias matching: ",
+    paste(head(gsub("\t", " ", duplicated_samples), 5), collapse = ", "))
+}
 assigned_n <- setNames(rep(0L, length(labels)), labels)
 assigned_counts <- table(ancestry$ancestry[valid])
 assigned_n[names(assigned_counts)] <- as.integer(assigned_counts)
@@ -43,7 +80,8 @@ if (!length(active_labels)) {
     "; assigned configured ancestry counts: ", assigned_summary)
 }
 
-matched <- match(sample_key, ancestry_key)
+matched <- rep(NA_integer_, nrow(samples))
+matched[matched_sample_idx] <- which(valid)
 assigned_label <- ifelse(is.na(matched), "", ancestry$ancestry[matched])
 configured_assignment <- nzchar(assigned_label) & assigned_label %in% labels
 active_assignment <- configured_assignment & assigned_label %in% active_labels
@@ -88,7 +126,10 @@ if (length(missing_keys)) {
     sprintf("%.2f%%", 100 * unassigned_fraction), ")\n", sep = "")
 }
 
-ancestry <- ancestry[valid, , drop = FALSE]
+ancestry <- cbind(
+  samples[matched_sample_idx, c("FID", "IID"), drop = FALSE],
+  ancestry[valid, setdiff(names(ancestry), c("FID", "IID")), drop = FALSE]
+)
 
 
 # Write one PLINK keep file per configured ancestry label.

@@ -64,6 +64,23 @@ stopifnot(status == 0L)
 excluded_pass <- read.table(file.path(tmp, "pass", "excluded_ancestries.tsv"), sep = "\t", header = TRUE, stringsAsFactors = FALSE)
 stopifnot(nrow(excluded_pass) == 0L)
 
+write.table(data.frame(
+  FID = samples$IID[1:98],
+  IID = samples$IID[1:98],
+  ancestry = "A",
+  stringsAsFactors = FALSE
+), ancestry, sep = "\t", quote = FALSE, row.names = FALSE)
+status <- system2("Rscript", c(
+  "scripts/make_strata_files.R",
+  "--config", config,
+  "--ancestry-file", ancestry,
+  "--outdir", file.path(tmp, "iid_alias")
+))
+stopifnot(status == 0L)
+alias_keep <- read.table(file.path(tmp, "iid_alias", "A.keep.tsv"), sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+stopifnot(identical(alias_keep$FID[1:3], samples$FID[1:3]))
+stopifnot(identical(alias_keep$IID[1:3], samples$IID[1:3]))
+
 write_case(97, ancestry)
 status <- system2("Rscript", c(
   "scripts/make_strata_files.R",
