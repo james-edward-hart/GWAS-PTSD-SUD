@@ -155,4 +155,26 @@ stopifnot(file.exists(excluded))
 stopifnot(length(readLines(excluded)) == 0)
 stopifnot(any(grepl("pre-LD-pruned", readLines(prune_log), fixed = TRUE)))
 
+pc_config <- file.path(tmp, "pc_config.yaml")
+writeLines(c("popmad:", "  pcs: 2"), pc_config)
+sscore_iid_only <- file.path(tmp, "study_projected.sscore")
+writeLines(c(
+  "#IID\tALLELE_CT\tPC1_AVG\tPC2_AVG",
+  "I1\t100\t0.11\t0.21",
+  "I2\t100\t0.12\t0.22"
+), sscore_iid_only)
+pcs_out <- file.path(tmp, "study_projected_pcs.tsv")
+pcs_log <- file.path(tmp, "study_projected_pcs.log")
+status <- run_cmd(c(
+  "write-study-pcs",
+  "--config", pc_config,
+  "--sscore", sscore_iid_only,
+  "--out", pcs_out
+), pcs_log)
+stopifnot(identical(status, 0L))
+pcs_rows <- read.delim(pcs_out, sep = "\t", stringsAsFactors = FALSE)
+stopifnot(identical(names(pcs_rows), c("FID", "IID", "PC1", "PC2")))
+stopifnot(identical(pcs_rows$FID, pcs_rows$IID))
+stopifnot(identical(pcs_rows$IID, c("I1", "I2")))
+
 cat("Ancestry reference tests passed\n")

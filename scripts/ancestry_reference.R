@@ -148,11 +148,21 @@ write_region_exclusions <- function(config, pfile_prefix, out) {
 # Read PLINK2 score output and normalize projected PC columns.
 read_sscore <- function(path, pcs) {
   rows <- read_tsv(path)
-  fid_col <- if ("#FID" %in% names(rows)) "#FID" else "FID"
+  fid_col <- intersect(c("#FID", "FID"), names(rows))
+  iid_col <- intersect(c("IID", "#IID"), names(rows))
+  if (!length(iid_col)) {
+    die("projected score file is missing IID/#IID sample ID column: ", path)
+  }
+  iid_col <- iid_col[[1]]
+  fid <- if (length(fid_col)) rows[[fid_col[[1]]]] else rows[[iid_col]]
+  iid <- rows[[iid_col]]
+  if (length(fid) != nrow(rows) || length(iid) != nrow(rows)) {
+    die("projected score file has malformed sample ID columns: ", path)
+  }
   pc_cols <- grep("_AVG$", names(rows), value = TRUE)
   if (length(pc_cols) < pcs) pc_cols <- grep("^PC[0-9]+$", names(rows), value = TRUE)
   if (length(pc_cols) < pcs) die("expected at least ", pcs, " projected PC columns in ", path)
-  out <- data.frame(FID = rows[[fid_col]], IID = rows$IID, stringsAsFactors = FALSE)
+  out <- data.frame(FID = fid, IID = iid, stringsAsFactors = FALSE)
   for (i in seq_len(pcs)) out[[paste0("PC", i)]] <- rows[[pc_cols[[i]]]]
   out
 }
