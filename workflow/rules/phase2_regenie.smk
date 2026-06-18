@@ -6,6 +6,27 @@ PHASE2_GLOBAL_PCA_PREFIX = f"{PHASE2_DIR}/global_pca/global_pca"
 PHASE2_GLOBAL_PCA_SCORE_PREFIX = f"{PHASE2_DIR}/global_pca/pan_global_pcs"
 PHASE2_STEP1_QC_PREFIX = f"{PHASE2_DIR}/step1/step1_qc"
 PHASE2_STEP1_PRUNE_PREFIX = f"{PHASE2_DIR}/step1/step1_ld_prune"
+PHASE2_REGENIE_TOOL = f"{PHASE2_DIR}/regenie_tool.tsv"
+
+
+rule record_phase2_regenie_tool:
+    input:
+        config=RUN_CONFIG,
+    output:
+        tool=PHASE2_REGENIE_TOOL,
+    log:
+        "results/logs/phase2_regenie/record_regenie_tool.log",
+    conda:
+        "../../envs/regenie.yaml",
+    params:
+        tool=lambda wildcards: config.get("tools", {}).get("regenie", "regenie"),
+    shell:
+        """
+        python scripts/record_regenie_tool.py \
+          --tool {params.tool:q} \
+          --out {output.tool:q} \
+          > {log:q} 2>&1
+        """
 
 
 rule write_phase2_regenie_groups:
@@ -328,7 +349,7 @@ rule prepare_phase2_regenie_assoc_genotypes:
         """
 
 
-rule run_phase2_regenie_step1:
+rule write_phase2_regenie_step1_command:
     input:
         config=RUN_CONFIG,
         pgen=f"{PHASE2_STEP1_QC_PREFIX}.pgen",
@@ -340,10 +361,9 @@ rule run_phase2_regenie_step1:
         keep=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.keep.txt",
         traits=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.analysis_traits.txt",
     output:
-        pred=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1_pred.list",
-        done=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1.done",
+        command=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1.command.sh",
     log:
-        "results/logs/phase2_regenie/regenie_step1.{group}.log",
+        "results/logs/phase2_regenie/write_regenie_step1_command.{group}.log",
     threads:
         config["runtime"].get("threads_regenie_step1", config["runtime"]["threads_gwas"])
     resources:
@@ -354,9 +374,10 @@ rule run_phase2_regenie_step1:
     params:
         pfile_prefix=lambda wildcards, input: str(input.pgen)[:-5],
         out_prefix=lambda wildcards: f"results/gwas/PAN/regenie/groups/{wildcards.group}/{wildcards.group}.step1",
+        pred=lambda wildcards: f"results/gwas/PAN/regenie/groups/{wildcards.group}/{wildcards.group}.step1_pred.list",
     shell:
         """
-        Rscript scripts/phase2_regenie.R run-step1 \
+        Rscript scripts/phase2_regenie.R write-step1-command \
           --config {input.config} \
           --group {wildcards.group} \
           --pfile-prefix {params.pfile_prefix} \
@@ -365,14 +386,37 @@ rule run_phase2_regenie_step1:
           --covar {input.covar} \
           --keep {input.keep} \
           --trait-list {input.traits} \
-          --pred-list {output.pred} \
+          --pred-list {params.pred} \
           --out-prefix {params.out_prefix} \
+          --script-out {output.command} \
           --threads {threads} \
           > {log} 2>&1
         """
 
 
-rule run_phase2_regenie_step2:
+rule run_phase2_regenie_step1:
+    input:
+        command=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1.command.sh",
+        tool=PHASE2_REGENIE_TOOL,
+    output:
+        pred=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1_pred.list",
+        done=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1.done",
+    log:
+        "results/logs/phase2_regenie/regenie_step1.{group}.log",
+    threads:
+        config["runtime"].get("threads_regenie_step1", config["runtime"]["threads_gwas"])
+    resources:
+        mem_mb=config["runtime"].get("mem_mb_regenie_step1", config["runtime"]["mem_mb_gwas"]),
+        runtime=config["runtime"].get("time_min_regenie_step1", config["runtime"]["time_min_gwas"]),
+    conda:
+        "../../envs/regenie.yaml",
+    shell:
+        """
+        bash {input.command:q} > {log:q} 2>&1
+        """
+
+
+rule write_phase2_regenie_step2_command:
     input:
         config=RUN_CONFIG,
         pgen=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.assoc_qc.pgen",
@@ -384,9 +428,9 @@ rule run_phase2_regenie_step2:
         traits=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.analysis_traits.txt",
         build="results/qc/genome_build/genome_build.txt",
     output:
-        done=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.{{build}}.step2.done",
+        command=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.{{build}}.step2.command.sh",
     log:
-        "results/logs/phase2_regenie/regenie_step2.{group}.{build}.log",
+        "results/logs/phase2_regenie/write_regenie_step2_command.{group}.{build}.log",
     threads:
         config["runtime"].get("threads_regenie_step2", config["runtime"]["threads_gwas"])
     resources:
@@ -397,9 +441,10 @@ rule run_phase2_regenie_step2:
     params:
         pfile_prefix=lambda wildcards, input: str(input.pgen)[:-5],
         out_prefix=lambda wildcards: f"results/gwas/PAN/regenie/groups/{wildcards.group}/{wildcards.group}.{wildcards.build}",
+        done=lambda wildcards: f"results/gwas/PAN/regenie/groups/{wildcards.group}/{wildcards.group}.{wildcards.build}.step2.done",
     shell:
         """
-        Rscript scripts/phase2_regenie.R run-step2 \
+        Rscript scripts/phase2_regenie.R write-step2-command \
           --config {input.config} \
           --group {wildcards.group} \
           --pfile-prefix {params.pfile_prefix} \
@@ -408,9 +453,31 @@ rule run_phase2_regenie_step2:
           --pred-list {input.pred} \
           --trait-list {input.traits} \
           --out-prefix {params.out_prefix} \
-          --done {output.done} \
+          --done {params.done} \
+          --script-out {output.command} \
           --threads {threads} \
           > {log} 2>&1
+        """
+
+
+rule run_phase2_regenie_step2:
+    input:
+        command=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.{{build}}.step2.command.sh",
+        tool=PHASE2_REGENIE_TOOL,
+    output:
+        done=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.{{build}}.step2.done",
+    log:
+        "results/logs/phase2_regenie/regenie_step2.{group}.{build}.log",
+    threads:
+        config["runtime"].get("threads_regenie_step2", config["runtime"]["threads_gwas"])
+    resources:
+        mem_mb=config["runtime"].get("mem_mb_regenie_step2", config["runtime"]["mem_mb_gwas"]),
+        runtime=config["runtime"].get("time_min_regenie_step2", config["runtime"]["time_min_gwas"]),
+    conda:
+        "../../envs/regenie.yaml",
+    shell:
+        """
+        bash {input.command:q} > {log:q} 2>&1
         """
 
 

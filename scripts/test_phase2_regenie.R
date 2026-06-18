@@ -156,11 +156,11 @@ text <- readLines(report)
 if (!any(grepl("Stage 1 Lambda Comparison", text, fixed = TRUE))) stop("Phase 2 report missing Stage 1 comparison")
 if (!any(grepl("rs1", text, fixed = TRUE))) stop("HTP regenie parser did not expose top hit")
 
-fake_regenie <- file.path(tmp, "fake_regenie.sh")
-fake_args <- file.path(tmp, "regenie_args.txt")
+fake_regenie <- file.path(tmp, "fake regenie.sh")
 write_lines(c(
   "#!/bin/sh",
-  paste0("printf '%s\\n' \"$@\" > ", shQuote(fake_args))
+  "echo fake regenie should not run here >&2",
+  "exit 99"
 ), fake_regenie)
 Sys.chmod(fake_regenie, "0755")
 cmd_config <- file.path(tmp, "config_cmd.yaml")
@@ -171,17 +171,81 @@ write_lines(cmd_lines, cmd_config)
 trait_list <- file.path(tmp, "bt1.traits.txt")
 write_lines("bt1", trait_list)
 bt_group <- group_rows$group[group_rows$traits == "bt1"][[1]]
+step1_script <- file.path(tmp, "step1_command.sh")
 run_phase2(c(
-  "run-step2", "--config", cmd_config, "--group", bt_group, "--pfile-prefix", file.path(tmp, "assoc"),
+  "write-step1-command", "--config", cmd_config, "--group", bt_group, "--pfile-prefix", file.path(tmp, "step1_data"),
+  "--extract", file.path(tmp, "extract_variants.txt"), "--pheno", file.path(tmp, "pheno.tsv"),
+  "--covar", file.path(tmp, "covar.tsv"), "--keep", file.path(tmp, "keep_ids.txt"),
+  "--trait-list", trait_list, "--pred-list", file.path(tmp, "step1_pred.list"),
+  "--out-prefix", file.path(tmp, "step1"), "--script-out", step1_script, "--threads", "2"
+))
+step1_text <- paste(readLines(step1_script), collapse = "\n")
+if (!grepl("'--step' '1'", step1_text, fixed = TRUE)) stop("Step 1 command script missing --step 1")
+if (!grepl("'--lowmem'", step1_text, fixed = TRUE)) stop("Step 1 command script missing --lowmem")
+if (!grepl("'--extract' '", step1_text, fixed = TRUE)) stop("Step 1 command script missing --extract")
+if (!grepl("'[^']*fake regenie.sh'", step1_text)) stop("Step 1 command script did not shell-quote the regenie tool path")
+
+step2_script <- file.path(tmp, "step2_command.sh")
+run_phase2(c(
+  "write-step2-command", "--config", cmd_config, "--group", bt_group, "--pfile-prefix", file.path(tmp, "assoc_data"),
   "--pheno", file.path(tmp, "pheno.tsv"), "--covar", file.path(tmp, "covar.tsv"),
   "--pred-list", file.path(tmp, "pred.list"), "--trait-list", trait_list,
-  "--out-prefix", file.path(tmp, "step2"), "--done", file.path(tmp, "step2.done"), "--threads", "2"
+  "--out-prefix", file.path(tmp, "step2"), "--done", file.path(tmp, "step2.done"),
+  "--script-out", step2_script, "--threads", "2"
 ))
-args_text <- readLines(fake_args)
-htp_idx <- match("--htp", args_text)
-min_mac_idx <- match("--minMAC", args_text)
-if (is.na(htp_idx) || args_text[[htp_idx + 1]] != "Phase_2_Test_Cohort") stop("run-step2 did not pass the expected --htp cohort label")
-if (is.na(min_mac_idx) || args_text[[min_mac_idx + 1]] != "1") stop("run-step2 did not pass --minMAC 1")
+step2_text <- paste(readLines(step2_script), collapse = "\n")
+if (!grepl("'--htp' 'Phase_2_Test_Cohort'", step2_text, fixed = TRUE)) stop("Step 2 command script missing the expected --htp cohort label")
+if (!grepl("'--minMAC' '1'", step2_text, fixed = TRUE)) stop("Step 2 command script missing --minMAC 1")
+if (!grepl("'[^']*fake regenie.sh'", step2_text)) stop("Step 2 command script did not shell-quote the regenie tool path")
+
+empty_traits <- file.path(tmp, "empty.traits.txt")
+write_lines(character(), empty_traits)
+noop_step1 <- file.path(tmp, "noop_step1.sh")
+noop_pred <- file.path(tmp, "noop_pred.list")
+run_phase2(c(
+  "write-step1-command", "--config", cmd_config, "--group", bt_group, "--pfile-prefix", file.path(tmp, "step1"),
+  "--extract", file.path(tmp, "extract.txt"), "--pheno", file.path(tmp, "pheno.tsv"),
+  "--covar", file.path(tmp, "covar.tsv"), "--keep", file.path(tmp, "keep.txt"),
+  "--trait-list", empty_traits, "--pred-list", noop_pred,
+  "--out-prefix", file.path(tmp, "noop_step1"), "--script-out", noop_step1, "--threads", "2"
+))
+status <- system2("bash", noop_step1, stdout = TRUE, stderr = TRUE)
+if (!identical(as.integer(attr(status, "status") %||% 0L), 0L)) stop("Step 1 no-op script failed")
+if (!file.exists(noop_pred) || file.info(noop_pred)$size != 0) stop("Step 1 no-op script did not create an empty prediction list")
+if (!identical(readLines(file.path(tmp, "noop_step1.done")), "skipped_no_traits")) stop("Step 1 no-op script did not write skip sentinel")
+
+noop_step2 <- file.path(tmp, "noop_step2.sh")
+noop_done <- file.path(tmp, "noop_step2.done")
+run_phase2(c(
+  "write-step2-command", "--config", cmd_config, "--group", bt_group, "--pfile-prefix", file.path(tmp, "assoc"),
+  "--pheno", file.path(tmp, "pheno.tsv"), "--covar", file.path(tmp, "covar.tsv"),
+  "--pred-list", file.path(tmp, "pred.list"), "--trait-list", empty_traits,
+  "--out-prefix", file.path(tmp, "noop_step2"), "--done", noop_done,
+  "--script-out", noop_step2, "--threads", "2"
+))
+status <- system2("bash", noop_step2, stdout = TRUE, stderr = TRUE)
+if (!identical(as.integer(attr(status, "status") %||% 0L), 0L)) stop("Step 2 no-op script failed")
+if (!identical(readLines(noop_done), "skipped_no_traits")) stop("Step 2 no-op script did not write skip sentinel")
+
+python <- Sys.which("python3")
+if (!nzchar(python)) python <- Sys.which("python")
+if (!nzchar(python)) stop("python is required for record_regenie_tool.py test")
+fake_versioned_regenie <- file.path(tmp, "fake_versioned_regenie.sh")
+write_lines(c(
+  "#!/bin/sh",
+  "if [ \"$1\" = \"--version\" ]; then",
+  "  echo 'regenie fake 4.1.2'",
+  "  exit 0",
+  "fi",
+  "exit 0"
+), fake_versioned_regenie)
+Sys.chmod(fake_versioned_regenie, "0755")
+tool_manifest <- file.path(tmp, "regenie_tool.tsv")
+status <- system2(python, c(file.path(repo, "scripts", "record_regenie_tool.py"), "--tool", fake_versioned_regenie, "--out", tool_manifest), stdout = TRUE, stderr = TRUE)
+if (!identical(as.integer(attr(status, "status") %||% 0L), 0L)) stop("record_regenie_tool.py failed:\n", paste(status, collapse = "\n"))
+tool_rows <- read_tsv(tool_manifest)
+if (!all(c("tool_regenie_path", "tool_regenie_sha256", "tool_regenie_version") %in% tool_rows$key)) stop("regenie tool provenance manifest is missing expected rows")
+if (!any(tool_rows$key == "tool_regenie_version" & grepl("fake 4.1.2", tool_rows$value))) stop("regenie tool provenance did not record version output")
 
 bad_options <- file.path(tmp, "bad_options.txt")
 write_lines("--pgen x", bad_options)

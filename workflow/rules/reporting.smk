@@ -7,6 +7,9 @@ reference_prep_report_input = lambda wildcards: [REFERENCE_PREP_REPORT] \
     else []
 
 ancestry_counts_input = lambda wildcards: popmad_counts_file()
+phase2_regenie_tool_input = lambda wildcards: [PHASE2_REGENIE_TOOL] \
+    if config.get("phase2_regenie", {}).get("enabled", False) \
+    else []
 POPMAD_PROJECTION_PLOT = f"results/plots/ancestry/{ANALYSIS_OUTPUT_NAME}.popmad_reference_study_pcs.png"
 
 
@@ -198,6 +201,7 @@ rule write_run_manifest:
         config=RUN_CONFIG,
         reports=report_targets,
         phase2_reports=phase2_report_targets,
+        regenie_tool=phase2_regenie_tool_input,
         build="results/qc/genome_build/genome_build.txt",
     output:
         manifest="results/manifests/run_manifest.tsv",
@@ -205,11 +209,16 @@ rule write_run_manifest:
         "results/logs/reporting/write_run_manifest.log",
     conda:
         "../../envs/gwas.yaml",
+    params:
+        regenie_tool=lambda wildcards, input: input.regenie_tool[0]
+        if input.regenie_tool
+        else "",
     shell:
         """
         Rscript scripts/write_run_manifest.R \
           --config {input.config} \
           --genome-build-file {input.build} \
+          --regenie-tool {params.regenie_tool:q} \
           --out {output.manifest} \
           > {log} 2>&1
         """

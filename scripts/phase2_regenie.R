@@ -566,16 +566,37 @@ prepare_assoc_genotypes <- function(config, pfile_prefix, extract, out_prefix, t
 }
 
 
-run_regenie_step1 <- function(config, group, pfile_prefix, extract, pheno, covar, keep, trait_list, pred_list, out_prefix, threads) {
+shell_quote <- function(value) {
+  shQuote(as.character(value), type = "sh")
+}
+
+
+shell_command_line <- function(command, args) {
+  paste(c(shell_quote(command), vapply(args, shell_quote, character(1))), collapse = " ")
+}
+
+
+write_bash_script <- function(path, lines) {
+  ensure_parent(path)
+  writeLines(lines, path)
+  Sys.chmod(path, mode = "0755")
+}
+
+
+mkdir_parent_line <- function(path) {
+  paste("mkdir -p", shell_quote(dirname(path)))
+}
+
+
+printf_line <- function(value, path) {
+  paste("printf '%s\\n'", shell_quote(value), ">", shell_quote(path))
+}
+
+
+regenie_step1_args <- function(config, group, pfile_prefix, extract, pheno, covar, keep, trait_list, out_prefix, threads) {
   info <- group_info(config, group)
   traits <- readLines(trait_list, warn = FALSE)
   traits <- traits[nzchar(traits)]
-  ensure_parent(pred_list)
-  if (!length(traits)) {
-    writeLines(character(), pred_list)
-    writeLines("skipped_no_traits", paste0(out_prefix, ".done"))
-    return(invisible(TRUE))
-  }
   covars <- info$covariates
   command <- c(
     "--step", "1",
@@ -595,26 +616,48 @@ run_regenie_step1 <- function(config, group, pfile_prefix, extract, pheno, covar
   if (identical(info$trait_type, "qt") && truthy(config$phase2_regenie$apply_rint %||% FALSE)) {
     command <- c(command, "--apply-rint")
   }
-  command <- c(command, extra_regenie_options(config$phase2_regenie$step1_options %||% ""), "--out", out_prefix)
-  run_command(regenie_tool(config), command)
-  observed <- paste0(out_prefix, "_pred.list")
-  if (!file.exists(observed)) die("regenie Step 1 did not write expected prediction list: ", observed)
-  if (!identical(normalizePath(observed), normalizePath(pred_list, mustWork = FALSE))) {
-    file.copy(observed, pred_list, overwrite = TRUE)
-  }
-  writeLines("ok", paste0(out_prefix, ".done"))
+  list(
+    traits = traits,
+    args = c(command, extra_regenie_options(config$phase2_regenie$step1_options %||% ""), "--out", out_prefix)
+  )
 }
 
 
-run_regenie_step2 <- function(config, group, pfile_prefix, pheno, covar, pred_list, trait_list, out_prefix, done, threads) {
+write_regenie_step1_command <- function(config, group, pfile_prefix, extract, pheno, covar, keep, trait_list,
+                                        pred_list, out_prefix, script_out, threads) {
+  command <- regenie_step1_args(config, group, pfile_prefix, extract, pheno, covar, keep, trait_list, out_prefix, threads)
+  done <- paste0(out_prefix, ".done")
+  if (!length(command$traits)) {
+    write_bash_script(script_out, c(
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      mkdir_parent_line(pred_list),
+      paste(": >", shell_quote(pred_list)),
+      printf_line("skipped_no_traits", done)
+    ))
+    return(invisible(TRUE))
+  }
+
+  observed <- paste0(out_prefix, "_pred.list")
+  lines <- c(
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    mkdir_parent_line(out_prefix),
+    shell_command_line(regenie_tool(config), command$args),
+    paste("test -s", shell_quote(observed))
+  )
+  if (!identical(observed, pred_list)) {
+    lines <- c(lines, paste("cp -f", shell_quote(observed), shell_quote(pred_list)))
+  }
+  lines <- c(lines, printf_line("ok", done))
+  write_bash_script(script_out, lines)
+}
+
+
+regenie_step2_args <- function(config, group, pfile_prefix, pheno, covar, pred_list, trait_list, out_prefix, threads) {
   info <- group_info(config, group)
   traits <- readLines(trait_list, warn = FALSE)
   traits <- traits[nzchar(traits)]
-  ensure_parent(done)
-  if (!length(traits)) {
-    writeLines("skipped_no_traits", done)
-    return(invisible(TRUE))
-  }
   covars <- info$covariates
   command <- c(
     "--step", "2",
@@ -638,9 +681,36 @@ run_regenie_step2 <- function(config, group, pfile_prefix, pheno, covar, pred_li
   } else if (truthy(config$phase2_regenie$apply_rint %||% FALSE)) {
     command <- c(command, "--apply-rint")
   }
-  command <- c(command, extra_regenie_options(config$phase2_regenie$step2_options %||% ""), "--out", out_prefix)
-  run_command(regenie_tool(config), command)
-  writeLines("ok", done)
+  list(
+    traits = traits,
+    args = c(command, extra_regenie_options(config$phase2_regenie$step2_options %||% ""), "--out", out_prefix)
+  )
+}
+
+
+write_regenie_step2_command <- function(config, group, pfile_prefix, pheno, covar, pred_list, trait_list,
+                                        out_prefix, done, script_out, threads) {
+  command <- regenie_step2_args(config, group, pfile_prefix, pheno, covar, pred_list, trait_list, out_prefix, threads)
+  if (!length(command$traits)) {
+    write_bash_script(script_out, c(
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      mkdir_parent_line(done),
+      printf_line("skipped_no_traits", done)
+    ))
+    return(invisible(TRUE))
+  }
+
+  expected_stats <- paste0(out_prefix, "_", command$traits, ".regenie")
+  lines <- c(
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    mkdir_parent_line(out_prefix),
+    shell_command_line(regenie_tool(config), command$args),
+    paste("test -s", shell_quote(expected_stats))
+  )
+  lines <- c(lines, printf_line("ok", done))
+  write_bash_script(script_out, lines)
 }
 
 
@@ -821,14 +891,14 @@ if (subtask == "write-groups") {
 } else if (subtask == "prepare-assoc-genotypes") {
   require_args(args, c("pfile-prefix", "extract", "out-prefix"))
   prepare_assoc_genotypes(config, args[["pfile-prefix"]], args$extract, args[["out-prefix"]], threads)
-} else if (subtask == "run-step1") {
-  require_args(args, c("group", "pfile-prefix", "extract", "pheno", "covar", "keep", "trait-list", "pred-list", "out-prefix"))
-  run_regenie_step1(config, args$group, args[["pfile-prefix"]], args$extract, args$pheno, args$covar,
-    args$keep, args[["trait-list"]], args[["pred-list"]], args[["out-prefix"]], threads)
-} else if (subtask == "run-step2") {
-  require_args(args, c("group", "pfile-prefix", "pheno", "covar", "pred-list", "trait-list", "out-prefix", "done"))
-  run_regenie_step2(config, args$group, args[["pfile-prefix"]], args$pheno, args$covar,
-    args[["pred-list"]], args[["trait-list"]], args[["out-prefix"]], args$done, threads)
+} else if (subtask == "write-step1-command") {
+  require_args(args, c("group", "pfile-prefix", "extract", "pheno", "covar", "keep", "trait-list", "pred-list", "out-prefix", "script-out"))
+  write_regenie_step1_command(config, args$group, args[["pfile-prefix"]], args$extract, args$pheno, args$covar,
+    args$keep, args[["trait-list"]], args[["pred-list"]], args[["out-prefix"]], args[["script-out"]], threads)
+} else if (subtask == "write-step2-command") {
+  require_args(args, c("group", "pfile-prefix", "pheno", "covar", "pred-list", "trait-list", "out-prefix", "done", "script-out"))
+  write_regenie_step2_command(config, args$group, args[["pfile-prefix"]], args$pheno, args$covar,
+    args[["pred-list"]], args[["trait-list"]], args[["out-prefix"]], args$done, args[["script-out"]], threads)
 } else if (subtask == "stage-trait-output") {
   require_args(args, c("trait", "group-summary", "raw-prefix", "out-stats", "out-summary"))
   stage_trait_output(config, args$trait, args[["group-summary"]], args[["raw-prefix"]], args[["out-stats"]], args[["out-summary"]])

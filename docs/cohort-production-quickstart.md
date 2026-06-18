@@ -204,8 +204,9 @@ Create the workflow utility environment used for preflight:
 mamba env create -f envs/gwas.yaml
 ```
 
-This same environment definition is used by Snakemake jobs and installs PLINK
-1.9, PLINK2, and ADMIXTURE from conda channels.
+This same environment definition is used by most Snakemake jobs and installs
+PLINK 1.9, PLINK2, and ADMIXTURE from conda channels. Phase 2 regenie execution
+uses a separate rule environment from `envs/regenie.yaml`.
 
 If either environment already exists, update it instead:
 

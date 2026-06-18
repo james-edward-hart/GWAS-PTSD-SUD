@@ -367,6 +367,10 @@ Then check:
 mamba run -n gwas-stage1 Rscript -e 'library(yaml); library(jsonlite); cat("R utility environment OK\n")'
 ```
 
+Phase 2 regenie execution is intentionally isolated from this R utility
+environment; Snakemake creates that smaller rule environment from
+`envs/regenie.yaml`.
+
 ### Rule Environments Fail On Compute Nodes
 
 **Symptom:** Conda solve or download errors happen only after jobs start.

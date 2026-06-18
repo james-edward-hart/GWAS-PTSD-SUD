@@ -179,9 +179,6 @@ if (truthy(config$relatedness$remove_sex_mismatches %||% FALSE) && sex_action !=
 # Confirm required files exist before loading their schemas.
 genotype_files(config$genotypes, "genotype input")
 invisible(require_executable(config$tools$plink2 %||% "plink2", "PLINK2", "--version"))
-if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
-  invisible(require_executable(config$tools$regenie %||% "regenie", "regenie", "--version"))
-}
 for (item in list(
   c(config$inputs$sample_manifest, "sample manifest"),
   c(config$inputs$trait_registry, "trait registry"),

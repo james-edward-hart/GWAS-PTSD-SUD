@@ -45,6 +45,17 @@ tool_rows <- function(name, path, version_args = character()) {
 }
 
 
+recorded_tool_rows <- function(path) {
+  if (blank(path)) return(data.frame(key = character(), value = character(), stringsAsFactors = FALSE))
+  if (!file.exists(path)) {
+    return(data.frame(key = "tool_regenie_status", value = "not_found", stringsAsFactors = FALSE))
+  }
+  rows <- read_tsv(path)
+  require_columns(rows, c("key", "value"), "recorded regenie tool manifest")
+  rows[, c("key", "value"), drop = FALSE]
+}
+
+
 # Record final text/image output checksums while leaving raw genotype artifacts as path/count records.
 final_output_rows <- function(results_dir = "results", analysis_name = "") {
   if (!dir.exists(results_dir)) return(data.frame(key = character(), value = character()))
@@ -190,7 +201,7 @@ rows <- rbind(
   tool_rows("plink2", config$tools$plink2 %||% "plink2", "--version"),
   tool_rows("plink1", plink1_tool(config), "--version"),
   tool_rows("admixture", config$tools$admixture %||% "admixture"),
-  tool_rows("regenie", config$tools$regenie %||% "regenie", "--version"),
+  recorded_tool_rows(args[["regenie-tool"]] %||% ""),
   final_output_rows("results", analysis_output_name(config))
 )
 
