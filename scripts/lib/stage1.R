@@ -233,19 +233,59 @@ require_unique_ids <- function(df, label) {
 }
 
 
-# Read a headered pipeline keep/remove file and normalize FID/IID names.
+# Read a pipeline or PLINK keep/remove file and normalize FID/IID names.
 read_id_file <- function(path, label = path) {
-  rows <- read_tsv(path)
-  fid_col <- if ("FID" %in% names(rows)) "FID" else "#FID"
-  require_columns(rows, c(fid_col, "IID"), label)
-  data.frame(FID = rows[[fid_col]], IID = rows$IID, stringsAsFactors = FALSE)
+  if (!file.exists(path)) die("ID file not found: ", path)
+  if (file.info(path)$size == 0) die("ID file is empty: ", path)
+  first <- readLines(path, n = 1, warn = FALSE)
+  tokens <- strsplit(trimws(first), "\\s+")[[1]]
+  has_header <- any(tokens %in% c("FID", "#FID", "IID", "#IID"))
+  rows <- tryCatch(
+    read.table(
+      path,
+      header = has_header,
+      sep = "",
+      check.names = FALSE,
+      stringsAsFactors = FALSE,
+      quote = "",
+      comment.char = "",
+      na.strings = character()
+    ),
+    error = function(err) die("could not read ID file ", path, ": ", conditionMessage(err))
+  )
+  if (has_header) {
+    return(table_sample_ids(rows, label))
+  }
+  if (ncol(rows) == 1) {
+    return(data.frame(FID = rows[[1]], IID = rows[[1]], stringsAsFactors = FALSE))
+  }
+  if (ncol(rows) < 2) die(label, " must contain at least one ID column")
+  data.frame(FID = rows[[1]], IID = rows[[2]], stringsAsFactors = FALSE)
+}
+
+
+# Rewrite matched IDs to the exact FID/IID values used by a target genotype set.
+canonicalize_sample_ids <- function(ids, reference_ids, label, reference_label = "target genotype samples") {
+  if (is.null(reference_ids)) return(ids)
+  require_columns(reference_ids, c("FID", "IID"), reference_label)
+  if (!nrow(ids)) return(ids)
+  idx <- match_sample_rows(ids, sample_key_map(reference_ids, reference_label))
+  missing <- is.na(idx)
+  if (any(missing)) {
+    missing_labels <- paste(ids$FID[missing], ids$IID[missing])
+    die(label, " contains samples absent from ", reference_label, ": ",
+      paste(head(missing_labels, 5), collapse = ", "))
+  }
+  reference_ids[idx, c("FID", "IID"), drop = FALSE]
 }
 
 
 # Convert a pipeline ID TSV to a headerless file for PLINK2 --keep.
-plink_keep_args <- function(path, out_prefix, label = "keep file") {
+plink_keep_args <- function(path, out_prefix, label = "keep file", reference_ids = NULL,
+                            reference_label = "target genotype samples") {
   ids <- read_id_file(path, label)
   if (!nrow(ids)) die(label, " is empty: ", path)
+  ids <- canonicalize_sample_ids(ids, reference_ids, label, reference_label)
   keep_path <- paste0(out_prefix, ".plink_keep.txt")
   write_plink_id_file(ids, keep_path)
   c("--keep", keep_path)

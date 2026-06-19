@@ -376,7 +376,11 @@ prepare_pan_genotypes <- function(config, sex_keep, assignments_path, excluded_p
 
 prepare_marker_set <- function(config, branch, pfile_prefix, keep, out_prefix, prune_prefix, prune_in, excluded_regions, threads) {
   command <- c("--pfile", pfile_prefix)
-  if (nzchar(keep)) command <- c(command, plink_keep_args(keep, out_prefix, paste("Phase 2", branch, "keep file")))
+  if (nzchar(keep)) {
+    command <- c(command, plink_keep_args(keep, out_prefix, paste("Phase 2", branch, "keep file"),
+      reference_ids = read_psam_ids(pfile_prefix),
+      reference_label = paste("Phase 2", branch, "PGEN samples")))
+  }
   command <- c(command, phase2_filter_args(config, branch), "--make-pgen", "--sort-vars", "--threads", threads, "--out", out_prefix)
   ensure_parent(paste0(out_prefix, ".pgen"))
   run_command(plink_tool(config), command)

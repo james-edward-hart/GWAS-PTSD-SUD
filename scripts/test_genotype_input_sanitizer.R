@@ -100,6 +100,29 @@ keep_args <- plink_keep_args(keep_path, file.path(tmp, "plink_keep_out"), "test 
 stopifnot(identical(keep_args[[1]], "--keep"))
 stopifnot(identical(readLines(keep_args[[2]], warn = FALSE), c("F1\tI1", "F2\tI2")))
 
+king_keep_path <- file.path(tmp, "unrelated.king.cutoff.in.id")
+writeLines(c("0\tI1", "I2\tI2"), king_keep_path)
+canonical_keep_args <- plink_keep_args(
+  king_keep_path,
+  file.path(tmp, "plink_canonical_keep_out"),
+  "KING unrelated keep file",
+  reference_ids = data.frame(FID = c("F1", "F2"), IID = c("I1", "I2"), stringsAsFactors = FALSE),
+  reference_label = "test PGEN samples"
+)
+stopifnot(identical(canonical_keep_args[[1]], "--keep"))
+stopifnot(identical(readLines(canonical_keep_args[[2]], warn = FALSE), c("F1\tI1", "F2\tI2")))
+
+iid_only_keep_path <- file.path(tmp, "unrelated.iid_only.in.id")
+writeLines(c("I1", "I2"), iid_only_keep_path)
+iid_only_keep_args <- plink_keep_args(
+  iid_only_keep_path,
+  file.path(tmp, "plink_iid_only_keep_out"),
+  "IID-only unrelated keep file",
+  reference_ids = data.frame(FID = c("F1", "F2"), IID = c("I1", "I2"), stringsAsFactors = FALSE),
+  reference_label = "test PGEN samples"
+)
+stopifnot(identical(readLines(iid_only_keep_args[[2]], warn = FALSE), c("F1\tI1", "F2\tI2")))
+
 empty_keep_path <- file.path(tmp, "empty_keep.tsv")
 write_tsv(data.frame(FID = character(), IID = character()), empty_keep_path)
 empty_keep_error <- tryCatch({
