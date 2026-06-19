@@ -48,7 +48,7 @@ command <- c(
   plink_input_args(config$genotypes, args[["plink-prefix"]], paste(hwe_label, "HWE genotype input")),
   "--keep", control_keep,
   control_hwe_filters(config),
-  "--write-snplist",
+  "--write-snplist", "allow-dups",
   "--threads", args$threads,
   "--out", args[["plink-prefix"]]
 )

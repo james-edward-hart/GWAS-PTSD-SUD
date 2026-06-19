@@ -49,10 +49,10 @@ read_tsv_no_metadata <- function(path) {
 }
 
 
-read_psam_ids <- function(prefix_or_path) {
+read_psam_ids <- function(prefix_or_path, missing_fid = "iid") {
   path <- if (grepl("\\.psam$", prefix_or_path)) prefix_or_path else paste0(prefix_or_path, ".psam")
   rows <- read_tsv_no_metadata(path)
-  table_sample_ids(rows, paste("PSAM file", path))
+  table_sample_ids(rows, paste("PSAM file", path), missing_fid = missing_fid)
 }
 
 
@@ -377,8 +377,9 @@ prepare_pan_genotypes <- function(config, sex_keep, assignments_path, excluded_p
 prepare_marker_set <- function(config, branch, pfile_prefix, keep, out_prefix, prune_prefix, prune_in, excluded_regions, threads) {
   command <- c("--pfile", pfile_prefix)
   if (nzchar(keep)) {
+    # PLINK2 matches FID-less PSAM samples as FID 0 in --keep files.
     command <- c(command, plink_keep_args(keep, out_prefix, paste("Phase 2", branch, "keep file"),
-      reference_ids = read_psam_ids(pfile_prefix),
+      reference_ids = read_psam_ids(pfile_prefix, missing_fid = "zero"),
       reference_label = paste("Phase 2", branch, "PGEN samples")))
   }
   command <- c(command, phase2_filter_args(config, branch), "--make-pgen", "--sort-vars", "--threads", threads, "--out", out_prefix)

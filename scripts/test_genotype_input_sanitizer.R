@@ -123,6 +123,11 @@ iid_only_keep_args <- plink_keep_args(
 )
 stopifnot(identical(readLines(iid_only_keep_args[[2]], warn = FALSE), c("F1\tI1", "F2\tI2")))
 
+psam_without_fid <- data.frame(`#IID` = c("I1", "I2"), check.names = FALSE)
+plink_psam_ids <- table_sample_ids(psam_without_fid, "test PSAM", missing_fid = "zero")
+stopifnot(identical(plink_psam_ids$FID, c("0", "0")))
+stopifnot(identical(plink_psam_ids$IID, c("I1", "I2")))
+
 empty_keep_path <- file.path(tmp, "empty_keep.tsv")
 write_tsv(data.frame(FID = character(), IID = character()), empty_keep_path)
 empty_keep_error <- tryCatch({

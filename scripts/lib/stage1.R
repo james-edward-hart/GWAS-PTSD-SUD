@@ -157,12 +157,19 @@ match_sample_rows <- function(ids, key_map) {
 }
 
 
-# Normalize a table with PLINK-style ID columns to FID/IID, falling back FID=IID.
-table_sample_ids <- function(rows, label) {
+# Normalize a table with PLINK-style ID columns to FID/IID.
+table_sample_ids <- function(rows, label, missing_fid = c("iid", "zero")) {
+  missing_fid <- match.arg(missing_fid)
   iid_col <- if ("IID" %in% names(rows)) "IID" else if ("#IID" %in% names(rows)) "#IID" else ""
   if (!nzchar(iid_col)) die(label, " is missing IID/#IID sample ID column")
   fid_col <- if ("#FID" %in% names(rows)) "#FID" else if ("FID" %in% names(rows)) "FID" else ""
-  fid <- if (nzchar(fid_col)) rows[[fid_col]] else rows[[iid_col]]
+  fid <- if (nzchar(fid_col)) {
+    rows[[fid_col]]
+  } else if (identical(missing_fid, "zero")) {
+    rep("0", nrow(rows))
+  } else {
+    rows[[iid_col]]
+  }
   data.frame(FID = fid, IID = rows[[iid_col]], stringsAsFactors = FALSE)
 }
 
