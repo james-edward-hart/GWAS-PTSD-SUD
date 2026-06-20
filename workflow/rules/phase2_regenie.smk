@@ -437,6 +437,7 @@ rule run_phase2_regenie_step1:
     output:
         pred=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1_pred.list",
         done=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1.done",
+        lowvar=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1.low_variance_exclusions.tsv",
     log:
         "results/logs/phase2_regenie/regenie_step1.{group}.log",
     threads:

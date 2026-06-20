@@ -375,6 +375,94 @@ if (!grepl("'--lowmem'", step1_text, fixed = TRUE)) stop("Step 1 command script 
 if (!grepl("'--extract' '", step1_text, fixed = TRUE)) stop("Step 1 command script missing --extract")
 if (!grepl("'[^']*fake regenie.sh'", step1_text)) stop("Step 1 command script did not shell-quote the regenie tool path")
 
+retry_regenie <- file.path(tmp, "fake_lowvar_regenie.sh")
+write_lines(c(
+  "#!/bin/sh",
+  "extract=''",
+  "out=''",
+  "while [ \"$#\" -gt 0 ]; do",
+  "  case \"$1\" in",
+  "    --extract) shift; extract=\"$1\" ;;",
+  "    --out) shift; out=\"$1\" ;;",
+  "  esac",
+  "  shift",
+  "done",
+  "if [ -z \"$extract\" ] || [ -z \"$out\" ]; then",
+  "  echo 'missing --extract or --out' >&2",
+  "  exit 2",
+  "fi",
+  "if grep -Fxq rs_bad \"$extract\"; then",
+  "  printf ' block [1] : 2 snps\\n   -residualizing and scaling genotypes...ERROR: !! Uh-oh, SNP rs_bad has low variance (=0.000000).\\n' > \"$out.log\"",
+  "  cat \"$out.log\" >&2",
+  "  exit 1",
+  "fi",
+  "printf 'regenie success\\n' > \"$out.log\"",
+  "printf 'predictions\\n' > \"${out}_pred.list\""
+), retry_regenie)
+Sys.chmod(retry_regenie, "0755")
+retry_config <- file.path(tmp, "config_retry_regenie.yaml")
+retry_lines <- readLines(config)
+retry_lines <- sub("regenie: regenie", paste0("regenie: '", retry_regenie, "'"), retry_lines, fixed = TRUE)
+write_lines(retry_lines, retry_config)
+retry_extract <- file.path(tmp, "retry.extract")
+retry_script <- file.path(tmp, "retry_step1.sh")
+retry_pred <- file.path(tmp, "retry_step1_pred.list")
+retry_out <- file.path(tmp, "retry_step1")
+write_lines(c("rs_bad", "rs_good"), retry_extract)
+run_phase2(c(
+  "write-step1-command", "--config", retry_config, "--group", bt_group, "--pfile-prefix", file.path(tmp, "step1_data"),
+  "--extract", retry_extract, "--pheno", file.path(tmp, "pheno.tsv"),
+  "--covar", file.path(tmp, "covar.tsv"), "--keep", file.path(tmp, "keep_ids.txt"),
+  "--trait-list", trait_list, "--pred-list", retry_pred,
+  "--out-prefix", retry_out, "--script-out", retry_script, "--threads", "2"
+))
+retry_status <- system2("bash", retry_script, stdout = TRUE, stderr = TRUE)
+if (!identical(as.integer(attr(retry_status, "status") %||% 0L), 0L)) {
+  stop("Step 1 low-variance retry script failed:\n", paste(retry_status, collapse = "\n"))
+}
+if (!identical(readLines(paste0(retry_out, ".done")), "ok")) stop("Step 1 retry script did not write ok sentinel")
+if (!identical(readLines(retry_pred), "predictions")) stop("Step 1 retry script did not stage prediction list")
+if (!identical(readLines(paste0(retry_out, ".low_variance_exclusions.txt")), "rs_bad")) {
+  stop("Step 1 retry script did not record the low-variance SNP")
+}
+retry_report <- read_tsv(paste0(retry_out, ".low_variance_exclusions.tsv"))
+if (!identical(retry_report$variant_id, "rs_bad")) stop("Step 1 retry report missing low-variance SNP")
+if (any(readLines(paste0(retry_out, ".runtime_extract.snplist")) == "rs_bad")) {
+  stop("Step 1 runtime extract still contains excluded low-variance SNP")
+}
+
+generic_fail_regenie <- file.path(tmp, "fake_generic_fail_regenie.sh")
+write_lines(c(
+  "#!/bin/sh",
+  "out=''",
+  "while [ \"$#\" -gt 0 ]; do",
+  "  if [ \"$1\" = \"--out\" ]; then shift; out=\"$1\"; fi",
+  "  shift",
+  "done",
+  "printf 'ERROR: generic regenie failure\\n' > \"$out.log\"",
+  "cat \"$out.log\" >&2",
+  "exit 7"
+), generic_fail_regenie)
+Sys.chmod(generic_fail_regenie, "0755")
+generic_fail_config <- file.path(tmp, "config_generic_fail_regenie.yaml")
+generic_fail_lines <- readLines(config)
+generic_fail_lines <- sub("regenie: regenie", paste0("regenie: '", generic_fail_regenie, "'"), generic_fail_lines, fixed = TRUE)
+write_lines(generic_fail_lines, generic_fail_config)
+generic_fail_script <- file.path(tmp, "generic_fail_step1.sh")
+generic_fail_out <- file.path(tmp, "generic_fail_step1")
+run_phase2(c(
+  "write-step1-command", "--config", generic_fail_config, "--group", bt_group, "--pfile-prefix", file.path(tmp, "step1_data"),
+  "--extract", retry_extract, "--pheno", file.path(tmp, "pheno.tsv"),
+  "--covar", file.path(tmp, "covar.tsv"), "--keep", file.path(tmp, "keep_ids.txt"),
+  "--trait-list", trait_list, "--pred-list", file.path(tmp, "generic_fail_step1_pred.list"),
+  "--out-prefix", generic_fail_out, "--script-out", generic_fail_script, "--threads", "2"
+))
+generic_fail_status <- system2("bash", generic_fail_script, stdout = TRUE, stderr = TRUE)
+if (identical(as.integer(attr(generic_fail_status, "status") %||% 0L), 0L)) {
+  stop("Step 1 retry script swallowed a generic regenie failure")
+}
+if (file.exists(paste0(generic_fail_out, ".done"))) stop("generic regenie failure wrote a done sentinel")
+
 step2_script <- file.path(tmp, "step2_command.sh")
 run_phase2(c(
   "write-step2-command", "--config", cmd_config, "--group", bt_group, "--pfile-prefix", file.path(tmp, "assoc_data"),
@@ -403,6 +491,10 @@ status <- system2("bash", noop_step1, stdout = TRUE, stderr = TRUE)
 if (!identical(as.integer(attr(status, "status") %||% 0L), 0L)) stop("Step 1 no-op script failed")
 if (!file.exists(noop_pred) || file.info(noop_pred)$size != 0) stop("Step 1 no-op script did not create an empty prediction list")
 if (!identical(readLines(file.path(tmp, "noop_step1.done")), "skipped_no_traits")) stop("Step 1 no-op script did not write skip sentinel")
+noop_report <- readLines(file.path(tmp, "noop_step1.low_variance_exclusions.tsv"))
+if (!identical(noop_report, "attempt\tvariant_id\tattempt_log")) {
+  stop("Step 1 no-op script did not create low-variance exclusion report")
+}
 
 noop_step2 <- file.path(tmp, "noop_step2.sh")
 noop_done <- file.path(tmp, "noop_step2.done")

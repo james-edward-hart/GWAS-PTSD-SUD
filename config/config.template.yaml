@@ -241,6 +241,9 @@ phase2_regenie:
   p_thresh: 0.01
   step1_bsize: 1000
   step2_bsize: 400
+  # Maximum number of regenie Step 1 SNPs to exclude after regenie reports
+  # zero variance after covariate residualization. Set to 0 to disable retry.
+  step1_low_variance_exclusion_limit: 25
   step1_options: ""
   step2_options: ""
 

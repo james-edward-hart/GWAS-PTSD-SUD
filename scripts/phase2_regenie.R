@@ -651,6 +651,31 @@ printf_line <- function(value, path) {
 }
 
 
+step1_low_variance_exclusion_limit <- function(config) {
+  value <- config$phase2_regenie$step1_low_variance_exclusion_limit %||% 25
+  out <- suppressWarnings(as.integer(value))
+  if (is.na(out) || out < 0) {
+    die("phase2_regenie.step1_low_variance_exclusion_limit must be a non-negative integer")
+  }
+  out
+}
+
+
+step1_low_variance_report <- function(out_prefix) {
+  paste0(out_prefix, ".low_variance_exclusions.tsv")
+}
+
+
+step1_low_variance_ids <- function(out_prefix) {
+  paste0(out_prefix, ".low_variance_exclusions.txt")
+}
+
+
+printf_low_variance_header_line <- function(path) {
+  paste("printf 'attempt\\tvariant_id\\tattempt_log\\n' >", shell_quote(path))
+}
+
+
 regenie_step1_args <- function(config, group, pfile_prefix, extract, pheno, covar, keep, trait_list, out_prefix, threads) {
   info <- group_info(config, group)
   traits <- readLines(trait_list, warn = FALSE)
@@ -685,29 +710,38 @@ write_regenie_step1_command <- function(config, group, pfile_prefix, extract, ph
                                         pred_list, out_prefix, script_out, threads) {
   command <- regenie_step1_args(config, group, pfile_prefix, extract, pheno, covar, keep, trait_list, out_prefix, threads)
   done <- paste0(out_prefix, ".done")
+  low_variance_report <- step1_low_variance_report(out_prefix)
+  low_variance_ids <- step1_low_variance_ids(out_prefix)
   if (!length(command$traits)) {
     write_bash_script(script_out, c(
       "#!/usr/bin/env bash",
       "set -euo pipefail",
       mkdir_parent_line(pred_list),
       paste(": >", shell_quote(pred_list)),
+      paste(": >", shell_quote(low_variance_ids)),
+      printf_low_variance_header_line(low_variance_report),
       printf_line("skipped_no_traits", done)
     ))
     return(invisible(TRUE))
   }
 
-  observed <- paste0(out_prefix, "_pred.list")
+  wrapper <- file.path("scripts", "run_regenie_step1_with_lowvar_retry.sh")
   lines <- c(
     "#!/usr/bin/env bash",
     "set -euo pipefail",
     mkdir_parent_line(out_prefix),
-    shell_command_line(regenie_tool(config), command$args),
-    paste("test -s", shell_quote(observed))
+    shell_command_line("bash", c(
+      wrapper,
+      "--out-prefix", out_prefix,
+      "--base-extract", extract,
+      "--pred-list", pred_list,
+      "--done", done,
+      "--max-low-variance-exclusions", as.character(step1_low_variance_exclusion_limit(config)),
+      "--",
+      regenie_tool(config),
+      command$args
+    ))
   )
-  if (!identical(observed, pred_list)) {
-    lines <- c(lines, paste("cp -f", shell_quote(observed), shell_quote(pred_list)))
-  }
-  lines <- c(lines, printf_line("ok", done))
   write_bash_script(script_out, lines)
 }
 

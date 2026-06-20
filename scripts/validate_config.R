@@ -214,6 +214,10 @@ if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
     value <- as.integer(config$phase2_regenie[[field]] %||% NA)
     if (is.na(value) || value < 1) die("phase2_regenie.", field, " must be a positive integer")
   }
+  low_variance_limit <- suppressWarnings(as.integer(config$phase2_regenie$step1_low_variance_exclusion_limit %||% 25))
+  if (is.na(low_variance_limit) || low_variance_limit < 0) {
+    die("phase2_regenie.step1_low_variance_exclusion_limit must be a non-negative integer")
+  }
   validate_regenie_option_passthrough(config$phase2_regenie$step1_options %||% "", "phase2_regenie.step1_options")
   validate_regenie_option_passthrough(config$phase2_regenie$step2_options %||% "", "phase2_regenie.step2_options")
 
