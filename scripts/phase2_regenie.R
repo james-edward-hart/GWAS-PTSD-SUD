@@ -599,18 +599,25 @@ filter_step1_variants <- function(config, pfile_prefix, extract, keep, trait_lis
   }
 
   tmp_prefix <- paste0(sub("\\.snplist$", "", out), ".plink")
+  # Reapply Step 1 marker filters after the final group keep file. The pooled
+  # marker set can contain SNPs that become too rare for regenie's actual model
+  # sample once phenotype/covariate-complete samples are selected.
   run_command(plink_tool(config), c(
     "--pfile", pfile_prefix,
     "--extract", extract,
     "--keep", keep,
-    "--mac", "1",
+    phase2_filter_args(config, "step1"),
     "--write-snplist",
     "--threads", threads,
     "--out", tmp_prefix
   ))
   snplist <- paste0(tmp_prefix, ".snplist")
   if (!file.exists(snplist) || file.info(snplist)$size == 0) {
-    die("Phase 2 regenie Step 1 group variant filter removed all markers; check covariate-complete sample count")
+    die(
+      "Phase 2 regenie Step 1 group variant filter removed all markers after applying ",
+      "the group keep file and configured Step 1 filters; check phenotype/covariate-complete ",
+      "sample count or relax phase2_regenie.step1.filters"
+    )
   }
   if (!file.copy(snplist, out, overwrite = TRUE)) die("could not stage Phase 2 regenie Step 1 variant list: ", out)
   if (!file.exists(out) || file.info(out)$size == 0) die("staged Phase 2 regenie Step 1 variant list is empty: ", out)
