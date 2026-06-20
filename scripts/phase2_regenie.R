@@ -543,7 +543,15 @@ build_group_inputs <- function(config, group, keep_path, pcs_path, pheno_out, co
   write_tsv(summary_rows, summary_out)
   writeLines(analysis_traits, trait_list_out)
   writeLines(paste(covars, collapse = ","), covar_list_out)
-  write_plink_id_file(keep[covar_complete, , drop = FALSE], keep_plink_out)
+  step1_complete <- covar_complete
+  if (length(analysis_traits)) {
+    for (trait_id in analysis_traits) {
+      step1_complete <- step1_complete & pheno[[trait_id]] != "NA"
+    }
+  } else {
+    step1_complete <- rep(FALSE, nrow(keep))
+  }
+  write_plink_id_file(keep[step1_complete, , drop = FALSE], keep_plink_out)
 }
 
 

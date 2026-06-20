@@ -163,6 +163,34 @@ if (!identical(readLines(partial_plink_keep), c("I1\tI1", "I2\tI2"))) {
   stop("Phase 2 regenie keep file was not limited to covariate-complete samples")
 }
 
+qt_keep <- file.path(tmp, "qt.keep.tsv")
+qt_pcs <- file.path(tmp, "qt_pcs.tsv")
+qt_pheno <- file.path(tmp, "qt.pheno.tsv")
+qt_covar <- file.path(tmp, "qt.covar.tsv")
+qt_summary <- file.path(tmp, "qt.summary.tsv")
+qt_traits <- file.path(tmp, "qt.traits.txt")
+qt_covars <- file.path(tmp, "qt.covars.txt")
+qt_plink_keep <- file.path(tmp, "qt.plink.keep.txt")
+qt_group <- group_rows$group[group_rows$traits == "qt1"][[1]]
+write_lines(c("FID\tIID", "I1\tI1", "I2\tI2", "I3\tI3", "I4\tI4"), qt_keep)
+write_lines(c(
+  "FID\tIID\tPC1\tPC2",
+  "I1\tI1\t0.11\t0.21",
+  "I2\tI2\t0.12\t0.22",
+  "I3\tI3\t0.13\t0.23",
+  "I4\tI4\t0.14\t0.24"
+), qt_pcs)
+run_phase2(c(
+  "build-group-inputs", "--config", config, "--group", qt_group,
+  "--keep", qt_keep, "--pcs", qt_pcs,
+  "--pheno-out", qt_pheno, "--covar-out", qt_covar,
+  "--summary-out", qt_summary, "--trait-list-out", qt_traits,
+  "--covar-list-out", qt_covars, "--keep-plink-out", qt_plink_keep
+))
+if (!identical(readLines(qt_plink_keep), c("I1\tI1", "I2\tI2", "I4\tI4"))) {
+  stop("Phase 2 regenie Step 1 keep file was not limited to phenotype-complete samples")
+}
+
 group_summary <- file.path(tmp, "group_summary.tsv")
 write_lines(c(
   "group\ttrait\ttrait_type\tcovariates\tphase2_pan_samples\tcomplete_covariate_samples\tusable_n\tcases\tcontrols\tskipped\tskip_reason",
