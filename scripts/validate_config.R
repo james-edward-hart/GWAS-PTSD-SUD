@@ -214,10 +214,6 @@ if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
     value <- as.integer(config$phase2_regenie[[field]] %||% NA)
     if (is.na(value) || value < 1) die("phase2_regenie.", field, " must be a positive integer")
   }
-  low_variance_limit <- suppressWarnings(as.integer(config$phase2_regenie$step1_low_variance_exclusion_limit %||% 25))
-  if (is.na(low_variance_limit) || low_variance_limit < 0) {
-    die("phase2_regenie.step1_low_variance_exclusion_limit must be a non-negative integer")
-  }
   validate_regenie_option_passthrough(config$phase2_regenie$step1_options %||% "", "phase2_regenie.step1_options")
   validate_regenie_option_passthrough(config$phase2_regenie$step2_options %||% "", "phase2_regenie.step2_options")
 
@@ -241,6 +237,11 @@ if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
     settings <- config$phase2_regenie[[branch]]
     if (is.null(settings$filters)) die("phase2_regenie.", branch, ".filters section is required")
     if (is.null(settings$ld_prune)) die("phase2_regenie.", branch, ".ld_prune section is required")
+    mac_min <- settings$filters$mac_min
+    if (!is.null(mac_min) && !blank(mac_min)) {
+      mac_min <- suppressWarnings(as.integer(mac_min))
+      if (is.na(mac_min) || mac_min < 1) die("phase2_regenie.", branch, ".filters.mac_min must be a positive integer")
+    }
     pruning <- settings$ld_prune
     if (is.na(suppressWarnings(as.numeric(pruning$step))) || as.numeric(pruning$step) < 1) {
       die("phase2_regenie.", branch, ".ld_prune.step must be a positive number")

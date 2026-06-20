@@ -241,9 +241,6 @@ phase2_regenie:
   p_thresh: 0.01
   step1_bsize: 1000
   step2_bsize: 400
-  # Maximum number of regenie Step 1 SNPs to exclude after regenie reports
-  # zero variance after covariate residualization. Set to 0 to disable retry.
-  step1_low_variance_exclusion_limit: 25
   step1_options: ""
   step2_options: ""
 
@@ -265,6 +262,9 @@ phase2_regenie:
   # Regenie Step 1 model markers, independent from the PCA marker set.
   step1:
     filters:
+      # regenie recommends MAC filtering before Step 1 to avoid low-variance
+      # model SNP failures. This is applied after the group keep file.
+      mac_min: 50
       maf_min: 0.01
       geno_missing_max: 0.02
       snps_only_acgt: true
