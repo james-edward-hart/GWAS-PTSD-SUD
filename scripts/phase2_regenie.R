@@ -543,7 +543,7 @@ build_group_inputs <- function(config, group, keep_path, pcs_path, pheno_out, co
   write_tsv(summary_rows, summary_out)
   writeLines(analysis_traits, trait_list_out)
   writeLines(paste(covars, collapse = ","), covar_list_out)
-  write_plink_id_file(keep, keep_plink_out)
+  write_plink_id_file(keep[covar_complete, , drop = FALSE], keep_plink_out)
 }
 
 
@@ -578,6 +578,34 @@ prepare_assoc_genotypes <- function(config, pfile_prefix, extract, out_prefix, t
     "--out", out_prefix
   ))
   ensure_regenie_psam_has_fid(out_prefix)
+}
+
+
+filter_step1_variants <- function(config, pfile_prefix, extract, keep, trait_list, out, threads) {
+  traits <- readLines(trait_list, warn = FALSE)
+  traits <- traits[nzchar(traits)]
+  ensure_parent(out)
+  if (!length(traits)) {
+    writeLines(character(), out)
+    return(invisible(TRUE))
+  }
+
+  tmp_prefix <- paste0(sub("\\.snplist$", "", out), ".plink")
+  run_command(plink_tool(config), c(
+    "--pfile", pfile_prefix,
+    "--extract", extract,
+    "--keep", keep,
+    "--mac", "1",
+    "--write-snplist",
+    "--threads", threads,
+    "--out", tmp_prefix
+  ))
+  snplist <- paste0(tmp_prefix, ".snplist")
+  if (!file.exists(snplist) || file.info(snplist)$size == 0) {
+    die("Phase 2 regenie Step 1 group variant filter removed all markers; check covariate-complete sample count")
+  }
+  if (!file.copy(snplist, out, overwrite = TRUE)) die("could not stage Phase 2 regenie Step 1 variant list: ", out)
+  if (!file.exists(out) || file.info(out)$size == 0) die("staged Phase 2 regenie Step 1 variant list is empty: ", out)
 }
 
 
@@ -906,6 +934,9 @@ if (subtask == "write-groups") {
 } else if (subtask == "prepare-assoc-genotypes") {
   require_args(args, c("pfile-prefix", "extract", "out-prefix"))
   prepare_assoc_genotypes(config, args[["pfile-prefix"]], args$extract, args[["out-prefix"]], threads)
+} else if (subtask == "filter-step1-variants") {
+  require_args(args, c("pfile-prefix", "extract", "keep", "trait-list", "out"))
+  filter_step1_variants(config, args[["pfile-prefix"]], args$extract, args$keep, args[["trait-list"]], args$out, threads)
 } else if (subtask == "write-step1-command") {
   require_args(args, c("group", "pfile-prefix", "extract", "pheno", "covar", "keep", "trait-list", "pred-list", "out-prefix", "script-out"))
   write_regenie_step1_command(config, args$group, args[["pfile-prefix"]], args$extract, args$pheno, args$covar,

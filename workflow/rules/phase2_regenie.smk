@@ -349,13 +349,49 @@ rule prepare_phase2_regenie_assoc_genotypes:
         """
 
 
-rule write_phase2_regenie_step1_command:
+rule filter_phase2_regenie_step1_variants:
     input:
         config=RUN_CONFIG,
         pgen=f"{PHASE2_STEP1_QC_PREFIX}.pgen",
         pvar=f"{PHASE2_STEP1_QC_PREFIX}.pvar",
         psam=f"{PHASE2_STEP1_QC_PREFIX}.psam",
         variants=f"{PHASE2_STEP1_PRUNE_PREFIX}.prune.in",
+        keep=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.keep.txt",
+        traits=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.analysis_traits.txt",
+    output:
+        variants=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.step1.snplist",
+    log:
+        "results/logs/phase2_regenie/filter_step1_variants.{group}.log",
+    threads:
+        config["runtime"].get("threads_regenie_step1", config["runtime"]["threads_gwas"])
+    resources:
+        mem_mb=config["runtime"].get("mem_mb_regenie_step1", config["runtime"]["mem_mb_gwas"]),
+        runtime=config["runtime"].get("time_min_regenie_step1", config["runtime"]["time_min_gwas"]),
+    conda:
+        "../../envs/gwas.yaml",
+    params:
+        pfile_prefix=lambda wildcards, input: str(input.pgen)[:-5],
+    shell:
+        """
+        Rscript scripts/phase2_regenie.R filter-step1-variants \
+          --config {input.config} \
+          --pfile-prefix {params.pfile_prefix} \
+          --extract {input.variants} \
+          --keep {input.keep} \
+          --trait-list {input.traits} \
+          --out {output.variants} \
+          --threads {threads} \
+          > {log} 2>&1
+        """
+
+
+rule write_phase2_regenie_step1_command:
+    input:
+        config=RUN_CONFIG,
+        pgen=f"{PHASE2_STEP1_QC_PREFIX}.pgen",
+        pvar=f"{PHASE2_STEP1_QC_PREFIX}.pvar",
+        psam=f"{PHASE2_STEP1_QC_PREFIX}.psam",
+        variants=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.step1.snplist",
         pheno=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.pheno.tsv",
         covar=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.covar.tsv",
         keep=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.keep.txt",

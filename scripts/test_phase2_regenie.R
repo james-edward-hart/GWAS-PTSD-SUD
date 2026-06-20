@@ -142,6 +142,27 @@ alias_covar_rows <- read_tsv(alias_covar)
 if (!identical(as.character(alias_covar_rows$age), c("40", "42"))) stop("Phase 2 group input builder did not match IID-only keep IDs to the manifest")
 if (!identical(as.character(alias_covar_rows$PC1), c("0.11", "0.12"))) stop("Phase 2 group input builder did not match IID-only PC IDs")
 
+partial_keep <- file.path(tmp, "partial.keep.tsv")
+partial_pcs <- file.path(tmp, "partial_pcs.tsv")
+partial_pheno <- file.path(tmp, "partial.pheno.tsv")
+partial_covar <- file.path(tmp, "partial.covar.tsv")
+partial_summary <- file.path(tmp, "partial.summary.tsv")
+partial_traits <- file.path(tmp, "partial.traits.txt")
+partial_covars <- file.path(tmp, "partial.covars.txt")
+partial_plink_keep <- file.path(tmp, "partial.plink.keep.txt")
+write_lines(c("FID\tIID", "I1\tI1", "I2\tI2", "I3\tI3"), partial_keep)
+write_lines(c("FID\tIID\tPC1\tPC2", "I1\tI1\t0.11\t0.21", "I2\tI2\t0.12\t0.22"), partial_pcs)
+run_phase2(c(
+  "build-group-inputs", "--config", config, "--group", bt1_group,
+  "--keep", partial_keep, "--pcs", partial_pcs,
+  "--pheno-out", partial_pheno, "--covar-out", partial_covar,
+  "--summary-out", partial_summary, "--trait-list-out", partial_traits,
+  "--covar-list-out", partial_covars, "--keep-plink-out", partial_plink_keep
+))
+if (!identical(readLines(partial_plink_keep), c("I1\tI1", "I2\tI2"))) {
+  stop("Phase 2 regenie keep file was not limited to covariate-complete samples")
+}
+
 group_summary <- file.path(tmp, "group_summary.tsv")
 write_lines(c(
   "group\ttrait\ttrait_type\tcovariates\tphase2_pan_samples\tcomplete_covariate_samples\tusable_n\tcases\tcontrols\tskipped\tskip_reason",
@@ -237,6 +258,66 @@ run_phase2(c(
 assoc_psam <- read_tsv(paste0(assoc_prefix, ".psam"))
 if (!identical(names(assoc_psam)[1:2], c("#FID", "IID"))) stop("regenie PSAM normalization did not write #FID/IID header")
 if (!identical(assoc_psam[["#FID"]], assoc_psam$IID)) stop("regenie PSAM normalization did not fill missing FID from IID")
+
+fake_filter_plink2 <- file.path(tmp, "fake_filter_plink2.sh")
+write_lines(c(
+  "#!/bin/sh",
+  "case \" $* \" in",
+  "  *' --mac 1 '* ) ;;",
+  "  * ) echo 'missing --mac 1' >&2; exit 3 ;;",
+  "esac",
+  "case \" $* \" in",
+  "  *' --keep '* ) ;;",
+  "  * ) echo 'missing --keep' >&2; exit 4 ;;",
+  "esac",
+  "case \" $* \" in",
+  "  *' --extract '* ) ;;",
+  "  * ) echo 'missing --extract' >&2; exit 5 ;;",
+  "esac",
+  "out=''",
+  "while [ \"$#\" -gt 0 ]; do",
+  "  if [ \"$1\" = \"--out\" ]; then",
+  "    shift",
+  "    out=\"$1\"",
+  "  fi",
+  "  shift",
+  "done",
+  "if [ -z \"$out\" ]; then",
+  "  echo 'missing --out' >&2",
+  "  exit 2",
+  "fi",
+  "printf 'rs_poly\\n' > \"$out.snplist\""
+), fake_filter_plink2)
+Sys.chmod(fake_filter_plink2, "0755")
+filter_config <- file.path(tmp, "config_filter_plink.yaml")
+filter_lines <- readLines(config)
+filter_lines <- sub("plink2: plink2", paste0("plink2: '", fake_filter_plink2, "'"), filter_lines, fixed = TRUE)
+write_lines(filter_lines, filter_config)
+filter_extract <- file.path(tmp, "step1_prune.in")
+filter_keep <- file.path(tmp, "step1.keep.txt")
+filter_traits <- file.path(tmp, "step1.traits.txt")
+filter_out <- file.path(tmp, "step1.filtered.snplist")
+write_lines(c("rs_mono", "rs_poly"), filter_extract)
+write_lines(c("I1\tI1", "I2\tI2"), filter_keep)
+write_lines("bt1", filter_traits)
+run_phase2(c(
+  "filter-step1-variants", "--config", filter_config, "--pfile-prefix", file.path(tmp, "step1_qc"),
+  "--extract", filter_extract, "--keep", filter_keep, "--trait-list", filter_traits,
+  "--out", filter_out, "--threads", "1"
+))
+if (!identical(readLines(filter_out), "rs_poly")) stop("Step 1 variant filter did not stage the PLINK2 snplist")
+
+filter_empty_traits <- file.path(tmp, "step1.empty.traits.txt")
+write_lines(character(), filter_empty_traits)
+empty_filter_out <- file.path(tmp, "step1.empty.filtered.snplist")
+run_phase2(c(
+  "filter-step1-variants", "--config", filter_config, "--pfile-prefix", file.path(tmp, "step1_qc"),
+  "--extract", filter_extract, "--keep", filter_keep, "--trait-list", filter_empty_traits,
+  "--out", empty_filter_out, "--threads", "1"
+))
+if (!file.exists(empty_filter_out) || file.info(empty_filter_out)$size != 0) {
+  stop("empty Step 1 trait list did not produce an empty filtered variant list")
+}
 
 trait_list <- file.path(tmp, "bt1.traits.txt")
 write_lines("bt1", trait_list)
