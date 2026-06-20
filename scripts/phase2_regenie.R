@@ -56,6 +56,23 @@ read_psam_ids <- function(prefix_or_path, missing_fid = "iid") {
 }
 
 
+ensure_regenie_psam_has_fid <- function(prefix_or_path) {
+  path <- if (grepl("\\.psam$", prefix_or_path)) prefix_or_path else paste0(prefix_or_path, ".psam")
+  rows <- read_tsv_no_metadata(path)
+  iid_col <- if ("IID" %in% names(rows)) "IID" else if ("#IID" %in% names(rows)) "#IID" else ""
+  if (!nzchar(iid_col)) die("regenie PSAM file is missing IID/#IID sample ID column: ", path)
+  fid_col <- if ("#FID" %in% names(rows)) "#FID" else if ("FID" %in% names(rows)) "FID" else ""
+  fid <- if (nzchar(fid_col)) rows[[fid_col]] else rows[[iid_col]]
+
+  out <- data.frame(`#FID` = as.character(fid), IID = as.character(rows[[iid_col]]),
+    check.names = FALSE, stringsAsFactors = FALSE)
+  extra_cols <- setdiff(names(rows), c("#FID", "FID", "IID", "#IID"))
+  for (col in extra_cols) out[[col]] <- rows[[col]]
+  write_tsv(out, path)
+  invisible(path)
+}
+
+
 read_pvar_variants <- function(prefix_or_path) {
   path <- if (grepl("\\.pvar$", prefix_or_path)) prefix_or_path else paste0(prefix_or_path, ".pvar")
   rows <- read_tsv_no_metadata(path)
@@ -401,6 +418,7 @@ prepare_marker_set <- function(config, branch, pfile_prefix, keep, out_prefix, p
   )
   run_command(plink_tool(config), command)
   if (!file.exists(prune_in) || file.info(prune_in)$size == 0) die("Phase 2 ", branch, " LD pruning did not produce a non-empty prune.in file")
+  if (identical(branch, "step1")) ensure_regenie_psam_has_fid(out_prefix)
 }
 
 
@@ -559,6 +577,7 @@ prepare_assoc_genotypes <- function(config, pfile_prefix, extract, out_prefix, t
     "--threads", threads,
     "--out", out_prefix
   ))
+  ensure_regenie_psam_has_fid(out_prefix)
 }
 
 

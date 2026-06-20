@@ -202,6 +202,42 @@ cmd_lines <- readLines(config)
 cmd_lines <- sub("analysis_name: phase2_test", "analysis_name: Phase 2 Test Cohort", cmd_lines, fixed = TRUE)
 cmd_lines <- sub("regenie: regenie", paste0("regenie: '", fake_regenie, "'"), cmd_lines, fixed = TRUE)
 write_lines(cmd_lines, cmd_config)
+
+fake_plink2 <- file.path(tmp, "fake_plink2.sh")
+write_lines(c(
+  "#!/bin/sh",
+  "out=''",
+  "while [ \"$#\" -gt 0 ]; do",
+  "  if [ \"$1\" = \"--out\" ]; then",
+  "    shift",
+  "    out=\"$1\"",
+  "  fi",
+  "  shift",
+  "done",
+  "if [ -z \"$out\" ]; then",
+  "  echo 'missing --out' >&2",
+  "  exit 2",
+  "fi",
+  "printf 'PGEN\\n' > \"$out.pgen\"",
+  "printf '#CHROM\\tPOS\\tID\\tREF\\tALT\\n1\\t100\\trs1\\tA\\tG\\n' > \"$out.pvar\"",
+  "printf '#IID\\nI1\\nI2\\n' > \"$out.psam\""
+), fake_plink2)
+Sys.chmod(fake_plink2, "0755")
+plink_config <- file.path(tmp, "config_fake_plink.yaml")
+plink_lines <- readLines(config)
+plink_lines <- sub("plink2: plink2", paste0("plink2: '", fake_plink2, "'"), plink_lines, fixed = TRUE)
+write_lines(plink_lines, plink_config)
+assoc_extract <- file.path(tmp, "assoc_extract.txt")
+assoc_prefix <- file.path(tmp, "assoc_norm")
+write_lines("rs1", assoc_extract)
+run_phase2(c(
+  "prepare-assoc-genotypes", "--config", plink_config, "--pfile-prefix", file.path(tmp, "input"),
+  "--extract", assoc_extract, "--out-prefix", assoc_prefix, "--threads", "1"
+))
+assoc_psam <- read_tsv(paste0(assoc_prefix, ".psam"))
+if (!identical(names(assoc_psam)[1:2], c("#FID", "IID"))) stop("regenie PSAM normalization did not write #FID/IID header")
+if (!identical(assoc_psam[["#FID"]], assoc_psam$IID)) stop("regenie PSAM normalization did not fill missing FID from IID")
+
 trait_list <- file.path(tmp, "bt1.traits.txt")
 write_lines("bt1", trait_list)
 bt_group <- bt1_group
