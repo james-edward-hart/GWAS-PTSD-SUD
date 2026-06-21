@@ -264,7 +264,7 @@ phase2_regenie:
     filters:
       # regenie recommends MAC filtering before Step 1 to avoid low-variance
       # model SNP failures. This is applied after the group keep file.
-      mac_min: 50
+      mac_min: 100
       maf_min: 0.01
       geno_missing_max: 0.02
       snps_only_acgt: true

@@ -224,7 +224,7 @@ phase2_filter_args <- function(config, branch) {
   if (truthy(filters$snps_only_acgt %||% TRUE)) out <- c(out, "--snps-only", "just-acgt")
   out <- c(out, "--max-alleles", as.character(filters$max_alleles %||% 2))
   mac_min <- filters$mac_min
-  if (is.null(mac_min) && identical(branch, "step1")) mac_min <- 50
+  if (is.null(mac_min) && identical(branch, "step1")) mac_min <- 100
   if (!blank(mac_min %||% "")) out <- c(out, "--mac", as.character(mac_min))
   if (!blank(filters$maf_min %||% "")) out <- c(out, "--maf", as.character(filters$maf_min))
   if (!blank(filters$geno_missing_max %||% "")) out <- c(out, "--geno", as.character(filters$geno_missing_max))
