@@ -290,38 +290,28 @@ if (!identical(assoc_psam[["#FID"]], assoc_psam$IID)) stop("regenie PSAM normali
 fake_filter_plink2 <- file.path(tmp, "fake_filter_plink2.sh")
 write_lines(c(
   "#!/bin/sh",
-  "case \" $* \" in",
-  "  *' --mac 1 '* ) echo 'unexpected --mac 1 fallback' >&2; exit 3 ;;",
-  "esac",
-  "case \" $* \" in",
-  "  *' --maf 0.01 '* ) ;;",
-  "  * ) echo 'missing configured --maf 0.01' >&2; exit 4 ;;",
-  "esac",
-  "case \" $* \" in",
-  "  *' --mac 100 '* ) ;;",
-  "  * ) echo 'missing default Step 1 --mac 100' >&2; exit 9 ;;",
-  "esac",
-  "case \" $* \" in",
-  "  *' --geno 0.02 '* ) ;;",
-  "  * ) echo 'missing configured --geno 0.02' >&2; exit 5 ;;",
-  "esac",
-  "case \" $* \" in",
-  "  *' --snps-only just-acgt '* ) ;;",
-  "  * ) echo 'missing configured SNP allele filter' >&2; exit 6 ;;",
-  "esac",
-  "case \" $* \" in",
-  "  *' --keep '* ) ;;",
-  "  * ) echo 'missing --keep' >&2; exit 7 ;;",
-  "esac",
-  "case \" $* \" in",
-  "  *' --extract '* ) ;;",
-  "  * ) echo 'missing --extract' >&2; exit 8 ;;",
-  "esac",
+  "args=\" $* \"",
+  "mode=''",
+  "case \"$args\" in *' --write-snplist '* ) mode='snplist' ;; esac",
+  "case \"$args\" in *' --export Av '* ) mode='av' ;; esac",
+  "if [ \"$mode\" = 'snplist' ]; then",
+  "  case \"$args\" in *' --mac 1 '* ) echo 'unexpected --mac 1 fallback' >&2; exit 3 ;; esac",
+  "  case \"$args\" in *' --maf 0.01 '* ) ;; * ) echo 'missing configured --maf 0.01' >&2; exit 4 ;; esac",
+  "  case \"$args\" in *' --mac 100 '* ) ;; * ) echo 'missing default Step 1 --mac 100' >&2; exit 9 ;; esac",
+  "  case \"$args\" in *' --geno 0.02 '* ) ;; * ) echo 'missing configured --geno 0.02' >&2; exit 5 ;; esac",
+  "  case \"$args\" in *' --snps-only just-acgt '* ) ;; * ) echo 'missing configured SNP allele filter' >&2; exit 6 ;; esac",
+  "  case \"$args\" in *' --keep '* ) ;; * ) echo 'missing --keep' >&2; exit 7 ;; esac",
+  "  case \"$args\" in *' --extract '* ) ;; * ) echo 'missing --extract' >&2; exit 8 ;; esac",
+  "fi",
   "out=''",
+  "extract=''",
   "while [ \"$#\" -gt 0 ]; do",
   "  if [ \"$1\" = \"--out\" ]; then",
   "    shift",
   "    out=\"$1\"",
+  "  elif [ \"$1\" = \"--extract\" ]; then",
+  "    shift",
+  "    extract=\"$1\"",
   "  fi",
   "  shift",
   "done",
@@ -329,7 +319,26 @@ write_lines(c(
   "  echo 'missing --out' >&2",
   "  exit 2",
   "fi",
-  "printf 'rs_poly\\n' > \"$out.snplist\""
+  "if [ \"$mode\" = 'snplist' ]; then",
+  "  printf 'rs_cov\\nrs_indep\\nrs_missing\\nrs_rank\\n' > \"$out.snplist\"",
+  "  exit 0",
+  "fi",
+  "if [ \"$mode\" = 'av' ]; then",
+  "  if [ -z \"$extract\" ]; then echo 'missing Av --extract' >&2; exit 10; fi",
+  "  printf 'CHR\\tSNP\\t(C)M\\tPOS\\tCOUNTED\\tALT\\tI1_I1\\tI2_I2\\tI3_I3\\tI4_I4\\n' > \"$out.traw\"",
+  "  while IFS= read -r id || [ -n \"$id\" ]; do",
+  "    case \"$id\" in",
+  "      rs_cov) printf '1\\trs_cov\\t0\\t100\\tA\\tG\\t0\\t0\\t1\\t1\\n' >> \"$out.traw\" ;;",
+  "      rs_indep) printf '1\\trs_indep\\t0\\t101\\tA\\tG\\t0\\t1\\t0\\t2\\n' >> \"$out.traw\" ;;",
+  "      rs_missing) printf '1\\trs_missing\\t0\\t102\\tA\\tG\\t0\\tNA\\t2\\t2\\n' >> \"$out.traw\" ;;",
+  "      rs_rank) printf '1\\trs_rank\\t0\\t103\\tA\\tG\\t0\\t2\\t1\\t2\\n' >> \"$out.traw\" ;;",
+  "      *) echo \"unexpected extracted variant $id\" >&2; exit 11 ;;",
+  "    esac",
+  "  done < \"$extract\"",
+  "  exit 0",
+  "fi",
+  "echo 'unexpected fake PLINK2 mode' >&2",
+  "exit 12"
 ), fake_filter_plink2)
 Sys.chmod(fake_filter_plink2, "0755")
 filter_config <- file.path(tmp, "config_filter_plink.yaml")
@@ -340,27 +349,73 @@ filter_extract <- file.path(tmp, "step1_prune.in")
 filter_keep <- file.path(tmp, "step1.keep.txt")
 filter_traits <- file.path(tmp, "step1.traits.txt")
 filter_out <- file.path(tmp, "step1.filtered.snplist")
-write_lines(c("rs_mono", "rs_poly"), filter_extract)
-write_lines(c("I1\tI1", "I2\tI2"), filter_keep)
+filter_covar <- file.path(tmp, "step1.covar.tsv")
+filter_covars <- file.path(tmp, "step1.covariates.txt")
+filter_summary <- file.path(tmp, "step1.residual.summary.tsv")
+filter_excluded <- file.path(tmp, "step1.residual.excluded.tsv")
+write_lines(c("rs_cov", "rs_indep", "rs_missing", "rs_rank"), filter_extract)
+write_lines(c("I1\tI1", "I2\tI2", "I3\tI3", "I4\tI4"), filter_keep)
 write_lines("bt1", filter_traits)
+write_lines(c(
+  "FID\tIID\tx\tx_dup",
+  "I1\tI1\t0\t0",
+  "I2\tI2\t0\t0",
+  "I3\tI3\t1\t1",
+  "I4\tI4\t1\t1"
+), filter_covar)
+write_lines("x,x_dup", filter_covars)
 run_phase2(c(
   "filter-step1-variants", "--config", filter_config, "--pfile-prefix", file.path(tmp, "step1_qc"),
   "--extract", filter_extract, "--keep", filter_keep, "--trait-list", filter_traits,
-  "--out", filter_out, "--threads", "1"
+  "--covar", filter_covar, "--covar-list", filter_covars,
+  "--out", filter_out, "--summary-out", filter_summary, "--excluded-out", filter_excluded,
+  "--threads", "1"
 ))
-if (!identical(readLines(filter_out), "rs_poly")) stop("Step 1 variant filter did not stage the PLINK2 snplist")
+if (!identical(readLines(filter_out), c("rs_indep", "rs_missing", "rs_rank"))) {
+  stop("Step 1 variant filter did not stage the residual-variance filtered snplist")
+}
+filter_summary_rows <- read_tsv(filter_summary)
+if (!identical(as.integer(filter_summary_rows$raw_plink_pass_snp_count), 4L)) stop("Step 1 residual summary has wrong raw count")
+if (!identical(as.integer(filter_summary_rows$residual_variance_pass_snp_count), 3L)) stop("Step 1 residual summary has wrong pass count")
+if (!identical(as.integer(filter_summary_rows$excluded_snp_count), 1L)) stop("Step 1 residual summary has wrong excluded count")
+if (!identical(as.integer(filter_summary_rows$model_sample_count), 4L)) stop("Step 1 residual summary has wrong sample count")
+if (!identical(as.integer(filter_summary_rows$covariate_count), 2L)) stop("Step 1 residual summary has wrong covariate count")
+if (!identical(as.integer(filter_summary_rows$design_rank), 2L)) stop("Step 1 residual summary did not report rank-deficient design")
+filter_excluded_rows <- read_tsv(filter_excluded)
+if (!identical(filter_excluded_rows$variant_id, "rs_cov")) stop("Step 1 residual excluded table has wrong variant")
+if (!identical(filter_excluded_rows$exclusion_reason, "residual_variance_le_threshold")) {
+  stop("Step 1 residual excluded table has wrong exclusion reason")
+}
 
 filter_empty_traits <- file.path(tmp, "step1.empty.traits.txt")
 write_lines(character(), filter_empty_traits)
 empty_filter_out <- file.path(tmp, "step1.empty.filtered.snplist")
+empty_filter_summary <- file.path(tmp, "step1.empty.residual.summary.tsv")
+empty_filter_excluded <- file.path(tmp, "step1.empty.residual.excluded.tsv")
+fake_fail_plink2 <- file.path(tmp, "fake_fail_if_called_plink2.sh")
+write_lines(c(
+  "#!/bin/sh",
+  "echo 'empty trait PLINK2 stub should not be called' >&2",
+  "exit 99"
+), fake_fail_plink2)
+Sys.chmod(fake_fail_plink2, "0755")
+empty_filter_config <- file.path(tmp, "config_empty_filter_plink.yaml")
+empty_filter_lines <- readLines(config)
+empty_filter_lines <- sub("plink2: plink2", paste0("plink2: '", fake_fail_plink2, "'"), empty_filter_lines, fixed = TRUE)
+write_lines(empty_filter_lines, empty_filter_config)
 run_phase2(c(
-  "filter-step1-variants", "--config", filter_config, "--pfile-prefix", file.path(tmp, "step1_qc"),
+  "filter-step1-variants", "--config", empty_filter_config, "--pfile-prefix", file.path(tmp, "step1_qc"),
   "--extract", filter_extract, "--keep", filter_keep, "--trait-list", filter_empty_traits,
-  "--out", empty_filter_out, "--threads", "1"
+  "--out", empty_filter_out, "--summary-out", empty_filter_summary, "--excluded-out", empty_filter_excluded,
+  "--threads", "1"
 ))
 if (!file.exists(empty_filter_out) || file.info(empty_filter_out)$size != 0) {
   stop("empty Step 1 trait list did not produce an empty filtered variant list")
 }
+empty_summary_rows <- read_tsv(empty_filter_summary)
+if (!identical(as.integer(empty_summary_rows$raw_plink_pass_snp_count), 0L)) stop("empty Step 1 residual summary has wrong raw count")
+empty_excluded_rows <- read_tsv(empty_filter_excluded)
+if (nrow(empty_excluded_rows) != 0) stop("empty Step 1 residual excluded table should have no rows")
 
 trait_list <- file.path(tmp, "bt1.traits.txt")
 write_lines("bt1", trait_list)

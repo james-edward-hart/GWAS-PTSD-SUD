@@ -263,8 +263,12 @@ phase2_regenie:
   step1:
     filters:
       # regenie recommends MAC filtering before Step 1 to avoid low-variance
-      # model SNP failures. This is applied after the group keep file.
+      # model SNP failures. These filters are applied after the group keep file.
       mac_min: 100
+      # Additional model-aware filter after raw PLINK QC. Set blank or <=0 to
+      # disable. Variants are retained when residual variance after projection
+      # on the Step 1 covariate design is greater than this value.
+      residual_variance_min: 1e-6
       maf_min: 0.01
       geno_missing_max: 0.02
       snps_only_acgt: true

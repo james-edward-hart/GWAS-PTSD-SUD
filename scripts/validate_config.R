@@ -242,6 +242,15 @@ if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
       mac_min <- suppressWarnings(as.integer(mac_min))
       if (is.na(mac_min) || mac_min < 1) die("phase2_regenie.", branch, ".filters.mac_min must be a positive integer")
     }
+    if (identical(branch, "step1")) {
+      residual_variance_min <- settings$filters$residual_variance_min
+      if (!is.null(residual_variance_min) && !blank(residual_variance_min)) {
+        residual_variance_min <- suppressWarnings(as.numeric(residual_variance_min))
+        if (is.na(residual_variance_min) || !is.finite(residual_variance_min)) {
+          die("phase2_regenie.step1.filters.residual_variance_min must be numeric, blank, or absent")
+        }
+      }
+    }
     pruning <- settings$ld_prune
     if (is.na(suppressWarnings(as.numeric(pruning$step))) || as.numeric(pruning$step) < 1) {
       die("phase2_regenie.", branch, ".ld_prune.step must be a positive number")
