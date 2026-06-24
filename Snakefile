@@ -4,6 +4,7 @@ configfile: "config/config.yaml"
 
 from glob import glob
 from workflow.snake_helpers import (
+    active_admixture_stratum_outputs as active_admixture_stratum_outputs_for_context,
     active_unrelated_keep_files as active_unrelated_keep_files_for_context,
     active_within_ancestry_eigenvecs as active_within_ancestry_eigenvecs_for_context,
     analysis_output_name as analysis_output_name_for_config,
@@ -73,6 +74,7 @@ phase2_group_stage1_stats = lambda wildcards: phase2_group_stage1_stats_for_cont
 phase2_trait_stage1_summaries = lambda wildcards: phase2_trait_stage1_summaries_for_context(checkpoints, wildcards, config)
 phase2_trait_regenie_done = lambda wildcards: phase2_trait_regenie_done_for_context(wildcards, config)
 phase2_trait_group = lambda wildcards: phase2_trait_group_for_config(config, wildcards.trait)
+active_admixture_stratum_outputs = lambda wildcards, filename: active_admixture_stratum_outputs_for_context(checkpoints, wildcards, filename)
 active_unrelated_keep_files = lambda wildcards: active_unrelated_keep_files_for_context(checkpoints, wildcards)
 active_within_ancestry_eigenvecs = lambda wildcards: active_within_ancestry_eigenvecs_for_context(checkpoints, wildcards)
 ancestry_file = lambda: ancestry_file_for_config(config)

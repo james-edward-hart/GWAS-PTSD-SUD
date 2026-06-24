@@ -310,7 +310,7 @@ def active_ancestries(checkpoints, wildcards):
     return ancestries
 
 
-# Build active-stratum paths after the strata checkpoint completes.
+# Build active final-GWAS keep paths after sex-check and relatedness filters.
 def active_unrelated_keep_files(checkpoints, wildcards):
     return [
         f"results/qc/strata/{ancestry}.unrelated.keep.tsv"
@@ -321,6 +321,13 @@ def active_unrelated_keep_files(checkpoints, wildcards):
 def active_within_ancestry_eigenvecs(checkpoints, wildcards):
     return [
         f"results/qc/ancestry/within/{ancestry}.eigenvec"
+        for ancestry in active_ancestries(checkpoints, wildcards)
+    ]
+
+
+def active_admixture_stratum_outputs(checkpoints, wildcards, filename):
+    return [
+        f"results/qc/admixture/by_ancestry/{ancestry}/{filename}"
         for ancestry in active_ancestries(checkpoints, wildcards)
     ]
 

@@ -11,7 +11,20 @@ source(file.path(script_dir, "lib", "stage1.R"))
 raw <- commandArgs(trailingOnly = TRUE)
 if (!length(raw)) die("missing ADMIXTURE QC subtask")
 subtask <- raw[[1]]
-args <- parse_args(defaults = list(threads = "1", popmad = ""), raw = raw[-1])
+args <- parse_args(
+  defaults = list(
+    threads = "1",
+    popmad = "",
+    keep = character(),
+    study = character(),
+    reference = character(),
+    comparison = character(),
+    summary = character(),
+    report = character()
+  ),
+  repeated = c("keep", "study", "reference", "comparison", "summary", "report"),
+  raw = raw[-1]
+)
 
 
 # ADMIXTURE harmonization is restricted to autosomal non-palindromic ACGT SNPs.
@@ -106,6 +119,22 @@ read_psam_ids <- function(prefix_or_path) {
 }
 
 
+# Read source genotype sample IDs before PLINK2 conversion rewrites them.
+read_genotype_sample_ids <- function(block, label) {
+  kind <- tolower(block$type)
+  prefix <- block$prefix
+  if (kind == "pgen") {
+    rows <- read_tsv(paste0(prefix, ".psam"))
+    return(table_sample_ids(rows, paste(label, "PSAM"), missing_fid = "zero"))
+  }
+  if (kind == "bed") {
+    rows <- read_fam(paste0(prefix, ".fam"))
+    return(rows[c("FID", "IID")])
+  }
+  die("unsupported genotype type '", kind, "'. Use 'pgen' or 'bed'.")
+}
+
+
 sample_key_variants <- function(fid, iid) {
   unique(paste(c(fid, iid, "0"), iid, sep = "\t"))
 }
@@ -133,6 +162,23 @@ match_sample_row <- function(fid, iid, key_map) {
 }
 
 
+admixture_plink_keep_args <- function(path, out_prefix, reference_ids) {
+  label <- "ADMIXTURE active POP-MaD keep"
+  ids <- read_id_file(path, label)
+  if (!nrow(ids)) die(label, " is empty: ", path)
+  keys <- paste(ids$FID, ids$IID, sep = "\t")
+  duplicates <- unique(keys[duplicated(keys)])
+  if (length(duplicates)) {
+    die(label, " contains duplicate samples: ", paste(head(gsub("\t", " ", duplicates), 5), collapse = ", "))
+  }
+  invisible(sample_key_map(ids, label))
+  ids <- canonicalize_sample_ids(ids, reference_ids, label, "ADMIXTURE study genotype samples")
+  keep_path <- paste0(out_prefix, ".plink_keep.txt")
+  write_plink_id_file(ids, keep_path)
+  c("--keep", keep_path)
+}
+
+
 # Read a BIM file for variant counts in reports.
 read_bim <- function(path) {
   rows <- read.table(path, stringsAsFactors = FALSE, quote = "", comment.char = "")
@@ -142,10 +188,16 @@ read_bim <- function(path) {
 
 
 # Convert a configured genotype block to filtered, sorted PGEN.
-convert_genotypes <- function(config, block, out_prefix, threads) {
+convert_genotypes <- function(config, block, out_prefix, threads, keep = "", label = "ADMIXTURE genotype input") {
   ensure_parent(paste0(out_prefix, ".pgen"))
+  input_args <- plink_input_args(block, out_prefix, label)
+  keep_args <- character()
+  if (!blank(keep)) {
+    reference_ids <- read_genotype_sample_ids(block, label)
+    keep_args <- admixture_plink_keep_args(keep, out_prefix, reference_ids)
+  }
   run_command(plink_tool(config), c(
-    plink_input_args(block, out_prefix, "ADMIXTURE genotype input"), admixture_filters(config),
+    input_args, keep_args, admixture_filters(config),
     "--make-pgen", "--sort-vars", "--threads", threads, "--out", out_prefix
   ))
 }
@@ -499,9 +551,10 @@ infer_and_order_q <- function(q, samples, labels) {
 
 
 # Parse ADMIXTURE output and write readable QC tables.
-parse_report <- function(config, q_path, p_path, fam_path, bim_path, pop_path, sample_populations_path,
+parse_report <- function(config, analysis_ancestry, q_path, p_path, fam_path, bim_path, pop_path, sample_populations_path,
                          metadata_path, popmad_path, study_out, reference_out, comparison_out,
                          summary_out, report_out) {
+  analysis_ancestry <- as.character(analysis_ancestry %||% "")
   if (blank(metadata_path)) metadata_path <- config$admixture$metadata$path %||% ""
   require_existing_file(metadata_path, "ADMIXTURE reference metadata")
   labels <- admixture_labels(config)
@@ -618,6 +671,13 @@ parse_report <- function(config, q_path, p_path, fam_path, bim_path, pop_path, s
     stringsAsFactors = FALSE
   )
 
+  if (!blank(analysis_ancestry)) {
+    study <- data.frame(popmad_stratum = analysis_ancestry, study, check.names = FALSE, stringsAsFactors = FALSE)
+    reference <- data.frame(popmad_stratum = analysis_ancestry, reference, check.names = FALSE, stringsAsFactors = FALSE)
+    comparison <- data.frame(popmad_stratum = analysis_ancestry, comparison, check.names = FALSE, stringsAsFactors = FALSE)
+    summary <- data.frame(popmad_stratum = analysis_ancestry, summary, check.names = FALSE, stringsAsFactors = FALSE)
+  }
+
   study_prop_lines <- c(
     "| Ancestry | Mean study proportion | Study top-component samples |",
     "| --- | ---: | ---: |",
@@ -631,6 +691,7 @@ parse_report <- function(config, q_path, p_path, fam_path, bim_path, pop_path, s
     "This branch is report-only QC. ADMIXTURE proportions do not replace POP-MaD ancestry labels, do not alter keep files, and are not used as GWAS covariates.", "",
     "## Inputs", "",
     paste0("- Mode: ", config$admixture$mode %||% "supervised"),
+    if (!blank(analysis_ancestry)) paste0("- POP-MaD stratum: ", analysis_ancestry),
     paste0("- K: ", k),
     paste0("- Labels: ", paste(labels, collapse = ", ")),
     paste0("- Reference genotype prefix: `", config$admixture$reference_genotypes$prefix, "`"),
@@ -669,6 +730,84 @@ parse_report <- function(config, q_path, p_path, fam_path, bim_path, pop_path, s
 }
 
 
+ensure_stratum_column <- function(rows, path) {
+  if ("popmad_stratum" %in% names(rows)) return(rows)
+  data.frame(popmad_stratum = basename(dirname(path)), rows, check.names = FALSE, stringsAsFactors = FALSE)
+}
+
+
+bind_report_tables <- function(paths, label) {
+  if (!length(paths)) die("no ", label, " files were provided")
+  rows <- lapply(paths, function(path) ensure_stratum_column(read_tsv(path), path))
+  columns <- names(rows[[1]])
+  for (i in seq_along(rows)) {
+    missing <- setdiff(columns, names(rows[[i]]))
+    if (length(missing)) die(label, " file is missing expected columns: ", paths[[i]], " (", paste(missing, collapse = ", "), ")")
+    rows[[i]] <- rows[[i]][columns]
+  }
+  do.call(rbind, rows)
+}
+
+
+combine_reports <- function(study_paths, reference_paths, comparison_paths, summary_paths, report_paths,
+                            study_out, reference_out, comparison_out, summary_out, report_out) {
+  n <- length(study_paths)
+  if (!n) die("no per-stratum ADMIXTURE outputs were provided")
+  lengths <- c(length(reference_paths), length(comparison_paths), length(summary_paths), length(report_paths))
+  if (any(lengths != n)) die("per-stratum ADMIXTURE output lists have mismatched lengths")
+
+  study <- bind_report_tables(study_paths, "ADMIXTURE study proportions")
+  reference <- bind_report_tables(reference_paths, "ADMIXTURE reference proportions")
+  comparison <- bind_report_tables(comparison_paths, "ADMIXTURE POP-MaD comparison")
+  summary <- bind_report_tables(summary_paths, "ADMIXTURE run summary")
+
+  metric_value <- function(stratum, metric) {
+    rows <- summary[summary$popmad_stratum == stratum & summary$metric == metric, , drop = FALSE]
+    if (nrow(rows)) rows$value[[1]] else "NA"
+  }
+  strata <- unique(summary$popmad_stratum)
+  stratum_lines <- c(
+    "| POP-MaD stratum | Study samples | Reference samples | LD-pruned variants | Comparable samples | Match rate |",
+    "| --- | ---: | ---: | ---: | ---: | ---: |",
+    vapply(strata, function(stratum) {
+      paste0(
+        "| ", stratum,
+        " | ", metric_value(stratum, "n_study_samples"),
+        " | ", metric_value(stratum, "n_reference_samples"),
+        " | ", metric_value(stratum, "n_merged_variants"),
+        " | ", metric_value(stratum, "popmad_comparable_samples"),
+        " | ", metric_value(stratum, "popmad_match_rate"),
+        " |"
+      )
+    }, character(1))
+  )
+  report_lines <- paste0("- ", strata, ": `", report_paths, "`")
+
+  report <- c(
+    "# ADMIXTURE QC Report", "",
+    "This branch is report-only QC. ADMIXTURE proportions do not replace POP-MaD ancestry labels, do not alter keep files, and are not used as GWAS covariates.", "",
+    "ADMIXTURE was run separately within each active POP-MaD stratum after the same ADMIXTURE-specific study genotype filters.", "",
+    "## Stratum Runs", "",
+    stratum_lines, "",
+    "## Outputs", "",
+    paste0("- Combined study proportions: `", study_out, "`"),
+    paste0("- Combined reference proportions: `", reference_out, "`"),
+    paste0("- Combined POP-MaD comparison: `", comparison_out, "`"),
+    paste0("- Combined run summary: `", summary_out, "`"), "",
+    "## Per-Stratum Reports", "",
+    report_lines
+  )
+
+  write_tsv(study, study_out)
+  write_tsv(reference, reference_out)
+  write_tsv(comparison, comparison_out)
+  write_tsv(summary, summary_out)
+  ensure_parent(report_out)
+  writeLines(report, report_out)
+  cat("Combined ADMIXTURE QC reports for", length(strata), "POP-MaD strata\n")
+}
+
+
 # Load config shared by every subtask.
 require_args(args, "config")
 config <- load_config(args$config)
@@ -678,10 +817,13 @@ threads <- args$threads %||% "1"
 # Dispatch to the requested ADMIXTURE QC subtask.
 if (subtask == "convert-reference") {
   require_args(args, "out-prefix")
-  convert_genotypes(config, config$admixture$reference_genotypes, args[["out-prefix"]], threads)
+  convert_genotypes(config, config$admixture$reference_genotypes, args[["out-prefix"]], threads,
+    label = "ADMIXTURE reference genotype input")
 } else if (subtask == "convert-study") {
-  require_args(args, "out-prefix")
-  convert_genotypes(config, config$genotypes, args[["out-prefix"]], threads)
+  require_args(args, c("out-prefix", "keep"))
+  if (length(args$keep) != 1L) die("convert-study requires exactly one --keep file")
+  convert_genotypes(config, config$genotypes, args[["out-prefix"]], threads, keep = args$keep[[1]],
+    label = "ADMIXTURE study genotype input")
 } else if (subtask == "shared-variants") {
   require_args(args, c("reference-prefix", "study-prefix", "out", "mismatch-report"))
   shared_variants(config, args[["reference-prefix"]], args[["study-prefix"]], args$out, args[["mismatch-report"]])
@@ -706,9 +848,17 @@ if (subtask == "convert-reference") {
     "q", "p", "fam", "bim", "pop", "sample-populations",
     "study-out", "reference-out", "comparison-out", "summary-out", "report-out"
   ))
-  parse_report(config, args$q, args$p, args$fam, args$bim, args$pop, args[["sample-populations"]],
+  parse_report(config, args[["analysis-ancestry"]] %||% "", args$q, args$p, args$fam, args$bim, args$pop, args[["sample-populations"]],
     args$metadata, args$popmad %||% "", args[["study-out"]], args[["reference-out"]],
     args[["comparison-out"]], args[["summary-out"]], args[["report-out"]])
+} else if (subtask == "combine-reports") {
+  require_args(args, c(
+    "study", "reference", "comparison", "summary", "report",
+    "study-out", "reference-out", "comparison-out", "summary-out", "report-out"
+  ))
+  combine_reports(args$study, args$reference, args$comparison, args$summary, args$report,
+    args[["study-out"]], args[["reference-out"]], args[["comparison-out"]],
+    args[["summary-out"]], args[["report-out"]])
 } else {
   die("unknown ADMIXTURE QC subtask: ", subtask)
 }

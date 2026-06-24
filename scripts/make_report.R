@@ -133,8 +133,12 @@ top_signals <- top_signal_lines(stats)
 
 
 # Read metric/value summaries into named vectors.
-kv <- function(path) {
+kv <- function(path, stratum = "") {
   rows <- read_tsv(path)
+  if (nzchar(stratum) && "popmad_stratum" %in% names(rows)) {
+    stratum_rows <- rows[rows$popmad_stratum == stratum, , drop = FALSE]
+    if (nrow(stratum_rows)) rows <- stratum_rows
+  }
   setNames(rows$value, rows$metric)
 }
 metric_value <- function(values, name) {
@@ -143,7 +147,7 @@ metric_value <- function(values, name) {
 relatedness <- kv(args[["relatedness-summary"]])
 sex_check <- kv(args[["sex-check-summary"]])
 gwas_summary <- kv(args[["gwas-summary"]])
-admixture_summary <- kv(args[["admixture-summary"]])
+admixture_summary <- kv(args[["admixture-summary"]], args$ancestry)
 
 
 # Pull trait/ancestry counts before sex-check and relatedness intersections.
