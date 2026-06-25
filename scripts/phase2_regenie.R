@@ -548,14 +548,14 @@ prepare_marker_set <- function(config, branch, pfile_prefix, keep, out_prefix, p
 
   n_excluded <- write_region_exclusions(config, out_prefix, excluded_regions)
   prune <- config$phase2_regenie[[branch]]$ld_prune
-  default_r2 <- if (identical(branch, "step1")) 0.5 else 0.2
+  default_window <- if (identical(branch, "step1")) "1000kb" else "500kb"
   command <- c("--pfile", out_prefix)
   if (n_excluded > 0) command <- c(command, "--exclude", excluded_regions)
   command <- c(command,
     "--indep-pairwise",
-    as.character(prune$window %||% "500kb"),
+    as.character(prune$window %||% default_window),
     as.character(prune$step %||% 1),
-    as.character(prune$r2 %||% default_r2),
+    as.character(prune$r2 %||% 0.2),
     "--threads", threads,
     "--out", prune_prefix
   )

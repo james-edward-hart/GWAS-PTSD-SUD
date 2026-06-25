@@ -91,7 +91,7 @@ write_lines(c(
   "    ld_prune: {window: 500kb, step: 1, r2: 0.2}",
   "  step1:",
   "    filters: {maf_min: 0.01, geno_missing_max: 0.02, snps_only_acgt: true, autosome_only: true, max_alleles: 2, remove_duplicate_ids: true}",
-  "    ld_prune: {window: 500kb, step: 1, r2: 0.5}"
+  "    ld_prune: {window: 1000kb, step: 1, r2: 0.2}"
 ), config)
 
 groups <- file.path(tmp, "groups.tsv")
@@ -349,6 +349,7 @@ write_lines(c(
   "    exit 0",
   "    ;;",
   "  *' --indep-pairwise '* )",
+  "    case \"$args\" in *' --indep-pairwise 1000kb 1 0.2 '* ) ;; * ) echo 'Step 1 marker prep used wrong LD pruning settings' >&2; exit 28 ;; esac",
   "    printf 'rs1\\n' > \"$out.prune.in\"",
   "    exit 0",
   "    ;;",
@@ -406,6 +407,7 @@ write_lines(c(
   "    exit 0",
   "    ;;",
   "  *' --indep-pairwise '* )",
+  "    case \"$args\" in *' --indep-pairwise 1000kb 1 0.2 '* ) ;; * ) echo 'Step 1 INFO marker prep used wrong LD pruning settings' >&2; exit 29 ;; esac",
   "    printf 'rs_high\\nrs_unimputed\\n' > \"$out.prune.in\"",
   "    exit 0",
   "    ;;",

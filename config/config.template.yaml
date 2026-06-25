@@ -260,9 +260,9 @@ phase2_regenie:
       max_alleles: 2
       remove_duplicate_ids: true
     ld_prune:
-      window: "500kb"
+      window: "1000kb"
       step: 1
-      r2: 0.5
+      r2: 0.2
 
 
 # Report warnings only; these thresholds do not stop the workflow.
