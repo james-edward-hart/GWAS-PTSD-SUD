@@ -163,6 +163,26 @@ phase2_step1_info_min <- function(config) {
 }
 
 
+phase2_step2_maf_min <- function(config) {
+  step2 <- config$phase2_regenie$step2 %||% list()
+  filters <- step2$filters %||% list()
+  value <- filters$maf_min %||% 0.01
+  if (blank(value)) return(NA_real_)
+  threshold <- suppressWarnings(as.numeric(value))
+  if (is.na(threshold) || !is.finite(threshold) || threshold <= 0 || threshold > 0.5) {
+    die("phase2_regenie.step2.filters.maf_min must be blank or between 0 and 0.5")
+  }
+  threshold
+}
+
+
+phase2_step2_maf_args <- function(config) {
+  maf_min <- phase2_step2_maf_min(config)
+  if (is.na(maf_min)) return(character())
+  c("--maf", as.character(maf_min))
+}
+
+
 trait_type <- function(samples, trait_row) {
   case_blank <- blank(trait_row$case_value)
   control_blank <- blank(trait_row$control_value)
@@ -704,6 +724,7 @@ prepare_assoc_genotypes <- function(config, pfile_prefix, extract, out_prefix, t
     "--pfile", pfile_prefix,
     "--extract", extract,
     "--geno", as.character(config$qc$geno_missing_max %||% 0.05),
+    phase2_step2_maf_args(config),
     "--make-pgen", "--sort-vars",
     "--threads", threads,
     "--out", out_prefix
@@ -1150,6 +1171,8 @@ make_phase2_report <- function(config, trait, build, stats, summary_path, group_
   unknown <- sum(ancestry$phase2_ancestry == "UNKNOWN")
   assigned <- nrow(ancestry) - unknown
   union_n <- union$variants[union$file == "UNION"][[1]]
+  step2_maf_min <- phase2_step2_maf_min(config)
+  step2_maf_label <- if (is.na(step2_maf_min)) "not_applied" else as.character(step2_maf_min)
 
   lines <- c(
     paste0("# Phase 2 PAN Regenie Report: ", config$project$analysis_name, " / ", trait), "",
@@ -1169,6 +1192,7 @@ make_phase2_report <- function(config, trait, build, stats, summary_path, group_
     "## Variant Sources and QC", "",
     paste0("- Stage 1 union-pass variants: ", union_n),
     paste0("- Pooled missingness threshold: ", config$qc$geno_missing_max %||% 0.05),
+    paste0("- Step 2 pooled MAF minimum: ", step2_maf_label),
     paste0("- Regenie minMAC: ", config$phase2_regenie$min_mac %||% 1),
     paste0("- Regenie minINFO: ", ifelse(truthy(config$qc$use_mach_r2_filter %||% FALSE), as.character(config$qc$info_min %||% 0.8), "not_applied")), "",
     "## REGENIE Run Settings", "",

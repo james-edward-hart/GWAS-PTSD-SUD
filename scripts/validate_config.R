@@ -216,6 +216,15 @@ if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
   }
   validate_regenie_option_passthrough(config$phase2_regenie$step1_options %||% "", "phase2_regenie.step1_options")
   validate_regenie_option_passthrough(config$phase2_regenie$step2_options %||% "", "phase2_regenie.step2_options")
+  step2 <- config$phase2_regenie$step2 %||% list()
+  step2_filters <- step2$filters %||% list()
+  step2_maf_min <- step2_filters$maf_min %||% 0.01
+  if (!blank(step2_maf_min)) {
+    step2_maf_min <- suppressWarnings(as.numeric(step2_maf_min))
+    if (is.na(step2_maf_min) || !is.finite(step2_maf_min) || step2_maf_min <= 0 || step2_maf_min > 0.5) {
+      die("phase2_regenie.step2.filters.maf_min must be blank or between 0 and 0.5")
+    }
+  }
 
   phase2_default_covars <- as.character(unlist(config$phase2_regenie$default_covariates %||% character(), use.names = FALSE))
   if (!length(phase2_default_covars)) phase2_default_covars <- c("age", "age2", "sex", paste0("PC", seq_len(pcs)))

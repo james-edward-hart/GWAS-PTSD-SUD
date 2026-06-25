@@ -84,6 +84,8 @@ write_lines(c(
   "  step2_bsize: 100",
   "  step1_options: ''",
   "  step2_options: ''",
+  "  step2:",
+  "    filters: {maf_min: 0.01}",
   "  global_pca:",
   "    filters: {maf_min: 0.01, geno_missing_max: 0.02, snps_only_acgt: true, autosome_only: true, max_alleles: 2, remove_duplicate_ids: true}",
   "    ld_prune: {window: 500kb, step: 1, r2: 0.2}",
@@ -252,6 +254,7 @@ run_phase2(c(
 ))
 text <- readLines(report)
 if (!any(grepl("Stage 1 Lambda Comparison", text, fixed = TRUE))) stop("Phase 2 report missing Stage 1 comparison")
+if (!any(grepl("Step 2 pooled MAF minimum: 0.01", text, fixed = TRUE))) stop("Phase 2 report missing pooled MAF threshold")
 if (!any(grepl("![QQ plot](qq.png)", text, fixed = TRUE))) stop("Phase 2 report missing embedded QQ plot")
 if (!any(grepl("![Manhattan plot](mh.png)", text, fixed = TRUE))) stop("Phase 2 report missing embedded Manhattan plot")
 pan_sections <- c(
@@ -290,6 +293,7 @@ write_lines(c(
   "args=\" $* \"",
   "case \"$args\" in *' fill-missing-from-dosage '* ) echo 'Step 2 genotype prep should not fill hardcalls from dosage' >&2; exit 20 ;; esac",
   "case \"$args\" in *' erase-dosage '* ) echo 'Step 2 genotype prep should not erase dosage' >&2; exit 21 ;; esac",
+  "case \"$args\" in *' --maf 0.01 '* ) ;; * ) echo 'missing Step 2 --maf 0.01' >&2; exit 22 ;; esac",
   "out=''",
   "while [ \"$#\" -gt 0 ]; do",
   "  if [ \"$1\" = \"--out\" ]; then",

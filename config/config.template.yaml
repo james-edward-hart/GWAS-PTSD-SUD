@@ -222,6 +222,12 @@ phase2_regenie:
   step1_options: ""
   step2_options: ""
 
+  # Association genotype QC applied by the existing PLINK2 PGEN build immediately
+  # before regenie Step 2. Set maf_min to "" to disable this pooled MAF filter.
+  step2:
+    filters:
+      maf_min: 0.01
+
   # Phase 2 PCA markers. Long-range LD/problem-region exclusions reuse the
   # resolved ancestry_reference.exclusion_regions file.
   global_pca:
