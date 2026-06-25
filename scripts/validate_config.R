@@ -200,7 +200,7 @@ require_columns(traits, c("trait_id", "phenotype_column", "case_value", "control
 
 # Validate Phase 2 regenie settings and mixed binary/quantitative trait detection.
 if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
-  pcs <- as.integer(config$phase2_regenie$global_pcs %||% NA)
+  pcs <- as.integer(config$phase2_regenie$global_pcs %||% 10)
   if (is.na(pcs) || pcs < 1 || pcs > 50) die("phase2_regenie.global_pcs must be an integer between 1 and 50")
   htp_cohort_name <- trimws(as.character(config$phase2_regenie$htp_cohort_name %||% ""))
   if (nzchar(htp_cohort_name) && !grepl("^[A-Za-z0-9._-]+$", htp_cohort_name)) {
@@ -242,13 +242,14 @@ if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
       mac_min <- suppressWarnings(as.integer(mac_min))
       if (is.na(mac_min) || mac_min < 1) die("phase2_regenie.", branch, ".filters.mac_min must be a positive integer")
     }
-    if (identical(branch, "step1")) {
-      residual_variance_min <- settings$filters$residual_variance_min
-      if (!is.null(residual_variance_min) && !blank(residual_variance_min)) {
-        residual_variance_min <- suppressWarnings(as.numeric(residual_variance_min))
-        if (is.na(residual_variance_min) || !is.finite(residual_variance_min)) {
-          die("phase2_regenie.step1.filters.residual_variance_min must be numeric, blank, or absent")
-        }
+    if (identical(branch, "step1") && !is.null(settings$filters$residual_variance_min)) {
+      die("phase2_regenie.step1.filters.residual_variance_min was removed; ",
+        "Step 1 now uses PLINK2 hardcall-count QC after group-specific PLINK marker filters")
+    }
+    if (identical(branch, "step1") && !is.null(settings$filters$info_min) && !blank(settings$filters$info_min)) {
+      info_min <- suppressWarnings(as.numeric(settings$filters$info_min))
+      if (is.na(info_min) || !is.finite(info_min) || info_min < 0 || info_min > 1) {
+        die("phase2_regenie.step1.filters.info_min must be between 0 and 1 when set")
       }
     }
     pruning <- settings$ld_prune

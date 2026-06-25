@@ -69,7 +69,7 @@ def phase2_default_covariates(config):
     covars = config_list(settings.get("default_covariates"))
     if covars:
         return covars
-    pc_count = int(settings.get("global_pcs", 20))
+    pc_count = int(settings.get("global_pcs", 10))
     return ["age", "age2", "sex"] + [f"PC{i}" for i in range(1, pc_count + 1)]
 
 

@@ -208,31 +208,9 @@ gwas:
 # Phase 2 pooled pan-ancestry GWAS with regenie.
 phase2_regenie:
   enabled: true
-  global_pcs: 20
-  default_covariates:
-    - age
-    - age2
-    - sex
-    - PC1
-    - PC2
-    - PC3
-    - PC4
-    - PC5
-    - PC6
-    - PC7
-    - PC8
-    - PC9
-    - PC10
-    - PC11
-    - PC12
-    - PC13
-    - PC14
-    - PC15
-    - PC16
-    - PC17
-    - PC18
-    - PC19
-    - PC20
+  global_pcs: 10
+  # Empty or omitted means age, age2, sex, and PC1-PC{global_pcs}.
+  default_covariates: []
   extra_covariates: []
   apply_rint: false
   # Blank htp_cohort_name uses filename-safe project.analysis_name.
@@ -263,12 +241,12 @@ phase2_regenie:
   step1:
     filters:
       # regenie recommends MAC filtering before Step 1 to avoid low-variance
-      # model SNP failures. These filters are applied after the group keep file.
+      # model SNP failures. These filters are applied after the group keep file,
+      # then PLINK2 hardcall genotype counts are used to remove SNPs with no
+      # hardcall variance or insufficient hardcall MAC for Step 1.
+      # If source PVAR metadata has INFO/R2 annotations, variants below qc.info_min
+      # are removed before hardcall conversion; missing INFO/R2 values are kept.
       mac_min: 100
-      # Additional model-aware filter after raw PLINK QC. Set blank or <=0 to
-      # disable. Variants are retained when residual variance after projection
-      # on the Step 1 covariate design is greater than this value.
-      residual_variance_min: 1e-6
       maf_min: 0.01
       geno_missing_max: 0.02
       snps_only_acgt: true

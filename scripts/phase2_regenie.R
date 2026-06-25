@@ -122,7 +122,7 @@ phase2_enabled <- function(config) {
 
 
 phase2_pc_count <- function(config) {
-  as.integer(config$phase2_regenie$global_pcs %||% 20)
+  as.integer(config$phase2_regenie$global_pcs %||% 10)
 }
 
 
@@ -140,6 +140,26 @@ phase2_covariates_for_trait <- function(config, trait_row) {
     split_csv(if (blank(trait_row$covariates)) "" else trait_row$covariates)
   )
   unique(covars[nzchar(covars)])
+}
+
+
+phase2_step1_hardcall_mac_min <- function(config) {
+  value <- config$phase2_regenie$step1$filters$mac_min
+  if (blank(value)) return(100L)
+  mac_min <- suppressWarnings(as.integer(value))
+  if (is.na(mac_min) || mac_min < 1) die("phase2_regenie.step1.filters.mac_min must be a positive integer")
+  mac_min
+}
+
+
+phase2_step1_info_min <- function(config) {
+  value <- config$phase2_regenie$step1$filters$info_min %||% config$qc$info_min %||% 0.8
+  if (blank(value)) return(NA_real_)
+  threshold <- suppressWarnings(as.numeric(value))
+  if (is.na(threshold) || !is.finite(threshold) || threshold < 0 || threshold > 1) {
+    die("phase2_regenie.step1.filters.info_min/qc.info_min must be between 0 and 1")
+  }
+  threshold
 }
 
 
@@ -223,13 +243,95 @@ phase2_filter_args <- function(config, branch) {
   if (truthy(filters$autosome_only %||% TRUE)) out <- c(out, "--autosome")
   if (truthy(filters$snps_only_acgt %||% TRUE)) out <- c(out, "--snps-only", "just-acgt")
   out <- c(out, "--max-alleles", as.character(filters$max_alleles %||% 2))
-  mac_min <- filters$mac_min
-  if (is.null(mac_min) && identical(branch, "step1")) mac_min <- 100
+  mac_min <- if (identical(branch, "step1")) phase2_step1_hardcall_mac_min(config) else filters$mac_min
   if (!blank(mac_min %||% "")) out <- c(out, "--mac", as.character(mac_min))
   if (!blank(filters$maf_min %||% "")) out <- c(out, "--maf", as.character(filters$maf_min))
   if (!blank(filters$geno_missing_max %||% "")) out <- c(out, "--geno", as.character(filters$geno_missing_max))
   if (truthy(filters$remove_duplicate_ids %||% TRUE)) out <- c(out, "--rm-dup", "exclude-all")
   out
+}
+
+
+parse_info_field_metric <- function(value, keys) {
+  raw <- as.character(value)
+  out <- rep(NA_real_, length(raw))
+  missing <- raw %in% c("", ".", "NA")
+  for (key in keys) {
+    pattern <- paste0("(^|;)", key, "=([^;]+)")
+    hit <- regexec(pattern, raw, ignore.case = TRUE)
+    parts <- regmatches(raw, hit)
+    matched <- lengths(parts) > 0
+    if (any(matched)) {
+      idx <- which(matched)
+      parsed <- suppressWarnings(as.numeric(vapply(parts[matched], function(x) x[[3]], character(1))))
+      fill <- is.na(out[idx])
+      out[idx[fill]] <- parsed[fill]
+    }
+  }
+  out[missing] <- NA_real_
+  out
+}
+
+
+pvar_info_metric <- function(rows) {
+  require_columns(rows, "ID", "PVAR file")
+  names_upper <- toupper(names(rows))
+  direct_candidates <- c("R2", "INFO", "MACH_R2", "MINIMAC3_R2", "IMPUTE_INFO", "IMPUTE2_INFO", "INFO_SCORE", "RSQ")
+  info_keys <- c("R2", "INFO", "MACH_R2", "MINIMAC3_R2", "IMPUTE_INFO", "IMPUTE2_INFO", "INFO_SCORE", "RSQ")
+  for (candidate in direct_candidates) {
+    idx <- match(candidate, names_upper)
+    if (is.na(idx)) next
+    col <- names(rows)[[idx]]
+    value <- suppressWarnings(as.numeric(as.character(rows[[col]])))
+    if (any(is.finite(value))) return(list(name = col, value = value))
+    if (identical(candidate, "INFO")) {
+      value <- parse_info_field_metric(rows[[col]], info_keys)
+      if (any(is.finite(value))) return(list(name = paste0(col, ":", "INFO/R2"), value = value))
+    }
+  }
+  NULL
+}
+
+
+phase2_step1_info_filter_args <- function(config, pfile_prefix, out_prefix) {
+  threshold <- phase2_step1_info_min(config)
+  if (!is.finite(threshold)) return(character())
+
+  pvar_path <- paste0(pfile_prefix, ".pvar")
+  rows <- read_tsv_no_metadata(pvar_path)
+  metric <- pvar_info_metric(rows)
+  if (is.null(metric)) {
+    cat("Step 1 INFO/R2 marker filter: skipped; no INFO/R2 column or INFO key found in ", pvar_path, "\n", sep = "")
+    return(character())
+  }
+
+  value <- metric$value
+  low <- is.finite(value) & value < threshold
+  if (!any(low)) {
+    cat("Step 1 INFO/R2 marker filter: active on ", metric$name,
+      "; threshold=", threshold, "; removed=0\n", sep = "")
+    return(character())
+  }
+
+  pass_ids <- as.character(rows$ID[!low])
+  pass_ids <- pass_ids[nzchar(pass_ids) & pass_ids != "." & pass_ids != "NA"]
+  if (!length(pass_ids)) die("Step 1 INFO/R2 marker filter removed all variants from ", pvar_path)
+
+  pass_path <- paste0(out_prefix, ".info_r2.pass.snplist")
+  excluded_path <- paste0(out_prefix, ".info_r2.excluded.tsv")
+  ensure_parent(pass_path)
+  writeLines(pass_ids, pass_path)
+  write_tsv(data.frame(
+    variant_id = as.character(rows$ID[low]),
+    info_metric = metric$name,
+    info_value = value[low],
+    info_min = threshold,
+    exclusion_reason = "info_r2_below_min",
+    stringsAsFactors = FALSE
+  ), excluded_path)
+  cat("Step 1 INFO/R2 marker filter: active on ", metric$name,
+    "; threshold=", threshold, "; removed=", sum(low), "\n", sep = "")
+  c("--extract", pass_path)
 }
 
 
@@ -402,7 +504,15 @@ prepare_marker_set <- function(config, branch, pfile_prefix, keep, out_prefix, p
       reference_ids = read_psam_ids(pfile_prefix, missing_fid = "zero"),
       reference_label = paste("Phase 2", branch, "PGEN samples")))
   }
-  command <- c(command, phase2_filter_args(config, branch), "--make-pgen", "--sort-vars", "--threads", threads, "--out", out_prefix)
+  make_pgen_args <- if (identical(branch, "step1")) {
+    c("--make-pgen", "fill-missing-from-dosage", "erase-dosage")
+  } else {
+    "--make-pgen"
+  }
+  if (identical(branch, "step1")) {
+    command <- c(command, phase2_step1_info_filter_args(config, pfile_prefix, out_prefix))
+  }
+  command <- c(command, phase2_filter_args(config, branch), make_pgen_args, "--sort-vars", "--threads", threads, "--out", out_prefix)
   ensure_parent(paste0(out_prefix, ".pgen"))
   run_command(plink_tool(config), command)
 
@@ -592,40 +702,26 @@ prepare_assoc_genotypes <- function(config, pfile_prefix, extract, out_prefix, t
 }
 
 
-step1_residual_variance_threshold <- function(config) {
-  value <- config$phase2_regenie$step1$filters$residual_variance_min
-  if (is.null(value)) return(1e-6)
-  if (blank(value)) return(NA_real_)
-  threshold <- suppressWarnings(as.numeric(value))
-  if (is.na(threshold) || !is.finite(threshold)) {
-    die("phase2_regenie.step1.filters.residual_variance_min must be numeric, blank, or absent")
-  }
-  if (threshold <= 0) return(NA_real_)
-  threshold
-}
-
-
 step1_filter_report_paths <- function(out, summary_out = "", excluded_out = "") {
   stem <- sub("\\.snplist$", "", out)
   list(
-    summary = if (blank(summary_out)) paste0(stem, ".residual_variance.summary.tsv") else summary_out,
-    excluded = if (blank(excluded_out)) paste0(stem, ".residual_variance.excluded.tsv") else excluded_out
+    summary = if (blank(summary_out)) paste0(stem, ".variant_qc.summary.tsv") else summary_out,
+    excluded = if (blank(excluded_out)) paste0(stem, ".variant_qc.excluded.tsv") else excluded_out
   )
 }
 
 
-write_step1_filter_summary <- function(path, enabled, raw_count, pass_count, threshold,
-                                       model_sample_count = NA_integer_, covariate_count = NA_integer_,
-                                       design_rank = NA_integer_) {
+write_step1_filter_summary <- function(path, raw_count, pass_count, model_sample_count,
+                                       hardcall_mac_min, hardcall_variance_min = 0) {
   summary <- data.frame(
-    filter_enabled = ifelse(enabled, "True", "False"),
+    filter_method = "plink2_hardcall_count_qc",
+    plink_nonfounders = "True",
     raw_plink_pass_snp_count = as.integer(raw_count),
-    residual_variance_pass_snp_count = as.integer(pass_count),
+    hardcall_filter_pass_snp_count = as.integer(pass_count),
     excluded_snp_count = as.integer(raw_count - pass_count),
-    residual_variance_min = ifelse(enabled, as.character(threshold), "disabled"),
     model_sample_count = as.integer(model_sample_count),
-    covariate_count = as.integer(covariate_count),
-    design_rank = as.integer(design_rank),
+    hardcall_mac_min = as.integer(hardcall_mac_min),
+    hardcall_variance_min = as.numeric(hardcall_variance_min),
     stringsAsFactors = FALSE
   )
   write_tsv(summary, path)
@@ -635,264 +731,108 @@ write_step1_filter_summary <- function(path, enabled, raw_count, pass_count, thr
 empty_step1_excluded_table <- function(path) {
   write_tsv(data.frame(
     variant_id = character(),
-    residual_variance = numeric(),
-    threshold = numeric(),
+    hardcall_ref_ct = numeric(),
+    hardcall_alt_ct = numeric(),
+    hardcall_mac = numeric(),
+    hardcall_n = numeric(),
+    hardcall_variance = numeric(),
     exclusion_reason = character(),
     stringsAsFactors = FALSE
   ), path)
 }
 
 
-read_step1_covariate_names <- function(path) {
-  if (!file.exists(path)) die("Phase 2 regenie Step 1 covariate list not found: ", path)
-  split_csv(paste(readLines(path, warn = FALSE), collapse = ","))
-}
+read_step1_gcount_results <- function(path, raw_ids, hardcall_mac_min, hardcall_variance_min = 0) {
+  if (!file.exists(path)) die("PLINK2 Step 1 hardcall-count QC did not produce expected .gcount output: ", path)
+  duplicate_raw <- unique(raw_ids[duplicated(raw_ids)])
+  if (length(duplicate_raw)) die("Step 1 raw PLINK-filtered variant list has duplicate IDs: ", paste(head(duplicate_raw, 5), collapse = ", "))
 
+  rows <- read_tsv_no_metadata(path)
+  required <- c("ID", "HOM_REF_CT", "HET_REF_ALT1_CT", "HOM_ALT1_CT", "MISSING_CT", "OBS_CT")
+  missing_cols <- setdiff(required, names(rows))
+  if (length(missing_cols)) die("PLINK2 Step 1 .gcount output is missing required columns: ", paste(missing_cols, collapse = ", "))
+  rows$ID <- as.character(rows$ID)
+  duplicate_gcount <- unique(rows$ID[duplicated(rows$ID)])
+  if (length(duplicate_gcount)) die("PLINK2 Step 1 .gcount output has duplicate variant IDs: ", paste(head(duplicate_gcount, 5), collapse = ", "))
 
-prepare_step1_residual_design <- function(covar, covar_list, keep) {
-  covar_names <- read_step1_covariate_names(covar_list)
-  covar_rows <- read_tsv(covar)
-  require_columns(covar_rows, c("FID", "IID", covar_names), "Phase 2 regenie Step 1 covariate file")
-  keep_ids <- read_id_file(keep, "Phase 2 regenie Step 1 keep file")
-  idx <- match_sample_rows(keep_ids, sample_key_map(covar_rows[c("FID", "IID")], "Phase 2 regenie Step 1 covariate file"))
-  missing <- is.na(idx)
-  if (any(missing)) {
-    die("Phase 2 regenie Step 1 keep samples missing from covariate file: ",
-      paste(head(paste(keep_ids$FID[missing], keep_ids$IID[missing]), 5), collapse = ", "))
+  numeric_col <- function(col) {
+    value <- suppressWarnings(as.numeric(rows[[col]]))
+    bad <- is.na(value) | !is.finite(value) | value < 0
+    if (any(bad)) die("PLINK2 Step 1 .gcount column ", col, " contains missing, nonnumeric, or negative values")
+    value
   }
-  rows <- covar_rows[idx, , drop = FALSE]
-  design <- matrix(1, nrow = nrow(rows), ncol = 1)
-  colnames(design) <- "(Intercept)"
-  for (covar_name in covar_names) {
-    value <- suppressWarnings(as.numeric(rows[[covar_name]]))
-    bad <- is.na(value) | !is.finite(value)
-    if (any(bad)) {
-      die("Phase 2 regenie Step 1 covariate '", covar_name, "' has nonnumeric or missing values in the model keep set")
-    }
-    design <- cbind(design, value)
-    colnames(design)[ncol(design)] <- covar_name
-  }
-  qrobj <- qr(design)
-  list(
-    ids = rows[c("FID", "IID")],
-    covariates = covar_names,
-    design = design,
-    rank = as.integer(qrobj$rank)
-  )
-}
+  rows$HOM_REF_CT <- numeric_col("HOM_REF_CT")
+  rows$HET_REF_ALT1_CT <- numeric_col("HET_REF_ALT1_CT")
+  rows$HOM_ALT1_CT <- numeric_col("HOM_ALT1_CT")
+  rows$MISSING_CT <- numeric_col("MISSING_CT")
+  rows$OBS_CT <- numeric_col("OBS_CT")
 
-
-av_sample_key_map <- function(ids) {
-  if (!nrow(ids)) return(data.frame(key = character(), row = integer(), stringsAsFactors = FALSE))
-  variants <- mapply(function(fid, iid) {
-    unique(c(paste(fid, iid, sep = "_"), paste("0", iid, sep = "_"), paste(iid, iid, sep = "_"), iid))
-  }, ids$FID, ids$IID, SIMPLIFY = FALSE)
-  out <- data.frame(
-    key = unlist(variants, use.names = FALSE),
-    row = rep(seq_len(nrow(ids)), lengths(variants)),
-    stringsAsFactors = FALSE
-  )
-  conflict <- names(which(tapply(out$row, out$key, function(x) length(unique(x)) > 1)))
-  if (length(conflict)) {
-    die("Phase 2 regenie Step 1 covariate samples have ambiguous PLINK2 Av column IDs: ",
-      paste(head(conflict, 5), collapse = ", "))
-  }
-  out[!duplicated(out$key), , drop = FALSE]
-}
-
-
-match_av_sample_columns <- function(sample_cols, ids) {
-  key_map <- av_sample_key_map(ids)
-  idx <- match(sample_cols, key_map$key)
-  if (any(is.na(idx))) {
-    missing <- sample_cols[is.na(idx)]
-    die("could not match PLINK2 --export Av sample column(s) to Step 1 covariates: ",
-      paste(head(missing, 5), collapse = ", "))
-  }
-  row_idx <- key_map$row[idx]
-  if (any(duplicated(row_idx))) {
-    die("PLINK2 --export Av sample columns are not unique after FID/IID matching")
-  }
-  row_idx
-}
-
-
-parse_genotype_dosages <- function(values, variant_id) {
-  raw <- as.character(values)
-  missing_token <- raw %in% c("", ".", "NA")
-  dosage <- suppressWarnings(as.numeric(raw))
-  bad <- is.na(dosage) & !missing_token
-  if (any(bad)) die("non-numeric genotype dosage in PLINK2 Av export for variant ", variant_id)
-  dosage
-}
-
-
-residual_variances_from_av <- function(path, design_info, threshold) {
-  if (!file.exists(path)) die("PLINK2 --export Av did not produce expected .traw file: ", path)
-  rows <- tryCatch(
-    read.table(
-      path,
-      sep = "\t",
-      header = TRUE,
-      check.names = FALSE,
-      stringsAsFactors = FALSE,
-      quote = "",
-      comment.char = "",
-      na.strings = character(),
-      colClasses = "character"
-    ),
-    error = function(err) die("could not read PLINK2 Av export ", path, ": ", conditionMessage(err))
-  )
-  if (!nrow(rows)) {
-    return(data.frame(
-      variant_id = character(),
-      residual_variance = numeric(),
-      pass = logical(),
-      exclusion_reason = character(),
-      stringsAsFactors = FALSE
-    ))
-  }
-  if (ncol(rows) < 7 || !"SNP" %in% names(rows)[seq_len(min(6, ncol(rows)))]) {
-    die("PLINK2 Av export has unexpected columns: ", path)
-  }
-
-  sample_cols <- names(rows)[-(seq_len(6))]
-  sample_idx <- match_av_sample_columns(sample_cols, design_info$ids)
-  design <- design_info$design[sample_idx, , drop = FALSE]
-  qrobj <- qr(design)
-  residual_variance <- numeric(nrow(rows))
-  reason <- rep("", nrow(rows))
-
-  for (i in seq_len(nrow(rows))) {
-    variant_id <- rows$SNP[[i]]
-    dosage <- parse_genotype_dosages(rows[i, sample_cols, drop = TRUE], variant_id)
-    observed <- is.finite(dosage)
-    if (!any(observed)) {
-      residual_variance[[i]] <- 0
-      reason[[i]] <- "all_genotypes_missing"
-      next
-    }
-    dosage[!observed] <- mean(dosage[observed])
-    residual <- qr.resid(qrobj, dosage)
-    value <- if (length(residual) > 1) var(residual) else 0
-    if (!is.finite(value)) {
-      residual_variance[[i]] <- 0
-      reason[[i]] <- "nonfinite_residual_variance"
-    } else {
-      residual_variance[[i]] <- value
-    }
-  }
-
-  pass <- is.finite(residual_variance) & residual_variance > threshold
-  reason[!pass & !nzchar(reason)] <- "residual_variance_le_threshold"
-  data.frame(
-    variant_id = rows$SNP,
-    residual_variance = residual_variance,
-    pass = pass,
-    exclusion_reason = ifelse(pass, "", reason),
-    stringsAsFactors = FALSE
-  )
-}
-
-
-residual_variance_filter_step1_snps <- function(config, pfile_prefix, keep, raw_snplist, out, summary_out,
-                                                excluded_out, covar, covar_list, threshold, threads) {
-  raw_ids <- readLines(raw_snplist, warn = FALSE)
-  raw_ids <- raw_ids[nzchar(raw_ids)]
-  if (!length(raw_ids)) die("Phase 2 regenie Step 1 raw PLINK-filtered variant list is empty")
-
-  design_info <- prepare_step1_residual_design(covar, covar_list, keep)
-  chunk_size <- suppressWarnings(as.integer(config$phase2_regenie$step1_bsize %||% 1000))
-  if (is.na(chunk_size) || chunk_size < 1) chunk_size <- 1000L
-  tmp_stem <- paste0(sub("\\.snplist$", "", out), ".residual_variance")
-
-  all_results <- data.frame(
-    variant_id = character(),
-    residual_variance = numeric(),
-    pass = logical(),
-    exclusion_reason = character(),
+  idx <- match(raw_ids, rows$ID)
+  result <- data.frame(
+    variant_id = raw_ids,
+    hardcall_ref_ct = NA_real_,
+    hardcall_alt_ct = NA_real_,
+    hardcall_mac = NA_real_,
+    hardcall_n = NA_real_,
+    hardcall_variance = NA_real_,
+    pass = FALSE,
+    exclusion_reason = "missing_from_plink2_gcount",
     stringsAsFactors = FALSE
   )
 
-  chunk_starts <- seq(1L, length(raw_ids), by = chunk_size)
-  for (chunk_index in seq_along(chunk_starts)) {
-    start <- chunk_starts[[chunk_index]]
-    end <- min(start + chunk_size - 1L, length(raw_ids))
-    chunk_ids <- raw_ids[start:end]
-    chunk_extract <- paste0(tmp_stem, ".chunk", chunk_index, ".extract.txt")
-    chunk_prefix <- paste0(tmp_stem, ".chunk", chunk_index)
-    writeLines(chunk_ids, chunk_extract)
+  present <- !is.na(idx)
+  if (any(present)) {
+    hit <- idx[present]
+    hom_ref <- rows$HOM_REF_CT[hit]
+    het <- rows$HET_REF_ALT1_CT[hit]
+    hom_alt <- rows$HOM_ALT1_CT[hit]
+    hardcall_n <- hom_ref + het + hom_alt
+    ref_ct <- 2 * hom_ref + het
+    alt_ct <- het + 2 * hom_alt
+    mac <- pmin(ref_ct, alt_ct)
+    mean_alt <- rep(0, length(hardcall_n))
+    mean_alt_sq <- rep(0, length(hardcall_n))
+    observed <- hardcall_n > 0
+    mean_alt[observed] <- alt_ct[observed] / hardcall_n[observed]
+    mean_alt_sq[observed] <- (het[observed] + 4 * hom_alt[observed]) / hardcall_n[observed]
+    variance <- mean_alt_sq - mean_alt^2
+    variance[!is.finite(variance) | (variance < 0 & variance > -1e-12)] <- 0
 
-    run_command(plink_tool(config), c(
-      "--pfile", pfile_prefix,
-      "--keep", keep,
-      "--extract", chunk_extract,
-      "--export", "Av",
-      "--threads", threads,
-      "--out", chunk_prefix
-    ))
+    result$hardcall_ref_ct[present] <- ref_ct
+    result$hardcall_alt_ct[present] <- alt_ct
+    result$hardcall_mac[present] <- mac
+    result$hardcall_n[present] <- hardcall_n
+    result$hardcall_variance[present] <- variance
 
-    chunk_results <- residual_variances_from_av(paste0(chunk_prefix, ".traw"), design_info, threshold)
-    if (!nrow(chunk_results)) die("PLINK2 Av export was empty for Step 1 residual-variance chunk ", chunk_index)
-    all_results <- rbind(all_results, chunk_results)
-    unlink(c(chunk_extract, paste0(chunk_prefix, c(".traw", ".log", ".nosex"))))
+    pass <- is.finite(variance) & variance > hardcall_variance_min & mac >= hardcall_mac_min
+    reason <- ifelse(!is.finite(variance) | variance <= hardcall_variance_min, "zero_hardcall_variance",
+      ifelse(mac < hardcall_mac_min, "hardcall_mac_below_min", ""))
+    result$pass[present] <- pass
+    result$exclusion_reason[present] <- reason
   }
 
-  missing_results <- setdiff(raw_ids, all_results$variant_id)
-  if (length(missing_results)) {
-    die("PLINK2 Av export missed Step 1 variant(s): ", paste(head(missing_results, 5), collapse = ", "))
-  }
-  if (any(duplicated(all_results$variant_id))) die("PLINK2 Av export produced duplicate Step 1 variant IDs")
-
-  pass_ids <- all_results$variant_id[all_results$pass]
-  final_ids <- raw_ids[raw_ids %in% pass_ids]
-  excluded <- all_results[!all_results$pass, c("variant_id", "residual_variance", "exclusion_reason"), drop = FALSE]
-  excluded$threshold <- threshold
-  excluded <- excluded[c("variant_id", "residual_variance", "threshold", "exclusion_reason")]
-
-  writeLines(final_ids, out)
-  if (nrow(excluded)) write_tsv(excluded, excluded_out) else empty_step1_excluded_table(excluded_out)
-  write_step1_filter_summary(
-    summary_out, TRUE, length(raw_ids), length(final_ids), threshold,
-    model_sample_count = nrow(design_info$ids),
-    covariate_count = length(design_info$covariates),
-    design_rank = design_info$rank
-  )
-
-  cat("Step 1 PLINK-pass variants:", length(raw_ids), "\n")
-  cat("Residual-variance filter: enabled; threshold:", threshold, "\n")
-  cat("Step 1 model samples:", nrow(design_info$ids), "\n")
-  cat("Step 1 covariates:", length(design_info$covariates), "\n")
-  cat("Step 1 covariate design rank:", design_info$rank, "\n")
-  cat("Residual-variance pass variants:", length(final_ids), "\n")
-  cat("Residual-variance excluded variants:", nrow(excluded), "\n")
-
-  if (!length(final_ids)) {
-    die(
-      "Phase 2 regenie Step 1 residual-variance filter removed all model markers; ",
-      "relax phase2_regenie.step1.filters.residual_variance_min or review the Step 1 covariate design"
-    )
-  }
+  result
 }
 
 
 filter_step1_variants <- function(config, pfile_prefix, extract, keep, trait_list, out, threads,
-                                  covar = "", covar_list = "", summary_out = "", excluded_out = "") {
+                                  summary_out = "", excluded_out = "") {
   traits <- readLines(trait_list, warn = FALSE)
   traits <- traits[nzchar(traits)]
-  threshold <- step1_residual_variance_threshold(config)
-  residual_enabled <- is.finite(threshold)
   reports <- step1_filter_report_paths(out, summary_out, excluded_out)
   ensure_parent(out)
+  hardcall_mac_min <- phase2_step1_hardcall_mac_min(config)
+  hardcall_variance_min <- 0
   if (!length(traits)) {
     writeLines(character(), out)
-    write_step1_filter_summary(reports$summary, residual_enabled, 0L, 0L, threshold, 0L, 0L, NA_integer_)
+    write_step1_filter_summary(reports$summary, 0L, 0L, 0L, hardcall_mac_min, hardcall_variance_min)
     empty_step1_excluded_table(reports$excluded)
-    cat("No analysis traits; wrote empty Step 1 variant outputs and skipped PLINK/residual filtering\n")
+    cat("No analysis traits; wrote empty Step 1 variant outputs and skipped PLINK hardcall-count QC\n")
     return(invisible(TRUE))
   }
 
-  tmp_prefix <- paste0(sub("\\.snplist$", "", out), ".plink")
+  model_sample_count <- nrow(read_id_file(keep, "Phase 2 regenie Step 1 keep file"))
+  tmp_prefix <- paste0(sub("\\.snplist$", "", out), ".variant_qc")
   # Reapply Step 1 marker filters after the final group keep file. The pooled
   # marker set can contain SNPs that become too rare for regenie's actual model
   # sample once phenotype/covariate-complete samples are selected.
@@ -901,7 +841,9 @@ filter_step1_variants <- function(config, pfile_prefix, extract, keep, trait_lis
     "--extract", extract,
     "--keep", keep,
     phase2_filter_args(config, "step1"),
+    "--nonfounders",
     "--write-snplist",
+    "--geno-counts", "cols=chrom,pos,ref,alt1,homref,refalt1,homalt1,missing,nobs",
     "--threads", threads,
     "--out", tmp_prefix
   ))
@@ -916,25 +858,30 @@ filter_step1_variants <- function(config, pfile_prefix, extract, keep, trait_lis
   raw_ids <- readLines(snplist, warn = FALSE)
   raw_ids <- raw_ids[nzchar(raw_ids)]
 
-  if (!residual_enabled) {
-    if (!file.copy(snplist, out, overwrite = TRUE)) die("could not stage Phase 2 regenie Step 1 variant list: ", out)
-    if (!file.exists(out) || file.info(out)$size == 0) die("staged Phase 2 regenie Step 1 variant list is empty: ", out)
-    model_sample_count <- if (!blank(keep) && file.exists(keep) && file.info(keep)$size > 0) nrow(read_id_file(keep, "Phase 2 regenie Step 1 keep file")) else NA_integer_
-    covariate_count <- if (!blank(covar_list) && file.exists(covar_list)) length(read_step1_covariate_names(covar_list)) else NA_integer_
-    write_step1_filter_summary(reports$summary, FALSE, length(raw_ids), length(raw_ids), threshold,
-      model_sample_count = model_sample_count, covariate_count = covariate_count, design_rank = NA_integer_)
-    empty_step1_excluded_table(reports$excluded)
-    cat("Step 1 PLINK-pass variants:", length(raw_ids), "\n")
-    cat("Residual-variance filter: disabled\n")
-    cat("Final Step 1 variants:", length(raw_ids), "\n")
-    return(invisible(TRUE))
-  }
+  gcount <- paste0(tmp_prefix, ".gcount")
+  all_results <- read_step1_gcount_results(gcount, raw_ids, hardcall_mac_min, hardcall_variance_min)
+  final_ids <- all_results$variant_id[all_results$pass]
+  excluded <- all_results[!all_results$pass, c(
+    "variant_id", "hardcall_ref_ct", "hardcall_alt_ct", "hardcall_mac",
+    "hardcall_n", "hardcall_variance", "exclusion_reason"
+  ), drop = FALSE]
 
-  if (blank(covar) || blank(covar_list)) {
-    die("Phase 2 regenie Step 1 residual-variance filter requires --covar and --covar-list")
-  }
-  residual_variance_filter_step1_snps(config, pfile_prefix, keep, snplist, out, reports$summary,
-    reports$excluded, covar, covar_list, threshold, threads)
+  writeLines(final_ids, out)
+  if (nrow(excluded)) write_tsv(excluded, reports$excluded) else empty_step1_excluded_table(reports$excluded)
+  write_step1_filter_summary(
+    reports$summary, length(raw_ids), length(final_ids), model_sample_count,
+    hardcall_mac_min, hardcall_variance_min
+  )
+
+  cat("Step 1 PLINK-pass variants:", length(raw_ids), "\n")
+  cat("Step 1 PLINK2 hardcall-count QC: enabled\n")
+  cat("Step 1 PLINK2 --nonfounders: enabled\n")
+  cat("Step 1 model samples:", model_sample_count, "\n")
+  cat("Step 1 hardcall MAC minimum:", hardcall_mac_min, "\n")
+  cat("Step 1 hardcall variance minimum:", hardcall_variance_min, "\n")
+  cat("Hardcall-count QC pass variants:", length(final_ids), "\n")
+  cat("Hardcall-count QC excluded variants:", nrow(excluded), "\n")
+
   if (!file.exists(out) || file.info(out)$size == 0) die("staged Phase 2 regenie Step 1 variant list is empty: ", out)
 }
 
@@ -1267,8 +1214,7 @@ if (subtask == "write-groups") {
 } else if (subtask == "filter-step1-variants") {
   require_args(args, c("pfile-prefix", "extract", "keep", "trait-list", "out"))
   filter_step1_variants(config, args[["pfile-prefix"]], args$extract, args$keep, args[["trait-list"]], args$out,
-    threads, args$covar %||% "", args[["covar-list"]] %||% "", args[["summary-out"]] %||% "",
-    args[["excluded-out"]] %||% "")
+    threads, args[["summary-out"]] %||% "", args[["excluded-out"]] %||% "")
 } else if (subtask == "write-step1-command") {
   require_args(args, c("group", "pfile-prefix", "extract", "pheno", "covar", "keep", "trait-list", "pred-list", "out-prefix", "script-out"))
   write_regenie_step1_command(config, args$group, args[["pfile-prefix"]], args$extract, args$pheno, args$covar,

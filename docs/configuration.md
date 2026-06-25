@@ -481,8 +481,8 @@ configured study genotype prefix as Stage 1, native regenie output files, and
 | Parameter | Required | Description |
 | --- | --- | --- |
 | `enabled` | Recommended | Template uses `true`; when enabled, PAN regenie reports are included in `rule all`. |
-| `global_pcs` | Recommended | Number of cohort-global PCs to compute and expose as Phase 2 covariates. Template uses `20`. |
-| `default_covariates` | Yes | Phase 2 covariates used for every trait. Template uses `age`, `age2`, `sex`, and `PC1`-`PC20`. |
+| `global_pcs` | Recommended | Number of cohort-global PCs to compute and expose as Phase 2 covariates. Template uses `10`. |
+| `default_covariates` | Optional | Phase 2 covariates used for every trait. Empty or omitted expands to `age`, `age2`, `sex`, and `PC1`-`PC{global_pcs}`. Explicit values are used as configured. |
 | `extra_covariates` | Optional | Extra global Phase 2 covariates. |
 | `apply_rint` | Optional | Apply regenie RINT for quantitative traits when `true`. Template uses `false`. |
 | `htp_cohort_name` | Optional | Cohort label passed to regenie `--htp` for RE-META-compatible HTP output. Blank uses the filename-safe `project.analysis_name`. |
@@ -496,6 +496,21 @@ marker filters and LD-pruning settings. The template keeps global PCA stricter
 at `500kb/1/0.2` and uses looser Step 1 model pruning at `500kb/1/0.5`. Both
 reuse `ancestry_reference.exclusion_regions` for long-range LD/problem-region
 exclusions.
+
+After Step 1 PLINK marker filters are applied for each final model keep set, the
+pipeline runs a fast PLINK2 hardcall-count QC pass. Variants missing from the
+count report, variants with zero hardcall genotype variance, and variants below
+the effective Step 1 hardcall MAC threshold are excluded from the Regenie Step 1
+marker list. Step 1 marker PGEN creation fills hardcalls from dosage and erases
+dosage values so regenie receives the same hardcall representation that was
+screened; Step 2 association genotypes are unchanged.
+
+For mixed imputed and directly genotyped inputs, Step 1 marker preparation also
+checks the source PVAR for numeric `R2`/`INFO`-style imputation-quality metadata
+or `R2=`/`INFO=` keys inside the VCF-style `INFO` field. When present, variants
+with finite values below `qc.info_min` are removed before hardcall conversion;
+variants with missing INFO/R2 values are retained so unimputed hardcall markers
+continue through the standard MAC and hardcall-variance QC.
 
 Phase 2 trait type is detected from the trait registry:
 

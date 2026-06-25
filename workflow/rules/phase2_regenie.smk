@@ -358,12 +358,10 @@ rule filter_phase2_regenie_step1_variants:
         variants=f"{PHASE2_STEP1_PRUNE_PREFIX}.prune.in",
         keep=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.keep.txt",
         traits=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.analysis_traits.txt",
-        covar=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.covar.tsv",
-        covars=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.covariates.txt",
     output:
         variants=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.step1.snplist",
-        summary=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.step1.residual_variance.summary.tsv",
-        excluded=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.step1.residual_variance.excluded.tsv",
+        summary=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.step1.variant_qc.summary.tsv",
+        excluded=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.step1.variant_qc.excluded.tsv",
     log:
         "results/logs/phase2_regenie/filter_step1_variants.{group}.log",
     threads:
@@ -383,8 +381,6 @@ rule filter_phase2_regenie_step1_variants:
           --extract {input.variants} \
           --keep {input.keep} \
           --trait-list {input.traits} \
-          --covar {input.covar} \
-          --covar-list {input.covars} \
           --out {output.variants} \
           --summary-out {output.summary} \
           --excluded-out {output.excluded} \

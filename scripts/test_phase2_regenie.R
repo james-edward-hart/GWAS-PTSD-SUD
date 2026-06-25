@@ -120,6 +120,21 @@ global_pc_rows <- read_tsv(global_pcs)
 if (!identical(names(global_pc_rows), c("FID", "IID", "PC1", "PC2"))) stop("global PC parser wrote unexpected columns")
 if (!identical(global_pc_rows$FID, global_pc_rows$IID)) stop("IID-only global PC file did not fall back to FID=IID")
 
+default_pc_config <- file.path(tmp, "default_pc_config.yaml")
+default_pc_sscore <- file.path(tmp, "default_pc_projected.sscore")
+default_pc_out <- file.path(tmp, "default_pc_global_pcs.tsv")
+write_lines(c(
+  "phase2_regenie:",
+  "  enabled: true"
+), default_pc_config)
+write_lines(c(
+  paste(c("#IID", "ALLELE_CT", paste0("PC", 1:10, "_AVG")), collapse = "\t"),
+  paste(c("I1", "100", sprintf("%.2f", seq(0.11, 0.20, by = 0.01))), collapse = "\t")
+), default_pc_sscore)
+run_phase2(c("write-global-pcs", "--config", default_pc_config, "--sscore", default_pc_sscore, "--out", default_pc_out))
+default_pc_rows <- read_tsv(default_pc_out)
+if (!identical(names(default_pc_rows), c("FID", "IID", paste0("PC", 1:10)))) stop("omitted phase2_regenie.global_pcs did not default to 10 PCs")
+
 alias_keep <- file.path(tmp, "alias.keep.tsv")
 alias_pcs <- file.path(tmp, "alias_pcs.tsv")
 alias_pheno <- file.path(tmp, "alias.pheno.tsv")
@@ -255,6 +270,9 @@ write_lines(cmd_lines, cmd_config)
 fake_plink2 <- file.path(tmp, "fake_plink2.sh")
 write_lines(c(
   "#!/bin/sh",
+  "args=\" $* \"",
+  "case \"$args\" in *' fill-missing-from-dosage '* ) echo 'Step 2 genotype prep should not fill hardcalls from dosage' >&2; exit 20 ;; esac",
+  "case \"$args\" in *' erase-dosage '* ) echo 'Step 2 genotype prep should not erase dosage' >&2; exit 21 ;; esac",
   "out=''",
   "while [ \"$#\" -gt 0 ]; do",
   "  if [ \"$1\" = \"--out\" ]; then",
@@ -287,22 +305,61 @@ assoc_psam <- read_tsv(paste0(assoc_prefix, ".psam"))
 if (!identical(names(assoc_psam)[1:2], c("#FID", "IID"))) stop("regenie PSAM normalization did not write #FID/IID header")
 if (!identical(assoc_psam[["#FID"]], assoc_psam$IID)) stop("regenie PSAM normalization did not fill missing FID from IID")
 
-fake_filter_plink2 <- file.path(tmp, "fake_filter_plink2.sh")
+fake_marker_plink2 <- file.path(tmp, "fake_marker_plink2.sh")
 write_lines(c(
   "#!/bin/sh",
   "args=\" $* \"",
-  "mode=''",
-  "case \"$args\" in *' --write-snplist '* ) mode='snplist' ;; esac",
-  "case \"$args\" in *' --export Av '* ) mode='av' ;; esac",
-  "if [ \"$mode\" = 'snplist' ]; then",
-  "  case \"$args\" in *' --mac 1 '* ) echo 'unexpected --mac 1 fallback' >&2; exit 3 ;; esac",
-  "  case \"$args\" in *' --maf 0.01 '* ) ;; * ) echo 'missing configured --maf 0.01' >&2; exit 4 ;; esac",
-  "  case \"$args\" in *' --mac 100 '* ) ;; * ) echo 'missing default Step 1 --mac 100' >&2; exit 9 ;; esac",
-  "  case \"$args\" in *' --geno 0.02 '* ) ;; * ) echo 'missing configured --geno 0.02' >&2; exit 5 ;; esac",
-  "  case \"$args\" in *' --snps-only just-acgt '* ) ;; * ) echo 'missing configured SNP allele filter' >&2; exit 6 ;; esac",
-  "  case \"$args\" in *' --keep '* ) ;; * ) echo 'missing --keep' >&2; exit 7 ;; esac",
-  "  case \"$args\" in *' --extract '* ) ;; * ) echo 'missing --extract' >&2; exit 8 ;; esac",
-  "fi",
+  "out=''",
+  "while [ \"$#\" -gt 0 ]; do",
+  "  if [ \"$1\" = \"--out\" ]; then",
+  "    shift",
+  "    out=\"$1\"",
+  "  fi",
+  "  shift",
+  "done",
+  "if [ -z \"$out\" ]; then echo 'missing --out' >&2; exit 2; fi",
+  "case \"$args\" in",
+  "  *' --make-pgen '* )",
+  "    case \"$args\" in *' fill-missing-from-dosage '* ) ;; * ) echo 'Step 1 marker prep missing fill-missing-from-dosage' >&2; exit 22 ;; esac",
+  "    case \"$args\" in *' erase-dosage '* ) ;; * ) echo 'Step 1 marker prep missing erase-dosage' >&2; exit 23 ;; esac",
+  "    printf 'PGEN\\n' > \"$out.pgen\"",
+  "    printf '#CHROM\\tPOS\\tID\\tREF\\tALT\\n1\\t100\\trs1\\tA\\tG\\n' > \"$out.pvar\"",
+  "    printf '#IID\\nI1\\nI2\\n' > \"$out.psam\"",
+  "    exit 0",
+  "    ;;",
+  "  *' --indep-pairwise '* )",
+  "    printf 'rs1\\n' > \"$out.prune.in\"",
+  "    exit 0",
+  "    ;;",
+  "esac",
+  "echo 'unexpected fake marker PLINK2 command' >&2",
+  "exit 24"
+), fake_marker_plink2)
+Sys.chmod(fake_marker_plink2, "0755")
+marker_config <- file.path(tmp, "config_marker_plink.yaml")
+marker_lines <- readLines(config)
+marker_lines <- sub("plink2: plink2", paste0("plink2: '", fake_marker_plink2, "'"), marker_lines, fixed = TRUE)
+write_lines(marker_lines, marker_config)
+marker_input <- file.path(tmp, "marker_input")
+write_lines(c(
+  "#CHROM\tPOS\tID\tREF\tALT",
+  "1\t100\trs1\tA\tG"
+), paste0(marker_input, ".pvar"))
+marker_prefix <- file.path(tmp, "step1_marker_qc")
+marker_prune_prefix <- file.path(tmp, "step1_marker_prune")
+run_phase2(c(
+  "prepare-marker-set", "--config", marker_config, "--branch", "step1",
+  "--pfile-prefix", marker_input, "--out-prefix", marker_prefix,
+  "--prune-prefix", marker_prune_prefix, "--prune-in", paste0(marker_prune_prefix, ".prune.in"),
+  "--excluded-regions", file.path(tmp, "step1_marker.excluded_regions.txt"),
+  "--threads", "1"
+))
+if (!file.exists(paste0(marker_prune_prefix, ".prune.in"))) stop("Step 1 marker prep did not produce prune.in")
+
+fake_marker_info_plink2 <- file.path(tmp, "fake_marker_info_plink2.sh")
+write_lines(c(
+  "#!/bin/sh",
+  "args=\" $* \"",
   "out=''",
   "extract=''",
   "while [ \"$#\" -gt 0 ]; do",
@@ -315,26 +372,88 @@ write_lines(c(
   "  fi",
   "  shift",
   "done",
+  "if [ -z \"$out\" ]; then echo 'missing --out' >&2; exit 2; fi",
+  "case \"$args\" in",
+  "  *' --make-pgen '* )",
+  "    if [ -z \"$extract\" ]; then echo 'Step 1 INFO/R2 filter did not pass --extract' >&2; exit 25; fi",
+  "    expected=$(printf 'rs_high\\nrs_unimputed')",
+  "    observed=$(cat \"$extract\")",
+  "    if [ \"$observed\" != \"$expected\" ]; then echo 'Step 1 INFO/R2 pass list is wrong' >&2; cat \"$extract\" >&2; exit 26; fi",
+  "    printf 'PGEN\\n' > \"$out.pgen\"",
+  "    printf '#CHROM\\tPOS\\tID\\tREF\\tALT\\n1\\t100\\trs_high\\tA\\tG\\n1\\t102\\trs_unimputed\\tA\\tG\\n' > \"$out.pvar\"",
+  "    printf '#IID\\nI1\\nI2\\n' > \"$out.psam\"",
+  "    exit 0",
+  "    ;;",
+  "  *' --indep-pairwise '* )",
+  "    printf 'rs_high\\nrs_unimputed\\n' > \"$out.prune.in\"",
+  "    exit 0",
+  "    ;;",
+  "esac",
+  "echo 'unexpected fake marker INFO PLINK2 command' >&2",
+  "exit 27"
+), fake_marker_info_plink2)
+Sys.chmod(fake_marker_info_plink2, "0755")
+marker_info_config <- file.path(tmp, "config_marker_info_plink.yaml")
+marker_info_lines <- readLines(config)
+marker_info_lines <- sub("plink2: plink2", paste0("plink2: '", fake_marker_info_plink2, "'"), marker_info_lines, fixed = TRUE)
+write_lines(marker_info_lines, marker_info_config)
+marker_info_input <- file.path(tmp, "marker_info_input")
+write_lines(c(
+  "#CHROM\tPOS\tID\tREF\tALT\tR2",
+  "1\t100\trs_high\tA\tG\t0.95",
+  "1\t101\trs_low\tA\tG\t0.50",
+  "1\t102\trs_unimputed\tA\tG\t."
+), paste0(marker_info_input, ".pvar"))
+marker_info_prefix <- file.path(tmp, "step1_marker_info_qc")
+marker_info_prune_prefix <- file.path(tmp, "step1_marker_info_prune")
+run_phase2(c(
+  "prepare-marker-set", "--config", marker_info_config, "--branch", "step1",
+  "--pfile-prefix", marker_info_input, "--out-prefix", marker_info_prefix,
+  "--prune-prefix", marker_info_prune_prefix, "--prune-in", paste0(marker_info_prune_prefix, ".prune.in"),
+  "--excluded-regions", file.path(tmp, "step1_marker_info.excluded_regions.txt"),
+  "--threads", "1"
+))
+info_excluded <- read_tsv(paste0(marker_info_prefix, ".info_r2.excluded.tsv"))
+if (!identical(info_excluded$variant_id, "rs_low")) stop("Step 1 INFO/R2 filter excluded the wrong marker")
+
+fake_filter_plink2 <- file.path(tmp, "fake_filter_plink2.sh")
+write_lines(c(
+  "#!/bin/sh",
+  "args=\" $* \"",
+  "mode=''",
+  "case \"$args\" in *' --write-snplist '* ) mode='qc' ;; esac",
+  "case \"$args\" in *' --glm '* ) echo 'old model-check --glm path should not run' >&2; exit 14 ;; esac",
+  "case \"$args\" in *' --export Av '* ) echo 'old residual-variance export path should not run' >&2; exit 13 ;; esac",
+  "if [ \"$mode\" = 'qc' ]; then",
+  "  case \"$args\" in *' --mac 1 '* ) echo 'unexpected --mac 1 fallback' >&2; exit 3 ;; esac",
+  "  case \"$args\" in *' --maf 0.01 '* ) ;; * ) echo 'missing configured --maf 0.01' >&2; exit 4 ;; esac",
+  "  case \"$args\" in *' --mac 100 '* ) ;; * ) echo 'missing default Step 1 --mac 100' >&2; exit 9 ;; esac",
+  "  case \"$args\" in *' --geno 0.02 '* ) ;; * ) echo 'missing configured --geno 0.02' >&2; exit 5 ;; esac",
+  "  case \"$args\" in *' --snps-only just-acgt '* ) ;; * ) echo 'missing configured SNP allele filter' >&2; exit 6 ;; esac",
+  "  case \"$args\" in *' --keep '* ) ;; * ) echo 'missing --keep' >&2; exit 7 ;; esac",
+  "  case \"$args\" in *' --extract '* ) ;; * ) echo 'missing --extract' >&2; exit 8 ;; esac",
+  "  case \"$args\" in *' --nonfounders '* ) ;; * ) echo 'missing --nonfounders' >&2; exit 15 ;; esac",
+  "  case \"$args\" in *' --geno-counts '* ) ;; * ) echo 'missing --geno-counts' >&2; exit 16 ;; esac",
+  "  case \"$args\" in *' cols=chrom,pos,ref,alt1,homref,refalt1,homalt1,missing,nobs '* ) ;; * ) echo 'missing expected --geno-counts columns' >&2; exit 17 ;; esac",
+  "fi",
+  "out=''",
+  "while [ \"$#\" -gt 0 ]; do",
+  "  if [ \"$1\" = \"--out\" ]; then",
+  "    shift",
+  "    out=\"$1\"",
+  "  fi",
+  "  shift",
+  "done",
   "if [ -z \"$out\" ]; then",
   "  echo 'missing --out' >&2",
   "  exit 2",
   "fi",
-  "if [ \"$mode\" = 'snplist' ]; then",
-  "  printf 'rs_cov\\nrs_indep\\nrs_missing\\nrs_rank\\n' > \"$out.snplist\"",
-  "  exit 0",
-  "fi",
-  "if [ \"$mode\" = 'av' ]; then",
-  "  if [ -z \"$extract\" ]; then echo 'missing Av --extract' >&2; exit 10; fi",
-  "  printf 'CHR\\tSNP\\t(C)M\\tPOS\\tCOUNTED\\tALT\\tI1_I1\\tI2_I2\\tI3_I3\\tI4_I4\\n' > \"$out.traw\"",
-  "  while IFS= read -r id || [ -n \"$id\" ]; do",
-  "    case \"$id\" in",
-  "      rs_cov) printf '1\\trs_cov\\t0\\t100\\tA\\tG\\t0\\t0\\t1\\t1\\n' >> \"$out.traw\" ;;",
-  "      rs_indep) printf '1\\trs_indep\\t0\\t101\\tA\\tG\\t0\\t1\\t0\\t2\\n' >> \"$out.traw\" ;;",
-  "      rs_missing) printf '1\\trs_missing\\t0\\t102\\tA\\tG\\t0\\tNA\\t2\\t2\\n' >> \"$out.traw\" ;;",
-  "      rs_rank) printf '1\\trs_rank\\t0\\t103\\tA\\tG\\t0\\t2\\t1\\t2\\n' >> \"$out.traw\" ;;",
-  "      *) echo \"unexpected extracted variant $id\" >&2; exit 11 ;;",
-  "    esac",
-  "  done < \"$extract\"",
+  "if [ \"$mode\" = 'qc' ]; then",
+  "  printf 'rs_pass\\nrs_low_mac\\nrs_all_het\\nrs_missing_count\\n' > \"$out.snplist\"",
+  "  printf '#CHROM\\tPOS\\tID\\tREF\\tALT1\\tHOM_REF_CT\\tHET_REF_ALT1_CT\\tHOM_ALT1_CT\\tMISSING_CT\\tOBS_CT\\n' > \"$out.gcount\"",
+  "  printf '1\\t100\\trs_pass\\tA\\tG\\t100\\t100\\t0\\t0\\t200\\n' >> \"$out.gcount\"",
+  "  printf '1\\t101\\trs_low_mac\\tA\\tG\\t150\\t99\\t0\\t0\\t249\\n' >> \"$out.gcount\"",
+  "  printf '1\\t102\\trs_all_het\\tA\\tG\\t0\\t200\\t0\\t0\\t200\\n' >> \"$out.gcount\"",
   "  exit 0",
   "fi",
   "echo 'unexpected fake PLINK2 mode' >&2",
@@ -349,49 +468,81 @@ filter_extract <- file.path(tmp, "step1_prune.in")
 filter_keep <- file.path(tmp, "step1.keep.txt")
 filter_traits <- file.path(tmp, "step1.traits.txt")
 filter_out <- file.path(tmp, "step1.filtered.snplist")
-filter_covar <- file.path(tmp, "step1.covar.tsv")
-filter_covars <- file.path(tmp, "step1.covariates.txt")
-filter_summary <- file.path(tmp, "step1.residual.summary.tsv")
-filter_excluded <- file.path(tmp, "step1.residual.excluded.tsv")
-write_lines(c("rs_cov", "rs_indep", "rs_missing", "rs_rank"), filter_extract)
+filter_summary <- file.path(tmp, "step1.variant_qc.summary.tsv")
+filter_excluded <- file.path(tmp, "step1.variant_qc.excluded.tsv")
+write_lines(c("rs_pass", "rs_low_mac", "rs_all_het", "rs_missing_count"), filter_extract)
 write_lines(c("I1\tI1", "I2\tI2", "I3\tI3", "I4\tI4"), filter_keep)
 write_lines("bt1", filter_traits)
-write_lines(c(
-  "FID\tIID\tx\tx_dup",
-  "I1\tI1\t0\t0",
-  "I2\tI2\t0\t0",
-  "I3\tI3\t1\t1",
-  "I4\tI4\t1\t1"
-), filter_covar)
-write_lines("x,x_dup", filter_covars)
 run_phase2(c(
   "filter-step1-variants", "--config", filter_config, "--pfile-prefix", file.path(tmp, "step1_qc"),
   "--extract", filter_extract, "--keep", filter_keep, "--trait-list", filter_traits,
-  "--covar", filter_covar, "--covar-list", filter_covars,
   "--out", filter_out, "--summary-out", filter_summary, "--excluded-out", filter_excluded,
   "--threads", "1"
 ))
-if (!identical(readLines(filter_out), c("rs_indep", "rs_missing", "rs_rank"))) {
-  stop("Step 1 variant filter did not stage the residual-variance filtered snplist")
+if (!identical(readLines(filter_out), "rs_pass")) {
+  stop("Step 1 variant filter did not stage the hardcall-count QC snplist")
 }
 filter_summary_rows <- read_tsv(filter_summary)
-if (!identical(as.integer(filter_summary_rows$raw_plink_pass_snp_count), 4L)) stop("Step 1 residual summary has wrong raw count")
-if (!identical(as.integer(filter_summary_rows$residual_variance_pass_snp_count), 3L)) stop("Step 1 residual summary has wrong pass count")
-if (!identical(as.integer(filter_summary_rows$excluded_snp_count), 1L)) stop("Step 1 residual summary has wrong excluded count")
-if (!identical(as.integer(filter_summary_rows$model_sample_count), 4L)) stop("Step 1 residual summary has wrong sample count")
-if (!identical(as.integer(filter_summary_rows$covariate_count), 2L)) stop("Step 1 residual summary has wrong covariate count")
-if (!identical(as.integer(filter_summary_rows$design_rank), 2L)) stop("Step 1 residual summary did not report rank-deficient design")
+expected_summary_cols <- c(
+  "filter_method", "plink_nonfounders", "raw_plink_pass_snp_count",
+  "hardcall_filter_pass_snp_count", "excluded_snp_count", "model_sample_count",
+  "hardcall_mac_min", "hardcall_variance_min"
+)
+if (!identical(names(filter_summary_rows), expected_summary_cols)) stop("Step 1 hardcall-count summary has wrong columns")
+if (!identical(filter_summary_rows$filter_method, "plink2_hardcall_count_qc")) stop("Step 1 hardcall-count summary has wrong method")
+if (!identical(filter_summary_rows$plink_nonfounders, "True")) stop("Step 1 hardcall-count summary has wrong nonfounder flag")
+if (!identical(as.integer(filter_summary_rows$raw_plink_pass_snp_count), 4L)) stop("Step 1 hardcall-count summary has wrong raw count")
+if (!identical(as.integer(filter_summary_rows$hardcall_filter_pass_snp_count), 1L)) stop("Step 1 hardcall-count summary has wrong pass count")
+if (!identical(as.integer(filter_summary_rows$excluded_snp_count), 3L)) stop("Step 1 hardcall-count summary has wrong excluded count")
+if (!identical(as.integer(filter_summary_rows$model_sample_count), 4L)) stop("Step 1 hardcall-count summary has wrong sample count")
+if (!identical(as.integer(filter_summary_rows$hardcall_mac_min), 100L)) stop("Step 1 hardcall-count summary has wrong MAC threshold")
+if (!identical(as.numeric(filter_summary_rows$hardcall_variance_min), 0)) stop("Step 1 hardcall-count summary has wrong variance threshold")
 filter_excluded_rows <- read_tsv(filter_excluded)
-if (!identical(filter_excluded_rows$variant_id, "rs_cov")) stop("Step 1 residual excluded table has wrong variant")
-if (!identical(filter_excluded_rows$exclusion_reason, "residual_variance_le_threshold")) {
-  stop("Step 1 residual excluded table has wrong exclusion reason")
+expected_excluded_cols <- c(
+  "variant_id", "hardcall_ref_ct", "hardcall_alt_ct", "hardcall_mac",
+  "hardcall_n", "hardcall_variance", "exclusion_reason"
+)
+if (!identical(names(filter_excluded_rows), expected_excluded_cols)) stop("Step 1 hardcall-count excluded table has wrong columns")
+if (!identical(filter_excluded_rows$variant_id, c("rs_low_mac", "rs_all_het", "rs_missing_count"))) stop("Step 1 hardcall-count excluded table has wrong variants")
+if (!identical(filter_excluded_rows$exclusion_reason, c("hardcall_mac_below_min", "zero_hardcall_variance", "missing_from_plink2_gcount"))) {
+  stop("Step 1 hardcall-count excluded table has wrong exclusion reasons")
 }
+
+fake_dup_plink2 <- file.path(tmp, "fake_dup_snplist_plink2.sh")
+write_lines(c(
+  "#!/bin/sh",
+  "out=''",
+  "while [ \"$#\" -gt 0 ]; do",
+  "  if [ \"$1\" = \"--out\" ]; then",
+  "    shift",
+  "    out=\"$1\"",
+  "  fi",
+  "  shift",
+  "done",
+  "if [ -z \"$out\" ]; then echo 'missing --out' >&2; exit 2; fi",
+  "printf 'rs_dup\\nrs_dup\\n' > \"$out.snplist\"",
+  "printf '#CHROM\\tPOS\\tID\\tREF\\tALT1\\tHOM_REF_CT\\tHET_REF_ALT1_CT\\tHOM_ALT1_CT\\tMISSING_CT\\tOBS_CT\\n' > \"$out.gcount\"",
+  "printf '1\\t100\\trs_dup\\tA\\tG\\t100\\t100\\t0\\t0\\t200\\n' >> \"$out.gcount\""
+), fake_dup_plink2)
+Sys.chmod(fake_dup_plink2, "0755")
+dup_filter_config <- file.path(tmp, "config_dup_filter_plink.yaml")
+dup_filter_lines <- readLines(config)
+dup_filter_lines <- sub("plink2: plink2", paste0("plink2: '", fake_dup_plink2, "'"), dup_filter_lines, fixed = TRUE)
+write_lines(dup_filter_lines, dup_filter_config)
+dup_failure <- run_phase2(c(
+  "filter-step1-variants", "--config", dup_filter_config, "--pfile-prefix", file.path(tmp, "step1_qc"),
+  "--extract", filter_extract, "--keep", filter_keep, "--trait-list", filter_traits,
+  "--out", file.path(tmp, "step1.dup.filtered.snplist"), "--summary-out", file.path(tmp, "step1.dup.variant_qc.summary.tsv"),
+  "--excluded-out", file.path(tmp, "step1.dup.variant_qc.excluded.tsv"),
+  "--threads", "1"
+), expect_success = FALSE)
+if (!any(grepl("duplicate IDs", dup_failure))) stop("duplicate Step 1 snplist IDs did not fail as expected")
 
 filter_empty_traits <- file.path(tmp, "step1.empty.traits.txt")
 write_lines(character(), filter_empty_traits)
 empty_filter_out <- file.path(tmp, "step1.empty.filtered.snplist")
-empty_filter_summary <- file.path(tmp, "step1.empty.residual.summary.tsv")
-empty_filter_excluded <- file.path(tmp, "step1.empty.residual.excluded.tsv")
+empty_filter_summary <- file.path(tmp, "step1.empty.variant_qc.summary.tsv")
+empty_filter_excluded <- file.path(tmp, "step1.empty.variant_qc.excluded.tsv")
 fake_fail_plink2 <- file.path(tmp, "fake_fail_if_called_plink2.sh")
 write_lines(c(
   "#!/bin/sh",
@@ -413,9 +564,10 @@ if (!file.exists(empty_filter_out) || file.info(empty_filter_out)$size != 0) {
   stop("empty Step 1 trait list did not produce an empty filtered variant list")
 }
 empty_summary_rows <- read_tsv(empty_filter_summary)
-if (!identical(as.integer(empty_summary_rows$raw_plink_pass_snp_count), 0L)) stop("empty Step 1 residual summary has wrong raw count")
+if (!identical(as.integer(empty_summary_rows$raw_plink_pass_snp_count), 0L)) stop("empty Step 1 hardcall-count summary has wrong raw count")
+if (!identical(as.integer(empty_summary_rows$hardcall_filter_pass_snp_count), 0L)) stop("empty Step 1 hardcall-count summary has wrong pass count")
 empty_excluded_rows <- read_tsv(empty_filter_excluded)
-if (nrow(empty_excluded_rows) != 0) stop("empty Step 1 residual excluded table should have no rows")
+if (nrow(empty_excluded_rows) != 0) stop("empty Step 1 hardcall-count excluded table should have no rows")
 
 trait_list <- file.path(tmp, "bt1.traits.txt")
 write_lines("bt1", trait_list)
