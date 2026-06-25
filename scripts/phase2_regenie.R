@@ -426,6 +426,16 @@ metric_value <- function(df, key, default = "NA") {
 }
 
 
+report_relative_path <- function(path, out_path) {
+  path <- gsub("\\\\", "/", path)
+  out_path <- gsub("\\\\", "/", out_path)
+  if (startsWith(path, "results/") && startsWith(out_path, "results/reports/")) {
+    return(file.path("..", "..", sub("^results/", "", path)))
+  }
+  path
+}
+
+
 prepare_pan_genotypes <- function(config, sex_keep, assignments_path, excluded_path, out_prefix, keep_out, ancestry_out, summary_out, threads) {
   samples <- read_tsv(config$inputs$sample_manifest)
   require_columns(samples, c("FID", "IID"), "sample manifest")
@@ -1122,6 +1132,17 @@ make_phase2_report <- function(config, trait, build, stats, summary_path, group_
   top_lines <- if (skipped) c("Trait skipped before regenie.", paste0("Reason: ", summary$skip_reason[[1]])) else {
     top_hit_lines(stats_summary$rows, stats_summary$p)
   }
+  qq_link <- report_relative_path(qq, out)
+  manhattan_link <- report_relative_path(manhattan, out)
+  plot_lines <- c(
+    paste0("![QQ plot](", qq_link, ")"),
+    "",
+    paste0("![Manhattan plot](", manhattan_link, ")"),
+    "",
+    paste0("- QQ plot: `", qq, "`"),
+    paste0("- Manhattan PNG: `", manhattan, "`"),
+    paste0("- Manhattan PDF: `", manhattan_pdf, "`")
+  )
 
   union <- read_tsv(union_summary)
   pan <- read_tsv(pan_summary)
@@ -1132,19 +1153,12 @@ make_phase2_report <- function(config, trait, build, stats, summary_path, group_
 
   lines <- c(
     paste0("# Phase 2 PAN Regenie Report: ", config$project$analysis_name, " / ", trait), "",
-    "## Model", "",
+    "## Model Overview", "",
     paste0("- Engine: regenie"),
     paste0("- Trait type: ", summary$trait_type[[1]]),
     paste0("- Genome build: ", build),
-    paste0("- Covariates: ", summary$covariates[[1]]),
-    paste0("- Global PCs: ", phase2_pc_count(config)),
-    paste0("- Step 1 block size: ", config$phase2_regenie$step1_bsize %||% 1000),
-    paste0("- Step 2 block size: ", config$phase2_regenie$step2_bsize %||% 400),
-    paste0("- Regenie HTP cohort: ", phase2_htp_cohort_name(config)),
-    paste0("- Binary approximate Firth pThresh: ", config$phase2_regenie$p_thresh %||% 0.01),
-    paste0("- Quantitative RINT: ", ifelse(truthy(config$phase2_regenie$apply_rint %||% FALSE), "True", "False")),
-    paste0("- Native regenie output: `", stats, "`"), "",
-    "## Samples", "",
+    paste0("- Covariates: ", summary$covariates[[1]]), "",
+    "## PAN Sample Set", "",
     paste0("- PAN samples after sex-check and sample missingness: ", metric_value(pan, "phase2_pan_samples")),
     paste0("- POP-MaD assigned samples in PAN set: ", assigned),
     paste0("- POP-MaD UNKNOWN samples in PAN set: ", unknown),
@@ -1152,24 +1166,31 @@ make_phase2_report <- function(config, trait, build, stats, summary_path, group_
     paste0("- Usable trait samples: ", summary$usable_n[[1]]),
     paste0("- Cases: ", summary$cases[[1]]),
     paste0("- Controls: ", summary$controls[[1]]), "",
-    "## Variant QC", "",
+    "## Variant Sources and QC", "",
     paste0("- Stage 1 union-pass variants: ", union_n),
     paste0("- Pooled missingness threshold: ", config$qc$geno_missing_max %||% 0.05),
     paste0("- Regenie minMAC: ", config$phase2_regenie$min_mac %||% 1),
     paste0("- Regenie minINFO: ", ifelse(truthy(config$qc$use_mach_r2_filter %||% FALSE), as.character(config$qc$info_min %||% 0.8), "not_applied")), "",
-    "## Results", "",
+    "## REGENIE Run Settings", "",
+    paste0("- Global PCs: ", phase2_pc_count(config)),
+    paste0("- Step 1 block size: ", config$phase2_regenie$step1_bsize %||% 1000),
+    paste0("- Step 2 block size: ", config$phase2_regenie$step2_bsize %||% 400),
+    paste0("- Regenie HTP cohort: ", phase2_htp_cohort_name(config)),
+    paste0("- Binary approximate Firth pThresh: ", config$phase2_regenie$p_thresh %||% 0.01),
+    paste0("- Quantitative RINT: ", ifelse(truthy(config$phase2_regenie$apply_rint %||% FALSE), "True", "False")), "",
+    "## Association Results", "",
+    paste0("- Native regenie output: `", stats, "`"),
     paste0("- Skipped: ", summary$skipped[[1]]),
     paste0("- Valid P-value variants: ", stats_summary$valid_p),
     paste0("- Lambda GC: ", lambda),
     paste0("- Genome-wide significant variants (P <= 5e-8): ", stats_summary$genomewide),
-    paste0("- Suggestive variants (P <= 1e-5): ", stats_summary$suggestive),
-    paste0("- QQ plot: `", qq, "`"),
-    paste0("- Manhattan PNG: `", manhattan, "`"),
-    paste0("- Manhattan PDF: `", manhattan_pdf, "`"), "",
-    "## Stage 1 Lambda Comparison", "",
-    stage1_lines, "",
+    paste0("- Suggestive variants (P <= 1e-5): ", stats_summary$suggestive), "",
     "## Top Hits", "",
-    top_lines
+    top_lines, "",
+    "## Plots", "",
+    plot_lines, "",
+    "## Stage 1 Lambda Comparison", "",
+    stage1_lines
   )
   ensure_parent(out)
   writeLines(lines, out)

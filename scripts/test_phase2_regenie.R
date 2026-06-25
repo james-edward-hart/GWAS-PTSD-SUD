@@ -252,6 +252,23 @@ run_phase2(c(
 ))
 text <- readLines(report)
 if (!any(grepl("Stage 1 Lambda Comparison", text, fixed = TRUE))) stop("Phase 2 report missing Stage 1 comparison")
+if (!any(grepl("![QQ plot](qq.png)", text, fixed = TRUE))) stop("Phase 2 report missing embedded QQ plot")
+if (!any(grepl("![Manhattan plot](mh.png)", text, fixed = TRUE))) stop("Phase 2 report missing embedded Manhattan plot")
+pan_sections <- c(
+  "## Model Overview",
+  "## PAN Sample Set",
+  "## Variant Sources and QC",
+  "## REGENIE Run Settings",
+  "## Association Results",
+  "## Top Hits",
+  "## Plots",
+  "## Stage 1 Lambda Comparison"
+)
+pan_section_pos <- match(pan_sections, text)
+if (any(is.na(pan_section_pos))) {
+  stop("Phase 2 report missing section(s): ", paste(pan_sections[is.na(pan_section_pos)], collapse = ", "))
+}
+if (any(diff(pan_section_pos) <= 0)) stop("Phase 2 report sections are out of order")
 if (!any(grepl("rs1", text, fixed = TRUE))) stop("HTP regenie parser did not expose top hit")
 
 fake_regenie <- file.path(tmp, "fake regenie.sh")

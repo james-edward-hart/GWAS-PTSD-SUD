@@ -37,6 +37,13 @@ require_file <- function(path, message) {
   if (!file.exists(path)) die(message, ": ", path)
 }
 count_rows <- function(path) max(length(readLines(path, warn = FALSE)) - 1, 0)
+assert_section_order <- function(text, headings, report) {
+  positions <- match(headings, text)
+  if (any(is.na(positions))) {
+    die("report missing section(s): ", paste(headings[is.na(positions)], collapse = ", "), ": ", report)
+  }
+  if (any(diff(positions) <= 0)) die("report sections are out of order: ", report)
+}
 
 
 # Check workflow-wide QC and provenance outputs.
@@ -104,7 +111,7 @@ for (trait in trait_ids) {
     if (!any(grepl("Covariates used", report_text))) die("report missing covariate section: ", report)
     if (!any(grepl("Source genotype variants", report_text))) die("report missing variant-flow counts: ", report)
     if (!any(grepl("Genomic inflation factor", report_text))) die("report missing lambda GC: ", report)
-    if (!any(grepl("Ancestry and ADMIXTURE QC", report_text))) die("report missing ancestry/ADMIXTURE summary: ", report)
+    if (!any(grepl("Ancestry Assignment and ADMIXTURE QC", report_text))) die("report missing ancestry/ADMIXTURE summary: ", report)
     if (!any(grepl("ADMIXTURE Mean Study Proportions", report_text))) die("report missing ADMIXTURE mean proportions: ", report)
     if (!any(grepl("Top Association Signals", report_text))) die("report missing top-signal section: ", report)
     if (!any(grepl("!\\[POP-MaD projected PC space\\]", report_text))) die("report missing embedded POP-MaD plot: ", report)
@@ -112,6 +119,19 @@ for (trait in trait_ids) {
     if (!any(grepl("!\\[Manhattan plot\\]", report_text))) die("report missing embedded Manhattan plot: ", report)
     if (!any(grepl("Relatedness LD-pruned variants", report_text))) die("report missing relatedness details: ", report)
     if (!any(grepl("Sex-check problems", report_text))) die("report missing sex-check details: ", report)
+    assert_section_order(report_text, c(
+      "## Run Summary",
+      "## Inputs and Reference Provenance",
+      "## QC Settings",
+      "## Ancestry Assignment and ADMIXTURE QC",
+      "## Trait Strata and Sample Filtering",
+      "## Phenotype and Covariates",
+      "## Variant Filtering",
+      "## Association Results",
+      "## Top Association Signals",
+      "## Plots",
+      "## PLINK Log Highlights"
+    ), report)
     if (!file.exists(qq) || file.info(qq)$size <= 0) die("missing QQ plot: ", qq)
     if (!file.exists(manhattan) || file.info(manhattan)$size <= 0) die("missing Manhattan plot: ", manhattan)
     if (!file.exists(manhattan_pdf) || file.info(manhattan_pdf)$size <= 0) die("missing Manhattan PDF plot: ", manhattan_pdf)
