@@ -493,9 +493,15 @@ configured study genotype prefix as Stage 1, native regenie output files, and
 
 `phase2_regenie.global_pca` and `phase2_regenie.step1` each define independent
 marker filters and LD-pruning settings. The template keeps global PCA stricter
-at `500kb/1/0.2` and uses looser Step 1 model pruning at `500kb/1/0.5`. Both
+at `500kb/1/0.2` and uses Step 1 model pruning at `1000kb/1/0.2`. Both
 reuse `ancestry_reference.exclusion_regions` for long-range LD/problem-region
 exclusions.
+
+For regenie Step 1, aim for roughly 200K-500K SNPs after marker filters,
+long-range LD exclusions, LD pruning, and the final group-specific hardcall-count
+QC. If a cohort lands well outside that range, adjust
+`phase2_regenie.step1.ld_prune.window`, `step`, and/or `r2` in the config before
+rerunning Step 1 marker preparation.
 
 After Step 1 PLINK marker filters are applied for each final model keep set, the
 pipeline runs a fast PLINK2 hardcall-count QC pass. Variants missing from the
