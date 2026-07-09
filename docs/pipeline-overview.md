@@ -1,6 +1,6 @@
 # Pipeline Overview
 
-Stage 1 is a Snakemake workflow for ancestry-stratified GWAS. It is designed to keep cohort inputs, reference package validation, QC decisions, GWAS execution, and reports explicit and reproducible.
+This Snakemake workflow runs Stage 1 ancestry-stratified GWAS and Phase 2 pooled pan-ancestry GWAS. It is designed to keep cohort inputs, reference package validation, QC decisions, association testing, and reports explicit and reproducible.
 
 ## What Stage 1 Does
 
@@ -15,15 +15,18 @@ Stage 1 is a Snakemake workflow for ancestry-stratified GWAS. It is designed to 
 - Builds ancestry-stratum keep files, excludes ambiguous/unassigned POP-MaD samples, and keeps unrelated samples using the configured KING threshold.
 - Runs PLINK2 `--glm` within each ancestry stratum.
 - Harmonizes PLINK2 outputs into consistent summary statistics.
+- Runs Phase 2 pooled pan-ancestry regenie GWAS under the `PAN` label when `phase2_regenie.enabled: true`.
+- Fits cohort-global PCs for Phase 2 by fitting PCA in sex-QC-passing unrelated samples and projecting all Phase 2 samples.
+- Uses Stage 1 ancestry-stratified variant pass lists to build Phase 2 regenie association extract lists.
 - Produces a POP-MaD reference/study projection plot, QQ plots with lambda GC, and Manhattan plots as PNG, with Manhattan plots also written as PDF.
-- Writes one Markdown QC report per trait-by-ancestry GWAS, including embedded plots, ancestry/ADMIXTURE QC summaries, sample/variant filter counts, and top association signals.
+- Writes one Markdown QC report per trait-by-ancestry Stage 1 GWAS and one slim Phase 2 `PAN` regenie report per trait.
 - Writes a workflow run manifest.
 
 ## What Stage 1 Does Not Do
 
 - It does not run imputation.
-- It does not run pooled GWAS.
 - It does not run METAL or trans-ancestry meta-analysis.
+- It does not run re-meta.
 - It does not lift genotype coordinates or summary statistics.
 - It does not download, create, rebuild, or modify the production reference package.
 
@@ -63,11 +66,16 @@ Main per-analysis files:
 ```text
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv
 results/plots/ancestry/{analysis_name}.popmad_reference_study_pcs.png
 results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.qq.png
 results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manhattan.png
 results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manhattan.pdf
+results/plots/{trait}/PAN/{analysis_name}.{trait}.PAN.{build}.regenie.qq.png
+results/plots/{trait}/PAN/{analysis_name}.{trait}.PAN.{build}.regenie.manhattan.png
 results/reports/{trait}/{analysis_name}.{trait}.{ancestry}.{build}.report.md
+results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}.regenie.report.md
 results/manifests/run_manifest.tsv
 ```
 

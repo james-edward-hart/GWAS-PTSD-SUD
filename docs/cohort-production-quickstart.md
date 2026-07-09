@@ -117,6 +117,7 @@ tools:
   plink2: "plink2"
   plink1: "plink"
   admixture: "admixture"
+  regenie: "regenie"
 
 analysis:
   min_stratum_n: 50
@@ -128,9 +129,9 @@ analysis:
     - SAS
 ```
 
-The default Snakemake rule environment installs these tools. Change `tools.*`
+The default Snakemake rule environments install these tools. Change `tools.*`
 only when your cluster requires site-managed modules or explicit executable
-paths, becuase it can't access them via conda channels. 
+paths, because it cannot access them via conda channels.
 
 Keep these production safety settings unless the analysis plan says otherwise:
 
@@ -152,6 +153,9 @@ qc:
 
 gwas:
   allow_missing_pcs: false
+
+phase2_regenie:
+  enabled: true
 ```
 
 PLINK2 expects INFO/MaCH R2 annotations for the INFO filter. If your data do
@@ -181,7 +185,8 @@ default-resources:
 
 ## 5. Set Up The Environment
 
-Load the conda-providing module used on your cluster. On my cluster that's miniforge3 (your's might be anaconda3, mamba, etc.):
+Load the conda-providing module used on your cluster. On my cluster that's
+miniforge3 (yours might be anaconda3, mamba, etc.):
 
 ```bash
 module load miniforge3/23.3.1
@@ -200,14 +205,24 @@ Create the workflow utility environment used for preflight:
 mamba env create -f envs/gwas.yaml
 ```
 
-This same environment definition is used by Snakemake jobs and installs PLINK
-1.9, PLINK2, and ADMIXTURE from conda channels.
+This same environment definition is used by most Snakemake jobs and installs
+PLINK 1.9, PLINK2, and ADMIXTURE from conda channels. Phase 2 regenie execution
+uses a separate Snakemake rule environment from `envs/regenie.yaml`; do not
+create it as the active driver or preflight environment.
 
 If either environment already exists, update it instead:
 
 ```bash
 mamba env update -n gwas-stage1-driver -f envs/snakemake-driver.yaml --prune
 mamba env update -n gwas-stage1 -f envs/gwas.yaml --prune
+```
+
+Snakemake creates hashed rule environments under the profile `conda-prefix`.
+To build all workflow rule environments up front, including the Phase 2 regenie
+environment, run this after activating `gwas-stage1-driver`:
+
+```bash
+snakemake --profile profiles/slurm --conda-create-envs-only
 ```
 
 ## 6. Run Basic Checks
@@ -254,10 +269,11 @@ ancestry stratum:
 results/reports/
 ```
 
-The report is the primary review file. It includes the run inputs, reference
-package fingerprint, ancestry and ADMIXTURE summaries, active/skipped strata,
-sample filtering counts, covariates, variant filtering counts, lambda GC, top
-association signals, QQ and Manhattan plots, and POP-MaD projection plot.
+The Stage 1 reports are written per trait and ancestry. Phase 2 also writes one
+slim `PAN` regenie report per trait. Reports include the run inputs, reference
+package fingerprint, ancestry and ADMIXTURE summaries, sample filtering counts,
+covariates, variant filtering counts, lambda GC, top association signals, QQ and
+Manhattan plots, and POP-MaD or Stage 1 comparison context where relevant.
 
 Use these supporting files when you need the underlying tables:
 
@@ -268,7 +284,10 @@ results/qc/strata/strata_counts.tsv
 results/qc/admixture/admixture_report.md
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv
 results/plots/{trait}/{ancestry}/
+results/plots/{trait}/PAN/
 ```
 
 ## 9. Compress And Export Results

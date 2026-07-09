@@ -4,6 +4,7 @@ plink2	alpha 7.1 or newer	official Linux binary or conda	https://s3.amazonaws.co
 plink1	1.9 or newer	site module or conda	https://www.cog-genomics.org/plink/1.9/				PLINK1 sample merge engine used to prepare the supervised ADMIXTURE BED dataset.
 plink2_local_macos_arm64	alpha 7.1	official macOS ARM64 binary	https://s3.amazonaws.com/plink2-assets/alpha7/plink2_mac_arm64_20260504.zip	software/downloads/plink2_mac_arm64.zip	2026-05-21	02f3894091ad9ebd020d534cff071e4a565f062bb5ac7f39fd83f3937cf7aa27	Local test binary for this macOS ARM64 workstation; production HPC should use Linux/module/conda path.
 admixture	1.3.0 or site-approved newer	conda/mamba or official Linux binary	https://bioconda.github.io/recipes/admixture/README.html				Report-only supervised ADMIXTURE QC. Default Snakemake rule environment installs the Bioconda package; record the exact runtime version in the run manifest.
+regenie	3.0 or site-approved newer	conda/mamba or official Linux binary	https://rgcgithub.github.io/regenie/				Phase 2 pooled pan-ancestry GWAS engine. Default Snakemake rule environment installs the Bioconda package; record the exact runtime version in the run manifest.
 R	>=4.3	conda/mamba	https://www.r-project.org/				Pipeline task scripts, reports, and plotting.
 r-yaml	>=2.3	conda/mamba	https://cran.r-project.org/package=yaml				Config parsing and effective config snapshots.
 r-jsonlite	>=1.8	conda/mamba	https://cran.r-project.org/package=jsonlite				Genome-build marker panel rebuild helper.

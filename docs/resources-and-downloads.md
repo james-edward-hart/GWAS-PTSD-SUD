@@ -4,8 +4,9 @@ This pipeline keeps software and reference downloads separate from analysis rule
 
 Production HPC deployments should use conda environments or site-managed
 modules and approved data-transfer procedures. The default Snakemake rule
-environment installs PLINK 1.9, PLINK2, and ADMIXTURE from conda channels. The
-workflow does not download HGDP+1KG reference data. For a cohort run, use the
+environment installs PLINK 1.9, PLINK2, and ADMIXTURE from conda channels.
+Phase 2 regenie rules use a separate conda environment from `envs/regenie.yaml`.
+The workflow does not download HGDP+1KG reference data. For a cohort run, use the
 approved unpacked reference package and its `content_fingerprint.sha256`; record
 package-level provenance in `resources/manifests/reference_data.tsv`.
 

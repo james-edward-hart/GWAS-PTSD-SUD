@@ -107,10 +107,70 @@ truthy <- function(value) {
 
 # Normalize comma-separated strings to character vectors.
 split_csv <- function(value) {
-  if (is.null(value) || length(value) == 0 || identical(value, "")) return(character())
+  if (is.null(value) || length(value) == 0) return(character())
+  if (length(value) == 1 && (is.na(value) || identical(value, ""))) return(character())
   if (is.list(value) || length(value) > 1) return(as.character(value))
   items <- trimws(strsplit(as.character(value), ",", fixed = TRUE)[[1]])
   items[nzchar(items)]
+}
+
+
+# Return common PLINK ID aliases for matching outputs that may omit FID.
+sample_key_variants <- function(fid, iid) {
+  unique(paste(c(fid, iid, "0"), iid, sep = "\t"))
+}
+
+
+# Build an unambiguous lookup from FID/IID aliases to row numbers.
+sample_key_map <- function(ids, label) {
+  missing <- setdiff(c("FID", "IID"), names(ids))
+  if (length(missing)) die(label, " is missing required columns: ", paste(missing, collapse = ", "))
+  if (!nrow(ids)) return(data.frame(key = character(), row = integer(), stringsAsFactors = FALSE))
+  variants <- mapply(sample_key_variants, ids$FID, ids$IID, SIMPLIFY = FALSE)
+  out <- data.frame(
+    key = unlist(variants, use.names = FALSE),
+    row = rep(seq_len(nrow(ids)), lengths(variants)),
+    stringsAsFactors = FALSE
+  )
+  conflict <- names(which(tapply(out$row, out$key, function(x) length(unique(x)) > 1)))
+  if (length(conflict)) {
+    die(label, " has ambiguous sample IDs under FID/IID alias matching: ",
+      paste(head(gsub("\t", " ", conflict), 5), collapse = ", "))
+  }
+  out[!duplicated(out$key), , drop = FALSE]
+}
+
+
+# Match query FID/IID rows against a sample_key_map.
+match_sample_row <- function(fid, iid, key_map) {
+  idx <- match(sample_key_variants(fid, iid), key_map$key)
+  idx <- idx[!is.na(idx)]
+  if (!length(idx)) return(NA_integer_)
+  key_map$row[[idx[[1]]]]
+}
+
+
+match_sample_rows <- function(ids, key_map) {
+  missing <- setdiff(c("FID", "IID"), names(ids))
+  if (length(missing)) die("sample ID table is missing required columns: ", paste(missing, collapse = ", "))
+  vapply(seq_len(nrow(ids)), function(i) match_sample_row(ids$FID[[i]], ids$IID[[i]], key_map), integer(1))
+}
+
+
+# Normalize a table with PLINK-style ID columns to FID/IID.
+table_sample_ids <- function(rows, label, missing_fid = c("iid", "zero")) {
+  missing_fid <- match.arg(missing_fid)
+  iid_col <- if ("IID" %in% names(rows)) "IID" else if ("#IID" %in% names(rows)) "#IID" else ""
+  if (!nzchar(iid_col)) die(label, " is missing IID/#IID sample ID column")
+  fid_col <- if ("#FID" %in% names(rows)) "#FID" else if ("FID" %in% names(rows)) "FID" else ""
+  fid <- if (nzchar(fid_col)) {
+    rows[[fid_col]]
+  } else if (identical(missing_fid, "zero")) {
+    rep("0", nrow(rows))
+  } else {
+    rows[[iid_col]]
+  }
+  data.frame(FID = fid, IID = rows[[iid_col]], stringsAsFactors = FALSE)
 }
 
 
@@ -180,19 +240,59 @@ require_unique_ids <- function(df, label) {
 }
 
 
-# Read a headered pipeline keep/remove file and normalize FID/IID names.
+# Read a pipeline or PLINK keep/remove file and normalize FID/IID names.
 read_id_file <- function(path, label = path) {
-  rows <- read_tsv(path)
-  fid_col <- if ("FID" %in% names(rows)) "FID" else "#FID"
-  require_columns(rows, c(fid_col, "IID"), label)
-  data.frame(FID = rows[[fid_col]], IID = rows$IID, stringsAsFactors = FALSE)
+  if (!file.exists(path)) die("ID file not found: ", path)
+  if (file.info(path)$size == 0) die("ID file is empty: ", path)
+  first <- readLines(path, n = 1, warn = FALSE)
+  tokens <- strsplit(trimws(first), "\\s+")[[1]]
+  has_header <- any(tokens %in% c("FID", "#FID", "IID", "#IID"))
+  rows <- tryCatch(
+    read.table(
+      path,
+      header = has_header,
+      sep = "",
+      check.names = FALSE,
+      stringsAsFactors = FALSE,
+      quote = "",
+      comment.char = "",
+      na.strings = character()
+    ),
+    error = function(err) die("could not read ID file ", path, ": ", conditionMessage(err))
+  )
+  if (has_header) {
+    return(table_sample_ids(rows, label))
+  }
+  if (ncol(rows) == 1) {
+    return(data.frame(FID = rows[[1]], IID = rows[[1]], stringsAsFactors = FALSE))
+  }
+  if (ncol(rows) < 2) die(label, " must contain at least one ID column")
+  data.frame(FID = rows[[1]], IID = rows[[2]], stringsAsFactors = FALSE)
+}
+
+
+# Rewrite matched IDs to the exact FID/IID values used by a target genotype set.
+canonicalize_sample_ids <- function(ids, reference_ids, label, reference_label = "target genotype samples") {
+  if (is.null(reference_ids)) return(ids)
+  require_columns(reference_ids, c("FID", "IID"), reference_label)
+  if (!nrow(ids)) return(ids)
+  idx <- match_sample_rows(ids, sample_key_map(reference_ids, reference_label))
+  missing <- is.na(idx)
+  if (any(missing)) {
+    missing_labels <- paste(ids$FID[missing], ids$IID[missing])
+    die(label, " contains samples absent from ", reference_label, ": ",
+      paste(head(missing_labels, 5), collapse = ", "))
+  }
+  reference_ids[idx, c("FID", "IID"), drop = FALSE]
 }
 
 
 # Convert a pipeline ID TSV to a headerless file for PLINK2 --keep.
-plink_keep_args <- function(path, out_prefix, label = "keep file") {
+plink_keep_args <- function(path, out_prefix, label = "keep file", reference_ids = NULL,
+                            reference_label = "target genotype samples") {
   ids <- read_id_file(path, label)
   if (!nrow(ids)) die(label, " is empty: ", path)
+  ids <- canonicalize_sample_ids(ids, reference_ids, label, reference_label)
   keep_path <- paste0(out_prefix, ".plink_keep.txt")
   write_plink_id_file(ids, keep_path)
   c("--keep", keep_path)
@@ -559,7 +659,7 @@ sha256_text <- function(text) {
 
 # Return TRUE when a scalar config string is missing or empty.
 blank <- function(value) {
-  is.null(value) || length(value) == 0 || !nzchar(as.character(value[[1]]))
+  is.null(value) || length(value) == 0 || is.na(value[[1]]) || !nzchar(as.character(value[[1]]))
 }
 
 

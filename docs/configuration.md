@@ -472,6 +472,62 @@ Use a centered quadratic age term for `age2` when possible, for example
 Trait-specific covariates from the trait registry `covariates` column are
 appended to `default_covariates` and `extra_covariates` for that trait only.
 
+### `phase2_regenie`
+
+Phase 2 runs pooled pan-ancestry regenie GWAS when enabled. It uses the same
+configured study genotype prefix as Stage 1, native regenie output files, and
+`PAN` report/plot labels.
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `enabled` | Recommended | Template uses `true`; when enabled, PAN regenie reports are included in `rule all`. |
+| `global_pcs` | Recommended | Number of cohort-global PCs to compute and expose as Phase 2 covariates. Template uses `10`. |
+| `default_covariates` | Optional | Phase 2 covariates used for every trait. Empty or omitted expands to `age`, `age2`, `sex`, and `PC1`-`PC{global_pcs}`. Explicit values are used as configured. |
+| `extra_covariates` | Optional | Extra global Phase 2 covariates. |
+| `apply_rint` | Optional | Apply regenie RINT for quantitative traits when `true`. Template uses `false`. |
+| `htp_cohort_name` | Optional | Cohort label passed to regenie `--htp` for RE-META-compatible HTP output. Blank uses the filename-safe `project.analysis_name`. |
+| `min_mac` | Recommended | Regenie `--minMAC` threshold for Step 2. Template uses `1` so polymorphic variants remain available for downstream RE-META gene-based tests. |
+| `p_thresh` | Recommended | Regenie approximate-Firth fallback threshold for binary traits. Template uses `0.01`. |
+| `step1_bsize`, `step2_bsize` | Recommended | Regenie block sizes for Step 1 and Step 2. |
+| `step1_options`, `step2_options` | Optional | Limited extra regenie options. Pipeline-owned input/output/model flags cannot be overridden here. |
+
+`phase2_regenie.global_pca` and `phase2_regenie.step1` each define independent
+marker filters and LD-pruning settings. The template keeps global PCA stricter
+at `500kb/1/0.2` and uses Step 1 model pruning at `1000kb/1/0.2`. Both
+reuse `ancestry_reference.exclusion_regions` for long-range LD/problem-region
+exclusions.
+
+For regenie Step 1, aim for roughly 200K-500K SNPs after marker filters,
+long-range LD exclusions, LD pruning, and the final group-specific hardcall-count
+QC. If a cohort lands well outside that range, adjust
+`phase2_regenie.step1.ld_prune.window`, `step`, and/or `r2` in the config before
+rerunning Step 1 marker preparation.
+
+After Step 1 PLINK marker filters are applied for each final model keep set, the
+pipeline runs a fast PLINK2 hardcall-count QC pass. Variants missing from the
+count report, variants with zero hardcall genotype variance, and variants below
+the effective Step 1 hardcall MAC threshold are excluded from the Regenie Step 1
+marker list. Step 1 marker PGEN creation fills hardcalls from dosage and erases
+dosage values so regenie receives the same hardcall representation that was
+screened; Step 2 association genotypes are unchanged.
+
+For mixed imputed and directly genotyped inputs, Step 1 marker preparation also
+checks the source PVAR for numeric `R2`/`INFO`-style imputation-quality metadata
+or `R2=`/`INFO=` keys inside the VCF-style `INFO` field. When present, variants
+with finite values below `qc.info_min` are removed before hardcall conversion;
+variants with missing INFO/R2 values are retained so unimputed hardcall markers
+continue through the standard MAC and hardcall-variance QC.
+
+Phase 2 trait type is detected from the trait registry:
+
+- nonblank `case_value` and `control_value` means binary;
+- both blank plus numeric nonmissing phenotype values means quantitative;
+- any other combination fails validation.
+
+Compatible traits are batched together by detected trait type and covariate
+list. Low or unusable Phase 2 traits are skipped with a placeholder PAN report
+instead of failing the whole workflow.
+
 ### `warnings`
 
 These thresholds are report-only warnings; they do not stop the workflow.
@@ -599,6 +655,9 @@ results/qc/traits/{trait}.covar.tsv
 results/qc/strata/{ancestry}.unrelated.keep.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv
 results/reports/{trait}/{analysis_name}.{trait}.{ancestry}.{build}.report.md
+results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}.regenie.report.md
 results/manifests/run_manifest.tsv
 ```

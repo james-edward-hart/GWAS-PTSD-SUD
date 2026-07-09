@@ -15,28 +15,23 @@ require_args(args, c("out"))
 if (length(args$inputs) < 2) die("provide at least two keep files to intersect")
 
 
-# Normalize PLINK keep files that may use FID or #FID.
+# Normalize PLINK keep files that may use headers, no headers, or IID aliases.
 read_ids <- function(path) {
-  rows <- read_tsv(path)
-  fid_col <- if ("FID" %in% names(rows)) "FID" else "#FID"
-  require_columns(rows, c(fid_col, "IID"), path)
-  paste(rows[[fid_col]], rows$IID, sep = "\t")
+  read_id_file(path, path)
 }
 
 
-# Keep only samples present in every input file.
-common <- Reduce(intersect, lapply(args$inputs, read_ids))
-common <- sort(common)
-parts <- do.call(rbind, strsplit(common, "\t", fixed = TRUE))
-
-# Rebuild the shared sample IDs as a standard keep table.
-out <- if (length(common)) {
-  data.frame(FID = parts[, 1], IID = parts[, 2], stringsAsFactors = FALSE)
-} else {
-  data.frame(FID = character(), IID = character())
+ids <- lapply(args$inputs, read_ids)
+base <- ids[[1]]
+keep <- rep(TRUE, nrow(base))
+if (length(ids) > 1) {
+  for (i in seq.int(2, length(ids))) {
+    keep <- keep & !is.na(match_sample_rows(base, sample_key_map(ids[[i]], args$inputs[[i]])))
+  }
 }
 
 
-# Save the intersected keep file.
+# Save the intersected keep file using the first input's canonical sample IDs.
+out <- base[keep, c("FID", "IID"), drop = FALSE]
 write_tsv(out, args$out)
 cat("Wrote", nrow(out), "intersected samples\n")

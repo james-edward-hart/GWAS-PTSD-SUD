@@ -28,6 +28,27 @@ set-resources:
   run_plink2_gwas:
     mem_mb: 16000
     runtime: 240
+  prepare_phase2_global_pca_markers:
+    mem_mb: 16000
+    runtime: 240
+  prepare_phase2_step1_markers:
+    mem_mb: 32000
+    runtime: 480
+  fit_phase2_global_pca:
+    mem_mb: 16000
+    runtime: 240
+  score_phase2_global_pcs:
+    mem_mb: 16000
+    runtime: 240
+  prepare_phase2_regenie_assoc_genotypes:
+    mem_mb: 32000
+    runtime: 480
+  run_phase2_regenie_step1:
+    mem_mb: 32000
+    runtime: 480
+  run_phase2_regenie_step2:
+    mem_mb: 32000
+    runtime: 480
   make_unrelated_keep:
     mem_mb: 8000
     runtime: 120

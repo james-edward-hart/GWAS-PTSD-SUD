@@ -1,17 +1,23 @@
 ADMIXTURE_DIR = "results/qc/admixture"
 ADMIXTURE_RAW_DIR = f"{ADMIXTURE_DIR}/raw"
+ADMIXTURE_BY_ANCESTRY_DIR = f"{ADMIXTURE_DIR}/by_ancestry"
+ADMIXTURE_STRATUM_DIR = f"{ADMIXTURE_BY_ANCESTRY_DIR}/{{ancestry}}"
+ADMIXTURE_STRATUM_RAW_DIR = f"{ADMIXTURE_RAW_DIR}/{{ancestry}}"
 ADMIXTURE_K = int(config.get("admixture", {}).get("k", 5))
 
 ADMIXTURE_REFERENCE_QC_PREFIX = f"{ADMIXTURE_RAW_DIR}/reference_qc"
-ADMIXTURE_STUDY_QC_PREFIX = f"{ADMIXTURE_RAW_DIR}/study_qc"
-ADMIXTURE_REFERENCE_SHARED_PREFIX = f"{ADMIXTURE_RAW_DIR}/reference_shared"
-ADMIXTURE_STUDY_SHARED_PREFIX = f"{ADMIXTURE_RAW_DIR}/study_shared"
-ADMIXTURE_REFERENCE_PRUNED_PREFIX = f"{ADMIXTURE_RAW_DIR}/reference_pruned"
-ADMIXTURE_STUDY_PRUNED_PREFIX = f"{ADMIXTURE_RAW_DIR}/study_pruned"
-ADMIXTURE_LD_PRUNE_PREFIX = f"{ADMIXTURE_RAW_DIR}/ld_prune/admixture_ld_prune"
-ADMIXTURE_MERGED_PREFIX = f"{ADMIXTURE_RAW_DIR}/merged"
+ADMIXTURE_STUDY_QC_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/study_qc"
+ADMIXTURE_REFERENCE_SHARED_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/reference_shared"
+ADMIXTURE_STUDY_SHARED_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/study_shared"
+ADMIXTURE_REFERENCE_PRUNED_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/reference_pruned"
+ADMIXTURE_STUDY_PRUNED_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/study_pruned"
+ADMIXTURE_LD_PRUNE_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/ld_prune/admixture_ld_prune"
+ADMIXTURE_MERGED_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/merged"
 
 admixture_popmad_input = lambda wildcards: popmad_assignments_file()
+active_admixture_outputs = lambda wildcards, filename: active_admixture_stratum_outputs(
+    wildcards, filename
+)
 
 
 rule convert_reference_for_admixture:
@@ -47,12 +53,13 @@ rule convert_study_for_admixture:
     input:
         config=RUN_CONFIG,
         ok="results/qc/input_validation/validation.ok",
+        keep="results/qc/strata/{ancestry}.keep.tsv",
     output:
         pgen=f"{ADMIXTURE_STUDY_QC_PREFIX}.pgen",
         pvar=f"{ADMIXTURE_STUDY_QC_PREFIX}.pvar",
         psam=f"{ADMIXTURE_STUDY_QC_PREFIX}.psam",
     log:
-        "results/logs/admixture/convert_study.log",
+        "results/logs/admixture/convert_study.{ancestry}.log",
     threads:
         config["runtime"]["threads_small"]
     resources:
@@ -66,6 +73,7 @@ rule convert_study_for_admixture:
         """
         Rscript scripts/admixture_qc.R convert-study \
           --config {input.config} \
+          --keep {input.keep} \
           --out-prefix {params.out_prefix} \
           --threads {threads} \
           > {log} 2>&1
@@ -78,10 +86,10 @@ rule write_admixture_shared_variants:
         reference=f"{ADMIXTURE_REFERENCE_QC_PREFIX}.pvar",
         study=f"{ADMIXTURE_STUDY_QC_PREFIX}.pvar",
     output:
-        variants=f"{ADMIXTURE_RAW_DIR}/shared_variants.txt",
-        mismatches=f"{ADMIXTURE_RAW_DIR}/shared_variant_mismatches.tsv",
+        variants=f"{ADMIXTURE_STRATUM_RAW_DIR}/shared_variants.txt",
+        mismatches=f"{ADMIXTURE_STRATUM_RAW_DIR}/shared_variant_mismatches.tsv",
     log:
-        "results/logs/admixture/write_shared_variants.log",
+        "results/logs/admixture/write_shared_variants.{ancestry}.log",
     conda:
         "../../envs/gwas.yaml",
     params:
@@ -105,13 +113,13 @@ rule extract_shared_admixture_reference:
         pgen=f"{ADMIXTURE_REFERENCE_QC_PREFIX}.pgen",
         pvar=f"{ADMIXTURE_REFERENCE_QC_PREFIX}.pvar",
         psam=f"{ADMIXTURE_REFERENCE_QC_PREFIX}.psam",
-        variants=f"{ADMIXTURE_RAW_DIR}/shared_variants.txt",
+        variants=f"{ADMIXTURE_STRATUM_RAW_DIR}/shared_variants.txt",
     output:
         pgen=f"{ADMIXTURE_REFERENCE_SHARED_PREFIX}.pgen",
         pvar=f"{ADMIXTURE_REFERENCE_SHARED_PREFIX}.pvar",
         psam=f"{ADMIXTURE_REFERENCE_SHARED_PREFIX}.psam",
     log:
-        "results/logs/admixture/extract_shared_reference.log",
+        "results/logs/admixture/extract_shared_reference.{ancestry}.log",
     threads:
         config["runtime"]["threads_small"]
     resources:
@@ -140,13 +148,13 @@ rule extract_shared_admixture_study:
         pgen=f"{ADMIXTURE_STUDY_QC_PREFIX}.pgen",
         pvar=f"{ADMIXTURE_STUDY_QC_PREFIX}.pvar",
         psam=f"{ADMIXTURE_STUDY_QC_PREFIX}.psam",
-        variants=f"{ADMIXTURE_RAW_DIR}/shared_variants.txt",
+        variants=f"{ADMIXTURE_STRATUM_RAW_DIR}/shared_variants.txt",
     output:
         pgen=f"{ADMIXTURE_STUDY_SHARED_PREFIX}.pgen",
         pvar=f"{ADMIXTURE_STUDY_SHARED_PREFIX}.pvar",
         psam=f"{ADMIXTURE_STUDY_SHARED_PREFIX}.psam",
     log:
-        "results/logs/admixture/extract_shared_study.log",
+        "results/logs/admixture/extract_shared_study.{ancestry}.log",
     threads:
         config["runtime"]["threads_small"]
     resources:
@@ -180,7 +188,7 @@ rule ld_prune_admixture_markers:
         prune_out=f"{ADMIXTURE_LD_PRUNE_PREFIX}.prune.out",
         excluded=f"{ADMIXTURE_LD_PRUNE_PREFIX}.excluded_region_variants.txt",
     log:
-        "results/logs/admixture/ld_prune.log",
+        "results/logs/admixture/ld_prune.{ancestry}.log",
     threads:
         config["runtime"]["threads_small"]
     resources:
@@ -216,7 +224,7 @@ rule extract_pruned_admixture_reference:
         pvar=f"{ADMIXTURE_REFERENCE_PRUNED_PREFIX}.pvar",
         psam=f"{ADMIXTURE_REFERENCE_PRUNED_PREFIX}.psam",
     log:
-        "results/logs/admixture/extract_pruned_reference.log",
+        "results/logs/admixture/extract_pruned_reference.{ancestry}.log",
     threads:
         config["runtime"]["threads_small"]
     resources:
@@ -251,7 +259,7 @@ rule extract_pruned_admixture_study:
         pvar=f"{ADMIXTURE_STUDY_PRUNED_PREFIX}.pvar",
         psam=f"{ADMIXTURE_STUDY_PRUNED_PREFIX}.psam",
     log:
-        "results/logs/admixture/extract_pruned_study.log",
+        "results/logs/admixture/extract_pruned_study.{ancestry}.log",
     threads:
         config["runtime"]["threads_small"]
     resources:
@@ -291,7 +299,7 @@ rule merge_admixture_genotypes:
         bim=f"{ADMIXTURE_MERGED_PREFIX}.bim",
         fam=f"{ADMIXTURE_MERGED_PREFIX}.fam",
     log:
-        "results/logs/admixture/merge_genotypes.log",
+        "results/logs/admixture/merge_genotypes.{ancestry}.log",
     threads:
         config["runtime"]["threads_small"]
     resources:
@@ -323,9 +331,9 @@ rule write_admixture_pop_file:
         study_psam=f"{ADMIXTURE_STUDY_PRUNED_PREFIX}.psam",
     output:
         pop_file=f"{ADMIXTURE_MERGED_PREFIX}.pop",
-        samples=f"{ADMIXTURE_RAW_DIR}/sample_populations.tsv",
+        samples=f"{ADMIXTURE_STRATUM_RAW_DIR}/sample_populations.tsv",
     log:
-        "results/logs/admixture/write_pop.log",
+        "results/logs/admixture/write_pop.{ancestry}.log",
     conda:
         "../../envs/gwas.yaml",
     params:
@@ -355,7 +363,7 @@ rule run_supervised_admixture:
         q=f"{ADMIXTURE_MERGED_PREFIX}.{ADMIXTURE_K}.Q",
         p=f"{ADMIXTURE_MERGED_PREFIX}.{ADMIXTURE_K}.P",
     log:
-        "results/logs/admixture/run_supervised_admixture.log",
+        "results/logs/admixture/run_supervised_admixture.{ancestry}.log",
     threads:
         config["runtime"].get("threads_admixture", config["runtime"]["threads_small"])
     resources:
@@ -376,7 +384,7 @@ rule run_supervised_admixture:
         """
 
 
-rule write_admixture_report:
+rule write_admixture_stratum_report:
     input:
         config=RUN_CONFIG,
         q=f"{ADMIXTURE_MERGED_PREFIX}.{ADMIXTURE_K}.Q",
@@ -384,8 +392,49 @@ rule write_admixture_report:
         fam=f"{ADMIXTURE_MERGED_PREFIX}.fam",
         bim=f"{ADMIXTURE_MERGED_PREFIX}.bim",
         pop_file=f"{ADMIXTURE_MERGED_PREFIX}.pop",
-        sample_populations=f"{ADMIXTURE_RAW_DIR}/sample_populations.tsv",
+        sample_populations=f"{ADMIXTURE_STRATUM_RAW_DIR}/sample_populations.tsv",
         popmad=admixture_popmad_input,
+    output:
+        study=f"{ADMIXTURE_STRATUM_DIR}/study_ancestry_proportions.tsv",
+        reference=f"{ADMIXTURE_STRATUM_DIR}/reference_ancestry_proportions.tsv",
+        comparison=f"{ADMIXTURE_STRATUM_DIR}/popmad_admixture_comparison.tsv",
+        summary=f"{ADMIXTURE_STRATUM_DIR}/admixture_run_summary.tsv",
+        report=f"{ADMIXTURE_STRATUM_DIR}/admixture_report.md",
+    log:
+        "results/logs/admixture/write_report.{ancestry}.log",
+    conda:
+        "../../envs/gwas.yaml",
+    params:
+        popmad_arg=lambda wildcards, input: f"--popmad {input.popmad}" if input.popmad else "",
+    shell:
+        """
+        Rscript scripts/admixture_qc.R parse-report \
+          --config {input.config} \
+          --analysis-ancestry {wildcards.ancestry} \
+          --q {input.q} \
+          --p {input.p} \
+          --fam {input.fam} \
+          --bim {input.bim} \
+          --pop {input.pop_file} \
+          --sample-populations {input.sample_populations} \
+          {params.popmad_arg} \
+          --study-out {output.study} \
+          --reference-out {output.reference} \
+          --comparison-out {output.comparison} \
+          --summary-out {output.summary} \
+          --report-out {output.report} \
+          > {log} 2>&1
+        """
+
+
+rule write_admixture_report:
+    input:
+        config=RUN_CONFIG,
+        studies=lambda wildcards: active_admixture_outputs(wildcards, "study_ancestry_proportions.tsv"),
+        references=lambda wildcards: active_admixture_outputs(wildcards, "reference_ancestry_proportions.tsv"),
+        comparisons=lambda wildcards: active_admixture_outputs(wildcards, "popmad_admixture_comparison.tsv"),
+        summaries=lambda wildcards: active_admixture_outputs(wildcards, "admixture_run_summary.tsv"),
+        reports=lambda wildcards: active_admixture_outputs(wildcards, "admixture_report.md"),
     output:
         study=f"{ADMIXTURE_DIR}/study_ancestry_proportions.tsv",
         reference=f"{ADMIXTURE_DIR}/reference_ancestry_proportions.tsv",
@@ -396,19 +445,15 @@ rule write_admixture_report:
         "results/logs/admixture/write_report.log",
     conda:
         "../../envs/gwas.yaml",
-    params:
-        popmad_arg=lambda wildcards, input: f"--popmad {input.popmad}" if input.popmad else "",
     shell:
         """
-        Rscript scripts/admixture_qc.R parse-report \
+        Rscript scripts/admixture_qc.R combine-reports \
           --config {input.config} \
-          --q {input.q} \
-          --p {input.p} \
-          --fam {input.fam} \
-          --bim {input.bim} \
-          --pop {input.pop_file} \
-          --sample-populations {input.sample_populations} \
-          {params.popmad_arg} \
+          --study {input.studies} \
+          --reference {input.references} \
+          --comparison {input.comparisons} \
+          --summary {input.summaries} \
+          --report {input.reports} \
           --study-out {output.study} \
           --reference-out {output.reference} \
           --comparison-out {output.comparison} \

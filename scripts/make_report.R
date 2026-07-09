@@ -133,8 +133,12 @@ top_signals <- top_signal_lines(stats)
 
 
 # Read metric/value summaries into named vectors.
-kv <- function(path) {
+kv <- function(path, stratum = "") {
   rows <- read_tsv(path)
+  if (nzchar(stratum) && "popmad_stratum" %in% names(rows)) {
+    stratum_rows <- rows[rows$popmad_stratum == stratum, , drop = FALSE]
+    if (nrow(stratum_rows)) rows <- stratum_rows
+  }
   setNames(rows$value, rows$metric)
 }
 metric_value <- function(values, name) {
@@ -143,7 +147,7 @@ metric_value <- function(values, name) {
 relatedness <- kv(args[["relatedness-summary"]])
 sex_check <- kv(args[["sex-check-summary"]])
 gwas_summary <- kv(args[["gwas-summary"]])
-admixture_summary <- kv(args[["admixture-summary"]])
+admixture_summary <- kv(args[["admixture-summary"]], args$ancestry)
 
 
 # Pull trait/ancestry counts before sex-check and relatedness intersections.
@@ -278,7 +282,7 @@ plot_lines <- c(
 text <- c(
   paste0("# GWAS Report: ", config$project$analysis_name, " / ", args$trait, " / ", args$ancestry),
   "",
-  "## Run",
+  "## Run Summary",
   "",
   paste0("- Analysis: ", config$project$analysis_name),
   paste0("- Trait: ", args$trait),
@@ -286,9 +290,8 @@ text <- c(
   paste0("- Genome build label: ", args$build),
   "- Engine: PLINK2 `--glm`",
   paste0("- Effective config: `", args$config, "`"),
-  paste0("- PLINK log: `", args[["plink-log"]], "`"),
   "",
-  "## Input Files",
+  "## Inputs and Reference Provenance",
   "",
   paste0("- Cohort data release: ", config$project$cohort_data_release %||% "unspecified"),
   paste0("- Sample manifest: `", config$inputs$sample_manifest, "`"),
@@ -304,7 +307,31 @@ text <- c(
   reference_panel_lines(config, "admixture", "ADMIXTURE"),
   input_manifest_release_lines(config$resources$input_manifest %||% ""),
   "",
-  "## Ancestry and ADMIXTURE QC",
+  paste0("- Software manifest: `", args$software, "`"),
+  paste0("- Reference data manifest: `", args$reference, "`"),
+  "",
+  "## QC Settings",
+  "",
+  paste0("- INFO/R2 filter enabled: ", ifelse(truthy(config$qc$use_mach_r2_filter %||% TRUE), "True", "False")),
+  paste0("- INFO/R2 minimum when enabled: ", config$qc$info_min),
+  paste0("- MAF minimum: ", config$qc$maf_min),
+  paste0("- HWE P minimum: ", config$qc$hwe_p_min, " (calculated in controls only)"),
+  paste0("- Genotype missingness maximum: ", config$qc$geno_missing_max),
+  paste0("- Sample missingness maximum: ", config$qc$sample_missing_max),
+  paste0("- Relatedness mode: ", config$relatedness$mode),
+  paste0("- KING cutoff: ", config$relatedness$king_cutoff),
+  paste0("- Relatedness marker set: `", args[["relatedness-summary"]], "`"),
+  paste0("- Relatedness LD-pruned variants: ", metric_value(relatedness, "prune_in_variants")),
+  paste0("- Sex-check action: ", metric_value(sex_check, "action")),
+  paste0("- Sex-check status: ", metric_value(sex_check, "status")),
+  paste0("- Sex-check problems: ", metric_value(sex_check, "n_problems")),
+  paste0("- Sex-check removed samples: ", metric_value(sex_check, "n_removed")),
+  paste0("- Genome-build checked markers: ", selected$checked_markers %||% "NA"),
+  paste0("- Genome-build matching markers: ", selected$matching_markers %||% "NA"),
+  paste0("- Genome-build match fraction: ", selected$match_fraction %||% "NA"),
+  paste0("- Reference prep report: `", args[["reference-prep-report"]], "`"),
+  "",
+  "## Ancestry Assignment and ADMIXTURE QC",
   "",
   paste0("- POP-MaD assigned samples: ", fmt_count(assigned_total)),
   paste0("- POP-MaD excluded samples: ", fmt_count(excluded_total[[1]])),
@@ -330,11 +357,13 @@ text <- c(
   paste0("- POP-MaD/ADMIXTURE comparison: `", args[["admixture-comparison"]], "`"),
   paste0("- ADMIXTURE QC report: `", args[["admixture-report"]], "`"),
   "",
+  "## Trait Strata and Sample Filtering",
+  "",
   "### Trait GWAS Strata",
   "",
   strata_lines,
   "",
-  "## Sample Filtering",
+  "### Sample Filtering",
   "",
   paste0("- Source genotype samples: ", fmt_count(metric_value(gwas_summary, "source_genotype_samples"))),
   paste0("- Sample manifest rows: ", fmt_count(metric_value(gwas_summary, "sample_manifest_rows"))),
@@ -349,15 +378,14 @@ text <- c(
   paste0("- POP-MaD excluded samples: ", excluded_total[[1]]),
   paste0("- Sex-check removed samples: ", metric_value(sex_check, "n_removed")),
   "",
-  "## Covariates",
+  "## Phenotype and Covariates",
   "",
   paste0("- Covariate file: `", args$covar, "`"),
   paste0("- Covariates used: ", covariates),
   paste0("- PLINK covariate variance standardization: ", ifelse(truthy(config$gwas$covar_variance_standardize), "True", "False")),
   "",
-  "## Variant Filtering and Results",
+  "## Variant Filtering",
   "",
-  paste0("- Harmonized summary statistics: `", args$stats, "`"),
   paste0("- GWAS filter summary: `", args[["gwas-summary"]], "`"),
   paste0("- Source genotype variants: ", fmt_count(metric_value(gwas_summary, "source_genotype_variants"))),
   paste0("- PLINK loaded variants: ", fmt_count(metric_value(gwas_summary, "plink_loaded_variants"))),
@@ -370,6 +398,10 @@ text <- c(
   paste0("- Variants removed by controls-only `--hwe`: ", fmt_count(metric_value(gwas_summary, "plink_hwe_removed_variants"))),
   paste0("- Variants removed by `--mach-r2-filter`: ", fmt_count(metric_value(gwas_summary, "plink_info_removed_variants"))),
   paste0("- PLINK variants after main filters: ", fmt_count(metric_value(gwas_summary, "plink_final_variants"))),
+  "",
+  "## Association Results",
+  "",
+  paste0("- Harmonized summary statistics: `", args$stats, "`"),
   paste0("- Variants in harmonized analysis output: ", fmt_count(n_variants)),
   paste0("- Variants with valid P values: ", fmt_count(sum(valid_p))),
   paste0("- Genome-wide significant variants (P <= 5e-8): ", fmt_count(metric_value(gwas_summary, "genomewide_significant_variants"))),
@@ -386,35 +418,10 @@ text <- c(
   "",
   plot_lines,
   "",
-  "## QC Settings",
-  "",
-  paste0("- INFO/R2 filter enabled: ", ifelse(truthy(config$qc$use_mach_r2_filter %||% TRUE), "True", "False")),
-  paste0("- INFO/R2 minimum when enabled: ", config$qc$info_min),
-  paste0("- MAF minimum: ", config$qc$maf_min),
-  paste0("- HWE P minimum: ", config$qc$hwe_p_min, " (calculated in controls only)"),
-  paste0("- Genotype missingness maximum: ", config$qc$geno_missing_max),
-  paste0("- Sample missingness maximum: ", config$qc$sample_missing_max),
-  paste0("- Relatedness mode: ", config$relatedness$mode),
-  paste0("- KING cutoff: ", config$relatedness$king_cutoff),
-  paste0("- Relatedness marker set: `", args[["relatedness-summary"]], "`"),
-  paste0("- Relatedness LD-pruned variants: ", metric_value(relatedness, "prune_in_variants")),
-  paste0("- Sex-check action: ", metric_value(sex_check, "action")),
-  paste0("- Sex-check status: ", metric_value(sex_check, "status")),
-  paste0("- Sex-check problems: ", metric_value(sex_check, "n_problems")),
-  paste0("- Sex-check removed samples: ", metric_value(sex_check, "n_removed")),
-  paste0("- Genome-build checked markers: ", selected$checked_markers %||% "NA"),
-  paste0("- Genome-build matching markers: ", selected$matching_markers %||% "NA"),
-  paste0("- Genome-build match fraction: ", selected$match_fraction %||% "NA"),
-  paste0("- Reference prep report: `", args[["reference-prep-report"]], "`"),
-  "",
   "## PLINK Log Highlights",
   "",
-  paste0("- ", log_lines),
-  "",
-  "## Manifests",
-  "",
-  paste0("- Software manifest: `", args$software, "`"),
-  paste0("- Reference data manifest: `", args$reference, "`")
+  paste0("- PLINK log: `", args[["plink-log"]], "`"),
+  paste0("- ", log_lines)
 )
 
 

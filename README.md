@@ -10,9 +10,8 @@
 </p>
 
 <p align="center">
-  The current implementation is Stage 1: cohort validation, ancestry and PC
-  covariate generation, ancestry-stratified PLINK2 GWAS, and final result
-  packaging. Later stages will be added separately.
+  The current implementation includes Stage 1 ancestry-stratified PLINK2 GWAS
+  and Phase 2 pooled pan-ancestry regenie GWAS, with final result packaging.
 </p>
 
 ```mermaid
@@ -21,8 +20,9 @@ flowchart LR
     validate --> build["Build resolution<br>GRCh37 or GRCh38"]
     build --> ancestry["Population structure<br>POP-MaD ancestry<br>GWAS PCs<br>ADMIXTURE QC"]
     ancestry --> qc["GWAS-ready QC<br>sex, relatedness, missingness"]
-    qc --> gwas["Association testing<br>PLINK2 per trait x ancestry"]
-    gwas --> review["Review package<br>results, plots, reports, manifests"]
+    qc --> gwas["Stage 1 association<br>PLINK2 per trait x ancestry"]
+    gwas --> pan["Phase 2 association<br>regenie PAN pooled GWAS"]
+    pan --> review["Review package<br>results, plots, reports, manifests"]
 
     ref["Reference package<br>fingerprinted and build-matched"] --> build
     ref --> ancestry
@@ -33,7 +33,7 @@ flowchart LR
     classDef reference fill:#ecfdf5,stroke:#047857,color:#111827;
     classDef output fill:#fff7ed,stroke:#c2410c,color:#111827;
     class inputs input;
-    class validate,build,ancestry,qc,gwas work;
+    class validate,build,ancestry,qc,gwas,pan work;
     class ref reference;
     class review output;
 ```
@@ -78,9 +78,12 @@ build-matched, fingerprinted reference package.
 - Runs genetic sex checks, relatedness filtering, trait/covariate preparation,
   ancestry-stratified PLINK2 `--glm`, plotting, reporting, and manifest
   generation.
+- Runs pooled pan-ancestry regenie GWAS as Phase 2 when enabled, using cohort
+  global PCs, native regenie outputs, `PAN` plots/reports, and Stage 1
+  ancestry-specific QC comparisons.
 
-Stage 1 does not run imputation, pooled GWAS, METAL, trans-ancestry
-meta-analysis, liftover, or reference-package construction.
+The workflow does not run imputation, METAL, trans-ancestry meta-analysis,
+liftover, re-meta, or reference-package construction.
 
 ## Required Inputs
 
@@ -128,11 +131,14 @@ results/config/resolved_config.yaml
 results/qc/
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv
 results/plots/ancestry/{analysis_name}.popmad_reference_study_pcs.png
 results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.qq.png
 results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manhattan.png
 results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manhattan.pdf
 results/reports/{trait}/{analysis_name}.{trait}.{ancestry}.{build}.report.md
+results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}.regenie.report.md
 results/manifests/run_manifest.tsv
 ```
 

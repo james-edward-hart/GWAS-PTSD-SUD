@@ -25,9 +25,46 @@ dir.create(args$outdir, recursive = TRUE, showWarnings = FALSE)
 
 
 # Restrict assignments to manifest samples and configured ancestries.
+sample_key_variants <- function(fid, iid) {
+  unique(paste(c(fid, iid, "0"), iid, sep = "\t"))
+}
+
+sample_key_map <- function(ids, label) {
+  variants <- mapply(sample_key_variants, ids$FID, ids$IID, SIMPLIFY = FALSE)
+  out <- data.frame(
+    key = unlist(variants, use.names = FALSE),
+    row = rep(seq_len(nrow(ids)), lengths(variants)),
+    stringsAsFactors = FALSE
+  )
+  conflict <- names(which(tapply(out$row, out$key, function(x) length(unique(x)) > 1)))
+  if (length(conflict)) {
+    die(label, " has ambiguous sample IDs under FID/IID alias matching: ",
+      paste(head(gsub("\t", " ", conflict), 5), collapse = ", "))
+  }
+  out[!duplicated(out$key), , drop = FALSE]
+}
+
+match_sample_row <- function(fid, iid, key_map) {
+  idx <- match(sample_key_variants(fid, iid), key_map$key)
+  idx <- idx[!is.na(idx)]
+  if (!length(idx)) return(NA_integer_)
+  key_map$row[[idx[[1]]]]
+}
+
+require_columns(samples, c("FID", "IID"), "sample manifest")
+require_columns(ancestry, c("FID", "IID", "ancestry"), "POP-MaD assignments")
 sample_key <- paste(samples$FID, samples$IID, sep = "\t")
-ancestry_key <- paste(ancestry$FID, ancestry$IID, sep = "\t")
-valid <- ancestry_key %in% sample_key & ancestry$ancestry %in% labels
+sample_map <- sample_key_map(samples[c("FID", "IID")], "sample manifest")
+ancestry_sample_idx <- vapply(seq_len(nrow(ancestry)), function(i) {
+  match_sample_row(ancestry$FID[[i]], ancestry$IID[[i]], sample_map)
+}, integer(1))
+valid <- !is.na(ancestry_sample_idx) & ancestry$ancestry %in% labels
+matched_sample_idx <- ancestry_sample_idx[valid]
+if (any(duplicated(matched_sample_idx))) {
+  duplicated_samples <- unique(sample_key[matched_sample_idx[duplicated(matched_sample_idx)]])
+  die("POP-MaD assignments contain duplicate rows for manifest samples under FID/IID alias matching: ",
+    paste(head(gsub("\t", " ", duplicated_samples), 5), collapse = ", "))
+}
 assigned_n <- setNames(rep(0L, length(labels)), labels)
 assigned_counts <- table(ancestry$ancestry[valid])
 assigned_n[names(assigned_counts)] <- as.integer(assigned_counts)
@@ -43,7 +80,8 @@ if (!length(active_labels)) {
     "; assigned configured ancestry counts: ", assigned_summary)
 }
 
-matched <- match(sample_key, ancestry_key)
+matched <- rep(NA_integer_, nrow(samples))
+matched[matched_sample_idx] <- which(valid)
 assigned_label <- ifelse(is.na(matched), "", ancestry$ancestry[matched])
 configured_assignment <- nzchar(assigned_label) & assigned_label %in% labels
 active_assignment <- configured_assignment & assigned_label %in% active_labels
@@ -70,20 +108,28 @@ write_tsv(excluded_rows, file.path(args$outdir, "excluded_ancestries.tsv"))
 unassigned_fraction <- length(missing_keys) / max(length(sample_key), 1)
 if (unassigned_fraction > max_unassigned_fraction) {
   first <- if (length(missing_keys)) paste(head(gsub("\t", " ", missing_keys), 20), collapse = ", ") else ""
-  die("inactive or unassigned ancestry fraction is ", sprintf("%.2f%%", 100 * unassigned_fraction),
+  message <- paste0("inactive or unassigned ancestry fraction is ", sprintf("%.2f%%", 100 * unassigned_fraction),
     " (", length(missing_keys), "/", length(sample_key), "), above allowed ",
     sprintf("%.2f%%", 100 * max_unassigned_fraction),
     "; assigned configured ancestry counts: ", assigned_summary,
     if (length(inactive_labels)) paste0("; inactive labels: ", paste(inactive_labels, collapse = ", ")) else "",
     "; first samples: ", first,
     ". Raise popmad.max_unassigned_fraction only when these dropped samples are expected.")
+  if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
+    warning(message, "; continuing because phase2_regenie.enabled is true and Phase 2 models excluded samples as UNKNOWN")
+  } else {
+    die(message)
+  }
 }
 if (length(missing_keys)) {
   cat("WARNING: dropping ", length(missing_keys), " samples outside active ancestry strata (",
     sprintf("%.2f%%", 100 * unassigned_fraction), ")\n", sep = "")
 }
 
-ancestry <- ancestry[valid, , drop = FALSE]
+ancestry <- cbind(
+  samples[matched_sample_idx, c("FID", "IID"), drop = FALSE],
+  ancestry[valid, setdiff(names(ancestry), c("FID", "IID")), drop = FALSE]
+)
 
 
 # Write one PLINK keep file per configured ancestry label.
@@ -101,16 +147,33 @@ for (label in labels) {
 counts <- list()
 for (i in seq_len(nrow(traits))) {
   trait <- traits[i, ]
+  is_binary_trait <- !blank(trait$case_value) && !blank(trait$control_value)
+  if (blank(trait$case_value) != blank(trait$control_value)) {
+    die("trait ", trait$trait_id, " must set both case_value and control_value for binary analysis, or leave both blank for quantitative analysis")
+  }
   for (label in labels) {
     keep <- ancestry[ancestry$ancestry == label, , drop = FALSE]
     idx <- match(paste(keep$FID, keep$IID, sep = "\t"), sample_key)
     values <- samples[[trait$phenotype_column]][idx]
-    cases <- sum(values == trait$case_value)
-    controls <- sum(values == trait$control_value)
-    n <- cases + controls
-    underpowered <- n < config$warnings$min_n ||
-      cases < config$warnings$min_cases ||
-      controls < config$warnings$min_controls
+    if (is_binary_trait) {
+      cases <- sum(values == trait$case_value)
+      controls <- sum(values == trait$control_value)
+      n <- cases + controls
+      underpowered <- n < config$warnings$min_n ||
+        cases < config$warnings$min_cases ||
+        controls < config$warnings$min_controls
+    } else {
+      missing <- split_csv(trait$missing_values %||% "")
+      observed <- values[!values %in% c(missing, "", "NA", "-9", ".")]
+      numeric_observed <- suppressWarnings(as.numeric(observed))
+      if (any(is.na(numeric_observed) | !is.finite(numeric_observed))) {
+        die("nonnumeric quantitative phenotype values for trait ", trait$trait_id)
+      }
+      cases <- NA_integer_
+      controls <- NA_integer_
+      n <- length(observed)
+      underpowered <- n < config$warnings$min_n
+    }
     counts[[length(counts) + 1]] <- data.frame(
       trait_id = trait$trait_id,
       ancestry = label,
@@ -140,10 +203,18 @@ counts[[length(counts) + 1]] <- data.frame(
 # Do not launch GWAS jobs for configured empty case/control cells.
 count_rows <- do.call(rbind, counts)
 checked <- count_rows[count_rows$trait_id != "ALL" & count_rows$active == "True", , drop = FALSE]
-empty <- checked[checked$n == 0 | checked$cases == 0 | checked$controls == 0, , drop = FALSE]
+binary_checked <- checked[!is.na(checked$cases) & !is.na(checked$controls), , drop = FALSE]
+quant_checked <- checked[is.na(checked$cases) | is.na(checked$controls), , drop = FALSE]
+empty <- rbind(
+  binary_checked[binary_checked$n == 0 | binary_checked$cases == 0 | binary_checked$controls == 0, , drop = FALSE],
+  quant_checked[quant_checked$n == 0, , drop = FALSE]
+)
 if (nrow(empty)) {
-  labels <- paste0(empty$trait_id, "/", empty$ancestry,
-    " n=", empty$n, " cases=", empty$cases, " controls=", empty$controls)
+  labels <- ifelse(
+    is.na(empty$cases) | is.na(empty$controls),
+    paste0(empty$trait_id, "/", empty$ancestry, " n=", empty$n),
+    paste0(empty$trait_id, "/", empty$ancestry, " n=", empty$n, " cases=", empty$cases, " controls=", empty$controls)
+  )
   die("empty GWAS strata or case/control cells: ", paste(labels, collapse = "; "))
 }
 

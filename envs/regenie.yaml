@@ -1,0 +1,7 @@
+name: gwas-regenie
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - regenie=4.1.2
+  - python>=3.11,<3.13

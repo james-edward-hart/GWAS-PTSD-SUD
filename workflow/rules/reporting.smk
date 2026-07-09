@@ -7,6 +7,9 @@ reference_prep_report_input = lambda wildcards: [REFERENCE_PREP_REPORT] \
     else []
 
 ancestry_counts_input = lambda wildcards: popmad_counts_file()
+phase2_regenie_tool_input = lambda wildcards: [PHASE2_REGENIE_TOOL] \
+    if config.get("phase2_regenie", {}).get("enabled", False) \
+    else []
 POPMAD_PROJECTION_PLOT = f"results/plots/ancestry/{ANALYSIS_OUTPUT_NAME}.popmad_reference_study_pcs.png"
 
 
@@ -129,10 +132,76 @@ rule make_report:
         """
 
 
+rule plot_phase2_regenie:
+    input:
+        config=RUN_CONFIG,
+        stats="results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie",
+    output:
+        qq=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.qq.png",
+        manhattan=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.manhattan.png",
+        manhattan_pdf=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.manhattan.pdf",
+    log:
+        "results/logs/reporting/plot_phase2_regenie.{trait}.{build}.log",
+    conda:
+        "../../envs/reporting.yaml",
+    shell:
+        """
+        Rscript scripts/plot_gwas.R \
+          --config {input.config} \
+          --stats {input.stats} \
+          --qq {output.qq} \
+          --manhattan {output.manhattan} \
+          --manhattan-pdf {output.manhattan_pdf} \
+          > {log} 2>&1
+        """
+
+
+rule make_phase2_regenie_report:
+    input:
+        config=RUN_CONFIG,
+        stats="results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie",
+        summary="results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv",
+        group_summary=lambda wildcards: f"{PHASE2_DIR}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.trait_summary.tsv",
+        union_summary=lambda wildcards: f"{PHASE2_DIR}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.stage1_union_summary.tsv",
+        pan_summary=f"{PHASE2_DIR}/pan_sample_summary.tsv",
+        ancestry_summary=f"{PHASE2_DIR}/pan_ancestry_report.tsv",
+        qq=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.qq.png",
+        manhattan=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.manhattan.png",
+        manhattan_pdf=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.manhattan.pdf",
+        stage1_summary=phase2_trait_stage1_summaries,
+    output:
+        report=f"results/reports/{{trait}}/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.report.md",
+    log:
+        "results/logs/reporting/make_phase2_regenie_report.{trait}.{build}.log",
+    conda:
+        "../../envs/gwas.yaml",
+    shell:
+        """
+        Rscript scripts/phase2_regenie.R make-report \
+          --config {input.config} \
+          --trait {wildcards.trait} \
+          --build {wildcards.build} \
+          --stats {input.stats} \
+          --summary {input.summary} \
+          --group-summary {input.group_summary} \
+          --union-summary {input.union_summary} \
+          --pan-summary {input.pan_summary} \
+          --ancestry-summary {input.ancestry_summary} \
+          --qq {input.qq} \
+          --manhattan {input.manhattan} \
+          --manhattan-pdf {input.manhattan_pdf} \
+          --stage1-summary {input.stage1_summary} \
+          --out {output.report} \
+          > {log} 2>&1
+        """
+
+
 rule write_run_manifest:
     input:
         config=RUN_CONFIG,
         reports=report_targets,
+        phase2_reports=phase2_report_targets,
+        regenie_tool=phase2_regenie_tool_input,
         build="results/qc/genome_build/genome_build.txt",
     output:
         manifest="results/manifests/run_manifest.tsv",
@@ -140,11 +209,16 @@ rule write_run_manifest:
         "results/logs/reporting/write_run_manifest.log",
     conda:
         "../../envs/gwas.yaml",
+    params:
+        regenie_tool=lambda wildcards, input: input.regenie_tool[0]
+        if input.regenie_tool
+        else "",
     shell:
         """
         Rscript scripts/write_run_manifest.R \
           --config {input.config} \
           --genome-build-file {input.build} \
+          --regenie-tool {params.regenie_tool:q} \
           --out {output.manifest} \
           > {log} 2>&1
         """
