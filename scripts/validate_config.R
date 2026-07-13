@@ -293,6 +293,68 @@ if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
 }
 
 
+# ReMeta exports are intentionally limited to sample-matched marginal gene-test
+# evidence from WES hardcalls or imputed dosages.
+if (truthy(config$remeta$enabled %||% FALSE)) {
+  if (!truthy(config$phase2_regenie$enabled %||% FALSE)) {
+    die("remeta.enabled: true requires phase2_regenie.enabled: true")
+  }
+  if (!identical(tolower(config$genotypes$type %||% ""), "pgen")) {
+    die("remeta.enabled requires genotypes.type: pgen so dosage and REF/ALT semantics are preserved")
+  }
+  if (!genome_build %in% c("GRCh37", "GRCh38")) {
+    die("remeta.enabled requires inferred genome build GRCh37 or GRCh38; observed ", genome_build)
+  }
+  data_source <- tolower(trimws(as.character(config$remeta$data_source %||% "")))
+  genotype_mode <- tolower(trimws(as.character(config$remeta$genotype_mode %||% "")))
+  if (!data_source %in% c("wes", "imputed")) {
+    die("remeta.data_source must be wes or imputed; basic array and WGS data are not accepted")
+  }
+  expected_mode <- if (identical(data_source, "wes")) "hardcall" else "dosage"
+  if (!identical(genotype_mode, expected_mode)) {
+    die("remeta.data_source=", data_source, " requires remeta.genotype_mode=", expected_mode)
+  }
+  if (!truthy(config$remeta$input_variants_normalized %||% FALSE)) {
+    die("remeta.input_variants_normalized must be true to attest that variants were split, left-normalized, and reference-aligned")
+  }
+  min_mac <- suppressWarnings(as.numeric(config$remeta$min_mac %||% 1))
+  if (!is.finite(min_mac) || min_mac < 1) die("remeta.min_mac must be at least 1")
+  geno_missing_max <- suppressWarnings(as.numeric(config$remeta$geno_missing_max %||% 0.05))
+  if (!is.finite(geno_missing_max) || geno_missing_max < 0 || geno_missing_max > 1) {
+    die("remeta.geno_missing_max must be between 0 and 1")
+  }
+  info_min <- suppressWarnings(as.numeric(config$remeta$info_min %||% 0.8))
+  if (!is.finite(info_min) || info_min < 0 || info_min > 1) die("remeta.info_min must be between 0 and 1")
+  target_r2 <- suppressWarnings(as.numeric(config$remeta$target_r2 %||% 0.0001))
+  if (!is.finite(target_r2) || target_r2 <= 0 || target_r2 > 1) {
+    die("remeta.target_r2 must be greater than 0 and at most 1")
+  }
+  resource_root <- trimws(as.character(config$remeta$resource_root %||% "resources/remeta"))
+  if (!nzchar(resource_root)) die("remeta.resource_root must not be blank")
+  resource_dir <- file.path(resource_root, genome_build)
+  for (filename in c("gene_list.tsv", "genes.tsv", "target_regions.bed", "provenance.tsv")) {
+    require_file(file.path(resource_dir, filename), paste("ReMeta", genome_build, filename))
+  }
+  provenance <- read_tsv(file.path(resource_dir, "provenance.tsv"))
+  require_columns(provenance, c("key", "value"), "ReMeta resource provenance")
+  if (anyDuplicated(provenance$key)) die("ReMeta resource provenance contains duplicate keys")
+  provenance <- setNames(provenance$value, provenance$key)
+  if (!identical(provenance[["genome_build"]], genome_build)) {
+    die("ReMeta resource provenance build does not match inferred build ", genome_build)
+  }
+  resource_files <- c(gene_list = "gene_list.tsv", genes = "genes.tsv", target_regions = "target_regions.bed")
+  for (label in names(resource_files)) {
+    filename <- resource_files[[label]]
+    key <- paste0(label, "_sha256")
+    expected <- provenance[[key]] %||% ""
+    observed <- sha256_file(file.path(resource_dir, filename))
+    if (!nzchar(expected) || !identical(tolower(expected), tolower(observed))) {
+      die("ReMeta resource checksum mismatch for ", filename)
+    }
+  }
+}
+
+
 # Ensure sample manifest IDs exist in the genotype files.
 genotype_key <- genotype_ids(config)
 genotype_parts <- do.call(rbind, strsplit(genotype_key, "\t", fixed = TRUE))

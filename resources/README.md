@@ -38,3 +38,27 @@ match fraction, at least a 20-marker lead over the next-best build, and at least
 lead fraction over the next-best build.
 
 For a new production reference, rebuild this table from that project reference or a reviewed common-SNP candidate list, then archive the command, source URLs, date, and QC table with the analysis.
+
+## ReMeta Marginal Gene-LD Targets
+
+`resources/remeta/GRCh37` and `resources/remeta/GRCh38` are the fixed target
+interfaces for cohort-side marginal ReMeta LD. They were built from the GENCODE
+v50 basic annotations released in June 2026. The GRCh37 resource uses GENCODE's
+official mapped annotation; it is not a pipeline-performed liftover.
+
+Each build directory contains:
+
+- `gene_list.tsv`: headerless ReMeta `GENE CHR START END`, using 1-based inclusive coordinates.
+- `target_regions.bed`: merged 0-based half-open protein-coding exon intervals with two splice bases on each side.
+- `genes.tsv`: stable Ensembl gene IDs without version suffixes, symbols, coordinates, build, and source.
+- `provenance.tsv`: source and output checksums, coordinate conventions, and row counts.
+
+The target is an intentionally broad autosomal protein-coding/splice superset.
+It has no cohort MAF cutoff and is not a functional mask. Central analysis must
+apply the harmonized annotation, external population-frequency rule, and gene
+mask definitions. Extra target variants only make the LD resource reusable;
+they do not enter a gene test unless the central set list includes them.
+
+The shipped resources cover chromosomes 1-22 only. Sex-chromosome gene tests
+remain out of scope until ploidy handling and central meta-analysis conventions
+are specified and validated.

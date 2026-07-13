@@ -218,6 +218,9 @@ mamba env update -n gwas-stage1 -f envs/gwas.yaml --prune
 ```
 
 Snakemake creates hashed rule environments under the profile `conda-prefix`.
+When the optional cohort ReMeta export is enabled, Snakemake also creates the
+pinned Linux environment from `envs/remeta.yaml`; no central-analysis software
+or code is installed by this pipeline.
 To build all workflow rule environments up front, including the Phase 2 regenie
 environment, run this after activating `gwas-stage1-driver`:
 

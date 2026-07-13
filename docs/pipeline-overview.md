@@ -16,6 +16,8 @@ This Snakemake workflow runs Stage 1 ancestry-stratified GWAS and Phase 2 pooled
 - Runs PLINK2 `--glm` within each ancestry stratum.
 - Harmonizes PLINK2 outputs into consistent summary statistics.
 - Runs Phase 2 pooled pan-ancestry regenie GWAS under the `PAN` label when `phase2_regenie.enabled: true`.
+- Optionally exports cohort rare-variant HTP statistics, matching marginal
+  within-gene ReMeta LD, and a handoff manifest when `remeta.enabled: true`.
 - Fits cohort-global PCs for Phase 2 by fitting PCA in sex-QC-passing unrelated samples and projecting all Phase 2 samples.
 - Uses Stage 1 ancestry-stratified variant pass lists to build Phase 2 regenie association extract lists.
 - Produces a POP-MaD reference/study projection plot, QQ plots with lambda GC, and Manhattan plots as PNG, with Manhattan plots also written as PDF.
@@ -26,7 +28,7 @@ This Snakemake workflow runs Stage 1 ancestry-stratified GWAS and Phase 2 pooled
 
 - It does not run imputation.
 - It does not run METAL or trans-ancestry meta-analysis.
-- It does not run re-meta.
+- It does not run central ReMeta gene tests or merge cohort results.
 - It does not lift genotype coordinates or summary statistics.
 - It does not download, create, rebuild, or modify the production reference package.
 
@@ -77,6 +79,9 @@ results/plots/{trait}/PAN/{analysis_name}.{trait}.PAN.{build}.regenie.manhattan.
 results/reports/{trait}/{analysis_name}.{trait}.{ancestry}.{build}.report.md
 results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}.regenie.report.md
 results/manifests/run_manifest.tsv
+results/remeta/export/{build}/htp/{trait}.PAN.regenie.gz
+results/remeta/export/{build}/ld/{group}/chr{chrom}.remeta.gene.ld
+results/remeta/export/{analysis_name}.{build}.remeta_manifest.tsv
 ```
 
 `{analysis_name}` is the filename-safe version of `project.analysis_name`.

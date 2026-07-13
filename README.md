@@ -22,7 +22,8 @@ flowchart LR
     ancestry --> qc["GWAS-ready QC<br>sex, relatedness, missingness"]
     qc --> gwas["Stage 1 association<br>PLINK2 per trait x ancestry"]
     gwas --> pan["Phase 2 association<br>regenie PAN pooled GWAS"]
-    pan --> review["Review package<br>results, plots, reports, manifests"]
+    pan --> remeta["Optional cohort export<br>rare HTP + marginal gene LD"]
+    remeta --> review["Review package<br>results, plots, reports, manifests"]
 
     ref["Reference package<br>fingerprinted and build-matched"] --> build
     ref --> ancestry
@@ -33,7 +34,7 @@ flowchart LR
     classDef reference fill:#ecfdf5,stroke:#047857,color:#111827;
     classDef output fill:#fff7ed,stroke:#c2410c,color:#111827;
     class inputs input;
-    class validate,build,ancestry,qc,gwas,pan work;
+    class validate,build,ancestry,qc,gwas,pan,remeta work;
     class ref reference;
     class review output;
 ```
@@ -59,6 +60,7 @@ Use this README as the project front page and documentation index.
 | Develop | [Development Notes](docs/development-notes.md) | Focused checks for scripts, rules, and local workflow changes. |
 | Example Data | [HapMap3 Development Data](docs/local-example-run.md) | Public development-data setup for non-production checks. |
 | Methods | [Resource Methods](resources/README.md) | Genome-build marker-panel methods and resource details. |
+| ReMeta | [Cohort ReMeta Export](docs/remeta-cohort-export.md) | Scientific contract, configuration, outputs, and central-analysis handoff. |
 
 Do not use the HapMap3 development-data commands for production analyses. A
 production run requires a production-style `config/config.yaml` and a
@@ -81,9 +83,11 @@ build-matched, fingerprinted reference package.
 - Runs pooled pan-ancestry regenie GWAS as Phase 2 when enabled, using cohort
   global PCs, native regenie outputs, `PAN` plots/reports, and Stage 1
   ancestry-specific QC comparisons.
+- Optionally exports sample-matched rare-variant regenie HTP statistics and
+  marginal within-gene ReMeta LD for central gene-level meta-analysis.
 
 The workflow does not run imputation, METAL, trans-ancestry meta-analysis,
-liftover, re-meta, or reference-package construction.
+liftover, central ReMeta gene tests, or reference-package construction.
 
 ## Required Inputs
 
@@ -140,6 +144,9 @@ results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manh
 results/reports/{trait}/{analysis_name}.{trait}.{ancestry}.{build}.report.md
 results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}.regenie.report.md
 results/manifests/run_manifest.tsv
+results/remeta/export/{build}/htp/{trait}.PAN.regenie.gz
+results/remeta/export/{build}/ld/{group}/chr{chrom}.remeta.gene.ld
+results/remeta/export/{analysis_name}.{build}.remeta_manifest.tsv
 ```
 
 `{analysis_name}` is the filename-safe version of `project.analysis_name`.

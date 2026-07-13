@@ -6,6 +6,7 @@ Production HPC deployments should use conda environments or site-managed
 modules and approved data-transfer procedures. The default Snakemake rule
 environment installs PLINK 1.9, PLINK2, and ADMIXTURE from conda channels.
 Phase 2 regenie rules use a separate conda environment from `envs/regenie.yaml`.
+The optional cohort ReMeta export uses `envs/remeta.yaml`.
 The workflow does not download HGDP+1KG reference data. For a cohort run, use the
 approved unpacked reference package and its `content_fingerprint.sha256`; record
 package-level provenance in `resources/manifests/reference_data.tsv`.
@@ -63,6 +64,20 @@ The bundled SLURM profile expects the Snakemake SLURM executor plugin and
 ```bash
 mamba env create -f envs/snakemake-driver.yaml
 conda activate gwas-stage1-driver
+```
+
+### ReMeta
+
+ReMeta 0.11.2 is pinned in `envs/remeta.yaml` from Bioconda. The cohort branch
+uses only `compute-ref-ld`; central gene testing is outside this repository.
+The Bioconda build is currently a Linux package, matching the supported HPC
+execution environment. Sites that manage software through modules can omit
+`--use-conda` and set `tools.remeta` to the approved executable.
+
+Official documentation:
+
+```text
+https://rgcgithub.github.io/remeta/documentation/
 ```
 
 ## Reference Data

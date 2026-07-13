@@ -528,6 +528,30 @@ Compatible traits are batched together by detected trait type and covariate
 list. Low or unusable Phase 2 traits are skipped with a placeholder PAN report
 instead of failing the whole workflow.
 
+### `remeta`
+
+This optional cohort-only branch exports rare single-variant regenie HTP
+statistics, sample-matched marginal ReMeta LD, and a checksummed handoff
+manifest. It does not run central gene tests or produce gene p-values locally.
+
+| Parameter | Required when enabled | Description |
+| --- | --- | --- |
+| `enabled` | Yes | Requires `phase2_regenie.enabled: true`. |
+| `data_source` | Yes | `wes` or `imputed`; basic array and WGS inputs are rejected. |
+| `genotype_mode` | Yes | `hardcall` for WES or `dosage` for imputed data. |
+| `input_variants_normalized` | Yes | Explicit attestation that variants were split, left-normalized, and reference-aligned before entering the workflow. |
+| `resource_root` | Yes | Bundled build-specific gene and target resources. Template uses `resources/remeta`. |
+| `min_mac` | Recommended | Cohort target/HTP MAC floor. Keep at `1`; central rarity rules are applied later. |
+| `geno_missing_max` | Recommended | Maximum missingness for target variants. |
+| `info_min` | Imputed only | MaCH R2/INFO floor for imputed dosages. |
+| `target_r2` | Recommended | ReMeta target-LD sparsity threshold. Template uses ReMeta's `0.0001` default. |
+
+The branch accepts PGEN input only. The same group-specific target PGEN is read
+by rare-variant regenie Step 2 and ReMeta, and sample identity is validated.
+Only marginal within-gene LD is exported; there is no flanking buffer or
+conditional-analysis payload. See [Cohort ReMeta Export](remeta-cohort-export.md)
+for the scientific contract and output layout.
+
 ### `warnings`
 
 These thresholds are report-only warnings; they do not stop the workflow.
@@ -576,12 +600,15 @@ or map them to cluster-specific resource requests.
 | `threads_small` | Yes | Threads for small PLINK/R helper jobs. |
 | `threads_gwas` | Yes | Threads for each PLINK2 GWAS job. |
 | `threads_admixture` | Recommended | Threads for ADMIXTURE jobs. Falls back to small threads in some ADMIXTURE rules if omitted. |
+| `threads_remeta_ld` | Required when ReMeta is enabled | Threads for each chromosome-specific ReMeta LD job. |
 | `mem_mb_small` | Yes | Memory in MB for small helper jobs. |
 | `mem_mb_gwas` | Yes | Memory in MB for each GWAS job. |
 | `mem_mb_admixture` | Recommended | Memory in MB for ADMIXTURE jobs. |
+| `mem_mb_remeta_ld` | Required when ReMeta is enabled | Memory in MB for each ReMeta LD job. |
 | `time_min_small` | Yes | Runtime in minutes for small helper jobs. |
 | `time_min_gwas` | Yes | Runtime in minutes for each GWAS job. |
 | `time_min_admixture` | Recommended | Runtime in minutes for ADMIXTURE jobs. |
+| `time_min_remeta_ld` | Required when ReMeta is enabled | Runtime in minutes for each ReMeta LD job. |
 
 For HPC runs, also review `profiles/slurm/config.yaml`. To identify candidate
 SLURM values on the cluster login node, run:

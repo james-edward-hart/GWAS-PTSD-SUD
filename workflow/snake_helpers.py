@@ -64,6 +64,10 @@ def phase2_enabled(config):
     return truthy(config.get("phase2_regenie", {}).get("enabled", False))
 
 
+def remeta_enabled(config):
+    return truthy(config.get("remeta", {}).get("enabled", False))
+
+
 def phase2_default_covariates(config):
     settings = config.get("phase2_regenie", {})
     covars = config_list(settings.get("default_covariates"))
@@ -380,6 +384,82 @@ def phase2_trait_stage1_summaries(checkpoints, wildcards, config):
 def phase2_trait_regenie_done(wildcards, config):
     group = phase2_trait_group(config, wildcards.trait)
     return f"results/gwas/PAN/regenie/groups/{group}/{group}.{wildcards.build}.step2.done"
+
+
+def remeta_resource_file(config, build, filename):
+    root = str(config.get("remeta", {}).get("resource_root", "resources/remeta")).rstrip("/")
+    return f"{root}/{build}/{filename}"
+
+
+def remeta_export_manifest(config, build):
+    return f"results/remeta/export/{analysis_output_name(config)}.{build}.remeta_manifest.tsv"
+
+
+def remeta_targets(checkpoints, wildcards, config):
+    if not remeta_enabled(config):
+        return []
+    if not phase2_enabled(config):
+        workflow_error("remeta.enabled requires phase2_regenie.enabled")
+    build = inferred_build(checkpoints)
+    if build not in {"GRCh37", "GRCh38"}:
+        workflow_error(f"remeta.enabled requires GRCh37 or GRCh38; inferred build is {build}")
+    return [remeta_export_manifest(config, build)]
+
+
+def remeta_manifest_inputs(config, build):
+    if not remeta_enabled(config):
+        return []
+    groups = phase2_group_ids(config)
+    traits = trait_ids(config)
+    paths = []
+    for group in groups:
+        for chrom in range(1, 23):
+            prefix = f"results/remeta/export/{build}/ld/{group}/chr{chrom}"
+            paths.extend(
+                [
+                    f"{prefix}.remeta.gene.ld",
+                    f"{prefix}.remeta.buffer.ld",
+                    f"{prefix}.remeta.ld.idx.gz",
+                ]
+            )
+    for trait in traits:
+        paths.append(f"results/remeta/export/{build}/htp/{trait}.PAN.regenie.gz")
+    return paths
+
+
+def remeta_group_htp_inputs(config, group, build):
+    return [
+        f"results/remeta/export/{build}/htp/{trait}.PAN.regenie.gz"
+        for trait in phase2_group_traits(config, group)
+    ]
+
+
+def remeta_group_index_inputs(group, build):
+    return [
+        f"results/remeta/export/{build}/ld/{group}/chr{chrom}.remeta.ld.idx.gz"
+        for chrom in range(1, 23)
+    ]
+
+
+def remeta_target_summaries(config, build):
+    return [
+        f"results/remeta/work/{build}/groups/{group}/{group}.target.summary.tsv"
+        for group in phase2_group_ids(config)
+    ]
+
+
+def remeta_trait_summaries(config):
+    return [
+        f"results/qc/phase2_regenie/groups/{group}/{group}.trait_summary.tsv"
+        for group in phase2_group_ids(config)
+    ]
+
+
+def remeta_validations(config, build):
+    return [
+        f"results/remeta/work/{build}/groups/{group}/{group}.validation.ok"
+        for group in phase2_group_ids(config)
+    ]
 
 
 # Keep POP-MaD outputs in the production ancestry directory.

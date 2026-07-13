@@ -1,0 +1,7 @@
+name: gwas-remeta
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - remeta=0.11.2
+  - python>=3.11,<3.13

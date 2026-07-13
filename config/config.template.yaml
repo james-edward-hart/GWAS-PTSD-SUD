@@ -43,6 +43,7 @@ tools:
   plink1: "plink"
   admixture: "admixture"
   regenie: "regenie"
+  remeta: "remeta"
 
 
 # Study genotype dataset; type options: pgen, bed.
@@ -265,6 +266,28 @@ phase2_regenie:
       r2: 0.2
 
 
+# Cohort-side evidence for central marginal ReMeta gene tests. This branch
+# deliberately produces no local gene p-values: it exports sample-matched
+# regenie HTP statistics and marginal, within-gene LD matrices.
+remeta:
+  enabled: false
+  # Only wes or imputed are accepted. Basic genotyping-array data are excluded.
+  data_source: ""
+  # Required pairing: wes=hardcall, imputed=dosage.
+  genotype_mode: ""
+  # Enabling the branch requires an explicit true acknowledgment that input
+  # variants were split, left-normalized, and reference-aligned for the inferred
+  # genome build before entering this workflow.
+  input_variants_normalized: false
+  resource_root: "resources/remeta"
+  min_mac: 1
+  geno_missing_max: 0.05
+  # Used only for imputed dosages; INFO/MaCH R2 annotations must be present.
+  info_min: 0.8
+  # ReMeta's published/default marginal target-LD sparsity threshold.
+  target_r2: 0.0001
+
+
 # Report warnings only; these thresholds do not stop the workflow.
 warnings:
   min_n: 500
@@ -288,15 +311,18 @@ runtime:
   threads_phase2_pca: 4
   threads_regenie_step1: 4
   threads_regenie_step2: 4
+  threads_remeta_ld: 4
   mem_mb_small: 4000
   mem_mb_gwas: 16000
   mem_mb_admixture: 16000
   mem_mb_phase2_pca: 16000
   mem_mb_regenie_step1: 32000
   mem_mb_regenie_step2: 32000
+  mem_mb_remeta_ld: 16000
   time_min_small: 30
   time_min_gwas: 240
   time_min_admixture: 240
   time_min_phase2_pca: 240
   time_min_regenie_step1: 480
   time_min_regenie_step2: 480
+  time_min_remeta_ld: 240
