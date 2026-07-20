@@ -42,6 +42,8 @@ IMPORTANT: You will use this info in the config later.
 Use the unpacked package directory as `reference_package.root`. Use the printed
 fingerprint (that printed to terminal) as `reference_package.fingerprint`.
 
+(Don't be alarmed by tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple. prints)
+
 ## 3. Prepare Cohort Inputs
 
 Prepare one PLINK genotype dataset (already imputed):
