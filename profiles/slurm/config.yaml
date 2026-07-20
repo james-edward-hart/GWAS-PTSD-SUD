@@ -17,86 +17,147 @@ max-status-checks-per-second: 5
 # conda-prefix: "/path/to/shared/conda/envs"
 
 # Default resources apply to every submitted job unless a rule-specific override
-# is set below. Replace the account and partition placeholders before production.
+# is set below. The 40 GB baseline protects R helpers that scan full variant or
+# GWAS result tables. Replace the account and partition placeholders before production.
 default-resources:
   slurm_account: "my_account"
   slurm_partition: "standard"
-  mem_mb: 4000
-  runtime: 30
+  mem_mb: 40000
+  runtime: 60
 
 set-resources:
+  infer_genome_build:
+    mem_mb: 40000
+    runtime: 60
+  validate_config:
+    mem_mb: 40000
+    runtime: 60
+  run_sex_check:
+    mem_mb: 40000
+    runtime: 60
+  write_control_hwe_variants:
+    mem_mb: 40000
+    runtime: 240
   run_plink2_gwas:
-    mem_mb: 16000
+    mem_mb: 40000
+    runtime: 240
+  summarize_gwas_run:
+    mem_mb: 40000
+    runtime: 60
+  plot_gwas:
+    mem_mb: 40000
+    runtime: 60
+  make_report:
+    mem_mb: 40000
+    runtime: 60
+  prepare_phase2_pan_genotypes:
+    mem_mb: 40000
     runtime: 240
   prepare_phase2_global_pca_markers:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
   prepare_phase2_step1_markers:
-    mem_mb: 32000
+    mem_mb: 40000
     runtime: 480
   fit_phase2_global_pca:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
   score_phase2_global_pcs:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
+  filter_phase2_regenie_step1_variants:
+    mem_mb: 40000
+    runtime: 480
+  write_phase2_regenie_step1_command:
+    mem_mb: 40000
+    runtime: 480
   prepare_phase2_regenie_assoc_genotypes:
-    mem_mb: 32000
+    mem_mb: 40000
     runtime: 480
   run_phase2_regenie_step1:
-    mem_mb: 32000
+    mem_mb: 40000
+    runtime: 480
+  write_phase2_regenie_step2_command:
+    mem_mb: 40000
     runtime: 480
   run_phase2_regenie_step2:
-    mem_mb: 32000
+    mem_mb: 40000
     runtime: 480
+  plot_phase2_regenie:
+    mem_mb: 40000
+    runtime: 60
+  make_phase2_regenie_report:
+    mem_mb: 40000
+    runtime: 60
   prepare_remeta_target_genotypes:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
+  write_remeta_regenie_step2_command:
+    mem_mb: 40000
+    runtime: 480
   run_remeta_regenie_step2:
-    mem_mb: 32000
+    mem_mb: 40000
     runtime: 480
   compute_remeta_marginal_ld:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
   make_unrelated_keep:
-    mem_mb: 8000
+    mem_mb: 40000
     runtime: 120
   prepare_relatedness_markers:
-    mem_mb: 8000
+    mem_mb: 40000
     runtime: 120
   convert_reference_for_ancestry:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
   convert_study_for_ancestry:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
+  extract_shared_reference:
+    mem_mb: 40000
+    runtime: 60
+  extract_shared_study:
+    mem_mb: 40000
+    runtime: 60
   ld_prune_ancestry_markers:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
   fit_reference_pca:
-    mem_mb: 32000
+    mem_mb: 40000
     runtime: 480
   score_reference_pcs:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
   score_study_pcs:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
   run_within_ancestry_pca:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
   convert_reference_for_admixture:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
   convert_study_for_admixture:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
+  extract_shared_admixture_reference:
+    mem_mb: 40000
+    runtime: 60
+  extract_shared_admixture_study:
+    mem_mb: 40000
+    runtime: 60
   ld_prune_admixture_markers:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
+  extract_pruned_admixture_reference:
+    mem_mb: 40000
+    runtime: 60
+  extract_pruned_admixture_study:
+    mem_mb: 40000
+    runtime: 60
   merge_admixture_genotypes:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240
   run_supervised_admixture:
-    mem_mb: 16000
+    mem_mb: 40000
     runtime: 240

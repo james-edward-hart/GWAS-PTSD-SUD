@@ -637,8 +637,8 @@ conda-prefix: "/path/to/shared/conda/envs"
 default-resources:
   slurm_account: "your_account"
   slurm_partition: "standard"
-  mem_mb: 4000
-  runtime: 30
+  mem_mb: 40000
+  runtime: 60
 ```
 
 Leave `slurm-qos` commented out or remove it if your cluster does not use QOS.

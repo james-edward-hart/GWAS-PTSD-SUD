@@ -179,8 +179,8 @@ conda-prefix: "/path/to/shared/conda/envs"
 default-resources:
   slurm_account: "your_account"
   slurm_partition: "standard"
-  mem_mb: 4000
-  runtime: 30
+  mem_mb: 40000
+  runtime: 60
 ```
 
 `conda-prefix` must be a writable directory accessible to compute nodes (could be in your home directory).
