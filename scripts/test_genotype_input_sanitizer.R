@@ -44,7 +44,11 @@ stopifnot(identical(bed_report$reason, rep("duplicate_allele_code", 2)))
 bed_exclude <- readLines(paste0(bed_out, ".invalid_bim_alleles.exclude.txt"), warn = FALSE)
 stopifnot(identical(bed_exclude, bed_report$replacement_variant_id))
 
-safe_bim <- read_bim_variants(paste0(bed_args[[2]], ".bim"))
+safe_bim <- data.frame()
+invisible(scan_plink_variant_metadata(list(type = "bed", prefix = bed_args[[2]]), function(rows) {
+  safe_bim <<- rbind(safe_bim, rows)
+  TRUE
+}))
 stopifnot(!any(toupper(safe_bim$allele1) == toupper(safe_bim$allele2)))
 stopifnot(identical(safe_bim$variant_id[[1]], "rs_valid"))
 stopifnot(grepl("^__stage1_excluded_invalid_bim_", safe_bim$variant_id[[2]]))
@@ -72,11 +76,14 @@ stopifnot(identical(
 pgen_prefix <- file.path(tmp, "study_pgen")
 writeLines("dummy-pgen", paste0(pgen_prefix, ".pgen"))
 writeLines(c("#FID\tIID", "F1\tI1", "F2\tI2"), paste0(pgen_prefix, ".psam"))
+noise <- paste(2, seq_len(10000), paste0("noise", seq_len(10000)), "A", "G", "noise", sep = "\t")
 writeLines(c(
-  "#CHROM\tPOS\tID\tREF\tALT",
-  "1\t100\trs_valid\tA\tG",
-  "1\t200\trs_same\tC\tC",
-  "2\t300\trs_multiallelic\tA\tA,C"
+  "##fileformat=VCFv4.2",
+  "#CHROM\tPOS\tID\tREF\tALT\tINFO",
+  "1\t100\trs_valid\tA\tG\tkeep_valid",
+  noise,
+  "1\t200\trs_same\tC\tC\treplace",
+  "chrX\t300\trs_multiallelic\tA\tA,C\tkeep_multiallelic"
 ), paste0(pgen_prefix, ".pvar"))
 
 pgen_out <- file.path(tmp, "out", "study_pgen_qc")
@@ -86,11 +93,24 @@ stopifnot(identical(pgen_args[[3]], "--exclude"))
 
 pgen_report <- read_tsv(paste0(pgen_out, ".invalid_pvar_alleles.tsv"))
 stopifnot(identical(pgen_report$variant_id, "rs_same"))
-safe_pvar <- read_tsv(paste0(pgen_args[[2]], ".pvar"))
-stopifnot(!any(safe_pvar$REF == safe_pvar$ALT & !grepl(",", safe_pvar$ALT, fixed = TRUE)))
-stopifnot(identical(safe_pvar$REF[[2]], "A"))
-stopifnot(identical(safe_pvar$ALT[[2]], "C"))
-stopifnot(identical(safe_pvar$ID[[3]], "rs_multiallelic"))
+stopifnot(endsWith(pgen_report$replacement_variant_id, "_10002"))
+
+safe_pvar <- data.frame()
+invisible(scan_plink_variant_metadata(list(type = "pgen", prefix = pgen_args[[2]]), function(rows) {
+  selected <- rows$row_number %in% c(1L, 10002L, 10003L)
+  safe_pvar <<- rbind(safe_pvar, rows[selected, , drop = FALSE])
+  TRUE
+}, require_alleles = TRUE))
+stopifnot(!any(safe_pvar$allele1 == safe_pvar$allele2 & !grepl(",", safe_pvar$allele2, fixed = TRUE)))
+stopifnot(identical(safe_pvar$allele1[safe_pvar$row_number == 10002L], "A"))
+stopifnot(identical(safe_pvar$allele2[safe_pvar$row_number == 10002L], "C"))
+stopifnot(identical(safe_pvar$variant_id[safe_pvar$row_number == 10003L], "rs_multiallelic"))
+
+safe_pvar_lines <- readLines(paste0(pgen_args[[2]], ".pvar"), warn = FALSE)
+stopifnot(identical(safe_pvar_lines[[1]], "##fileformat=VCFv4.2"))
+stopifnot(grepl("keep_multiallelic$", safe_pvar_lines[grepl("rs_multiallelic", safe_pvar_lines)]))
+stopifnot(genotype_has_chromosomes(list(type = "pgen", prefix = pgen_args[[2]]), c("23", "X")))
+stopifnot(!genotype_has_chromosomes(list(type = "bed", prefix = clean_bed_prefix), c("23", "X")))
 
 
 # Headered pipeline keep files should be rewritten as headerless PLINK input.
@@ -143,6 +163,34 @@ empty_tsv_error <- tryCatch({
   ""
 }, error = function(err) conditionMessage(err))
 stopifnot(grepl("tab-delimited file is empty", empty_tsv_error, fixed = TRUE))
+
+empty_pvar_prefix <- file.path(tmp, "empty_pvar")
+invisible(file.create(paste0(empty_pvar_prefix, ".pvar")))
+empty_pvar_error <- tryCatch({
+  scan_plink_variant_metadata(list(type = "pgen", prefix = empty_pvar_prefix), function(rows) TRUE)
+  ""
+}, error = function(err) conditionMessage(err))
+stopifnot(grepl("PVAR file is empty", empty_pvar_error, fixed = TRUE))
+
+missing_id_prefix <- file.path(tmp, "missing_id")
+writeLines(c("#CHROM\tPOS\tREF\tALT", "1\t100\tA\tG"), paste0(missing_id_prefix, ".pvar"))
+missing_id_error <- tryCatch({
+  scan_plink_variant_metadata(list(type = "pgen", prefix = missing_id_prefix), function(rows) TRUE)
+  ""
+}, error = function(err) conditionMessage(err))
+stopifnot(grepl("missing required column(s): variant_id", missing_id_error, fixed = TRUE))
+
+chrom_header_prefix <- file.path(tmp, "chrom_header")
+writeLines(c("CHROM\tPOS\tID\tREF\tALT", "chrY\t100\trsY\tA\tG"), paste0(chrom_header_prefix, ".pvar"))
+stopifnot(genotype_has_chromosomes(list(type = "pgen", prefix = chrom_header_prefix), c("24", "Y")))
+
+malformed_bim_prefix <- file.path(tmp, "malformed_bim")
+writeLines("1\trs1\t0\t100\tA", paste0(malformed_bim_prefix, ".bim"))
+malformed_bim_error <- tryCatch({
+  scan_plink_variant_metadata(list(type = "bed", prefix = malformed_bim_prefix), function(rows) TRUE)
+  ""
+}, error = function(err) conditionMessage(err))
+stopifnot(grepl("must contain at least 6 columns", malformed_bim_error, fixed = TRUE))
 
 
 # Blank sex-check thresholds should use conventional chrX defaults instead of

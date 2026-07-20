@@ -28,21 +28,6 @@ split_id_keys <- function(keys) {
 }
 
 
-# Detect whether the genotype data includes X or Y markers.
-has_sex_markers <- function(config) {
-  kind <- tolower(config$genotypes$type)
-  prefix <- config$genotypes$prefix
-  if (kind == "bed") {
-    chrom <- read.table(paste0(prefix, ".bim"), stringsAsFactors = FALSE, quote = "", comment.char = "")[[1]]
-  } else {
-    pvar <- read_tsv(paste0(prefix, ".pvar"))
-    chrom_col <- if ("#CHROM" %in% names(pvar)) "#CHROM" else "CHROM"
-    chrom <- pvar[[chrom_col]]
-  }
-  any(tolower(clean_chrom(chrom)) %in% c("23", "24", "x", "y"))
-}
-
-
 # Write sex-check detail, remove, keep, and summary files together.
 write_outputs <- function(rows, skipped_reason = "") {
   missing <- c("", "0", "NA", "-9", ".")
@@ -121,7 +106,7 @@ write_outputs <- function(rows, skipped_reason = "") {
 # Skip cleanly when disabled or when no sex chromosomes are available.
 if (!truthy(settings$enabled %||% TRUE)) {
   problems <- write_outputs(data.frame(), "disabled")
-} else if (!has_sex_markers(config)) {
+} else if (!genotype_has_chromosomes(config$genotypes, c("23", "24", "X", "Y"), "sex-check genotype input")) {
   if (!truthy(settings$allow_no_sex_markers %||% FALSE)) {
     die("sex_check requires sex-chromosome markers, or explicit sex_check.allow_no_sex_markers: true")
   }

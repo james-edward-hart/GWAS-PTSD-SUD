@@ -21,21 +21,6 @@ markers$chrom <- clean_chrom(markers$chrom)
 markers$pos <- as.integer(markers$pos)
 
 
-# Read study variants from the configured PLINK dataset.
-kind <- tolower(config$genotypes$type)
-prefix <- config$genotypes$prefix
-if (kind == "bed") {
-  bim <- read.table(paste0(prefix, ".bim"), stringsAsFactors = FALSE, quote = "", comment.char = "")
-  variants <- data.frame(ID = bim[[2]], chrom = clean_chrom(bim[[1]]), pos = as.integer(bim[[4]]))
-} else if (kind == "pgen") {
-  pvar <- read_tsv(paste0(prefix, ".pvar"))
-  chrom_col <- if ("#CHROM" %in% names(pvar)) "#CHROM" else "CHROM"
-  variants <- data.frame(ID = pvar$ID, chrom = clean_chrom(pvar[[chrom_col]]), pos = as.integer(pvar$POS))
-} else {
-  die("unsupported genotype type '", kind, "'. Use 'pgen' or 'bed'.")
-}
-
-
 # Index markers by rsID and by coordinate for fallback matching.
 builds <- sort(unique(markers$build))
 scores <- setNames(rep(0L, length(builds)), builds)
@@ -44,15 +29,21 @@ by_id <- split(seq_len(nrow(markers)), markers$variant_id)
 by_pos <- split(seq_len(nrow(markers)), paste(markers$chrom, markers$pos, sep = "\t"))
 
 
+# Stream all study metadata while retaining only the compact marker indexes.
 # rsID matches take precedence over coordinate fallback.
-for (i in seq_len(nrow(variants))) {
-  rows <- by_id[[variants$ID[[i]]]]
-  if (is.null(rows)) rows <- by_pos[[paste(variants$chrom[[i]], variants$pos[[i]], sep = "\t")]]
-  if (is.null(rows)) next
-  checked <- checked + 1L
-  matching <- rows[markers$chrom[rows] == variants$chrom[[i]] & markers$pos[rows] == variants$pos[[i]]]
-  for (build in markers$build[matching]) scores[[build]] <- scores[[build]] + 1L
-}
+scan <- scan_plink_variant_metadata(config$genotypes, function(variants) {
+  variants$chrom <- clean_chrom(variants$chrom)
+  for (i in seq_len(nrow(variants))) {
+    rows <- by_id[[variants$variant_id[[i]]]]
+    if (is.null(rows)) rows <- by_pos[[paste(variants$chrom[[i]], variants$pos[[i]], sep = "\t")]]
+    if (is.null(rows)) next
+    checked <<- checked + 1L
+    matching <- rows[markers$chrom[rows] == variants$chrom[[i]] & markers$pos[rows] == variants$pos[[i]]]
+    for (build in markers$build[matching]) scores[[build]] <<- scores[[build]] + 1L
+  }
+  TRUE
+}, label = "genome-build genotype input")
+cat("Scanned", scan$rows_scanned, "variant metadata rows; evaluated", checked, "build-marker candidates\n")
 
 
 # Choose the build with the most matched markers.

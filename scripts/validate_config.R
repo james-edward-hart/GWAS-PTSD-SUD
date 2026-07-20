@@ -125,21 +125,6 @@ genotype_ids <- function(config) {
 }
 
 
-# Check whether the configured genotype dataset contains sex-chromosome markers.
-genotype_has_sex_markers <- function(config) {
-  kind <- tolower(config$genotypes$type)
-  prefix <- config$genotypes$prefix
-  if (kind == "bed") {
-    chrom <- read.table(paste0(prefix, ".bim"), stringsAsFactors = FALSE, quote = "", comment.char = "")[[1]]
-  } else {
-    pvar <- read_tsv(paste0(prefix, ".pvar"))
-    chrom_col <- if ("#CHROM" %in% names(pvar)) "#CHROM" else "CHROM"
-    chrom <- pvar[[chrom_col]]
-  }
-  any(tolower(clean_chrom(chrom)) %in% c("23", "24", "x", "y"))
-}
-
-
 # Check required top-level config sections and simple scalar settings.
 required_sections <- c("project", "analysis", "inputs", "tools", "genotypes", "genome_build",
   "popmad", "admixture", "ancestry_reference", "qc", "relatedness", "sex_check", "gwas",
@@ -445,7 +430,8 @@ if (!truthy(config$sex_check$enabled %||% TRUE)) die("sex_check.enabled: true is
 if ((config$sex_check$action %||% "warn") != "exclude") {
   die("sex_check.action: \"exclude\" is required in config/config.yaml")
 }
-if (!truthy(config$sex_check$allow_no_sex_markers %||% FALSE) && !genotype_has_sex_markers(config)) {
+if (!truthy(config$sex_check$allow_no_sex_markers %||% FALSE) &&
+    !genotype_has_chromosomes(config$genotypes, c("23", "24", "X", "Y"), "genotype input")) {
   die("sex-chromosome markers are required for sex_check.action: exclude, or set sex_check.allow_no_sex_markers: true with documented external sex QC")
 }
 if (!blank(config$resources$input_manifest %||% "")) {

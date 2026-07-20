@@ -3,6 +3,8 @@
 ## Genome Build Marker Panel
 
 `resources/build_markers.tsv` is the offline marker-position table used by `scripts/infer_genome_build.R`.
+Inference streams `.bim` or `.pvar` metadata in bounded chunks; it never reads
+the binary `.bed` or `.pgen` genotype matrix.
 
 The shipped panel has 1,057 unique rsID markers. Each marker has one position row for
 GRCh36, GRCh37, and GRCh38, for 3,171 build-specific rows total.

@@ -10,10 +10,10 @@ on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
 
 
 # Write the minimal config needed by infer_genome_build.R.
-write_case_config <- function(prefix, marker_file, config_file) {
+write_case_config <- function(prefix, marker_file, config_file, kind = "bed") {
   writeLines(c(
     "genotypes:",
-    "  type: bed",
+    paste0("  type: ", kind),
     paste0("  prefix: ", prefix),
     "genome_build:",
     paste0("  marker_file: ", marker_file),
@@ -69,6 +69,38 @@ status <- system2("Rscript", c("scripts/infer_genome_build.R", "--config", file.
   stdout = file.path(case2, "run.log"), stderr = file.path(case2, "run.log"))
 stopifnot(!identical(status, 0L))
 stopifnot(any(grepl("no genome-build marker positions matched", readLines(file.path(case2, "run.log")))))
+
+
+# Case 3: PVAR metadata and a marker beyond one scan chunk should be supported.
+case3 <- file.path(tmp, "case3")
+dir.create(case3)
+writeLines(c(
+  "variant_id\tchrom\tbuild\tpos",
+  "rs1\t1\tGRCh37\t100",
+  "rs1\t1\tGRCh38\t110"
+), file.path(case3, "markers.tsv"))
+noise <- paste(22, seq_len(10005), paste0("noise", seq_len(10005)), "A", "G", "PASS", sep = "\t")
+writeLines(c(
+  "##fileformat=VCFv4.2",
+  "#CHROM\tPOS\tID\tREF\tALT\tFILTER",
+  noise,
+  "chr1\t100\trs1\tA\tG\tPASS"
+), file.path(case3, "study.pvar"))
+write_case_config(
+  file.path(case3, "study"),
+  file.path(case3, "markers.tsv"),
+  file.path(case3, "config.yaml"),
+  kind = "pgen"
+)
+
+status <- system2("Rscript", c("scripts/infer_genome_build.R", "--config", file.path(case3, "config.yaml"),
+  "--out", file.path(case3, "build.txt"), "--details", file.path(case3, "details.tsv")))
+stopifnot(status == 0L)
+stopifnot(readLines(file.path(case3, "build.txt")) == "GRCh37")
+details <- read.delim(file.path(case3, "details.tsv"), stringsAsFactors = FALSE, check.names = FALSE)
+selected <- details[details$selected == "True", , drop = FALSE]
+stopifnot(selected$matching_markers == 1L)
+stopifnot(selected$checked_markers == 1L)
 
 
 # Report test completion.

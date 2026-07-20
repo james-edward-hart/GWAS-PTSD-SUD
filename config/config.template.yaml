@@ -312,13 +312,13 @@ runtime:
   threads_regenie_step1: 4
   threads_regenie_step2: 4
   threads_remeta_ld: 4
-  mem_mb_small: 40000
-  mem_mb_gwas: 40000
-  mem_mb_admixture: 40000
-  mem_mb_phase2_pca: 40000
-  mem_mb_regenie_step1: 40000
-  mem_mb_regenie_step2: 40000
-  mem_mb_remeta_ld: 40000
+  mem_mb_small: 32000
+  mem_mb_gwas: 32000
+  mem_mb_admixture: 32000
+  mem_mb_phase2_pca: 32000
+  mem_mb_regenie_step1: 32000
+  mem_mb_regenie_step2: 32000
+  mem_mb_remeta_ld: 32000
   time_min_small: 60
   time_min_gwas: 240
   time_min_admixture: 240

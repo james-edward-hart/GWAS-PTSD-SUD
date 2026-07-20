@@ -179,11 +179,13 @@ conda-prefix: "/path/to/shared/conda/envs"
 default-resources:
   slurm_account: "your_account"
   slurm_partition: "standard"
-  mem_mb: 40000
+  mem_mb: 32000
   runtime: 60
 ```
 
 `conda-prefix` must be a writable directory accessible to compute nodes (could be in your home directory).
+The bundled profile requests 64 GB for GWAS harmonization, summary, plotting,
+and reporting jobs that still load complete association-result tables.
 
 ## 5. Set Up The Environment
 
