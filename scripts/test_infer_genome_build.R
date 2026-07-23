@@ -25,6 +25,22 @@ write_case_config <- function(prefix, marker_file, config_file, kind = "bed") {
 }
 
 
+# Run a fixture while safely preserving paths containing spaces.
+run_inference <- function(case_dir, log = "") {
+  command_args <- c(
+    "scripts/infer_genome_build.R",
+    "--config", file.path(case_dir, "config.yaml"),
+    "--out", file.path(case_dir, "build.txt"),
+    "--details", file.path(case_dir, "details.tsv")
+  )
+  command_args <- vapply(command_args, shQuote, character(1), type = "sh")
+  if (nzchar(log)) {
+    return(system2("Rscript", command_args, stdout = log, stderr = log))
+  }
+  system2("Rscript", command_args)
+}
+
+
 # Case 1: coordinate fallback should infer GRCh37.
 case1 <- file.path(tmp, "case1")
 dir.create(case1)
@@ -43,10 +59,13 @@ write_case_config(file.path(case1, "study"), file.path(case1, "markers.tsv"), fi
 
 
 # Run the positive case and check the selected build.
-status <- system2("Rscript", c("scripts/infer_genome_build.R", "--config", file.path(case1, "config.yaml"),
-  "--out", file.path(case1, "build.txt"), "--details", file.path(case1, "details.tsv")))
+status <- run_inference(case1)
 stopifnot(status == 0L)
 stopifnot(readLines(file.path(case1, "build.txt")) == "GRCh37")
+details <- read.delim(file.path(case1, "details.tsv"), stringsAsFactors = FALSE, check.names = FALSE)
+selected <- details[details$selected == "True", , drop = FALSE]
+stopifnot(selected$matching_markers == 2L)
+stopifnot(selected$checked_markers == 2L)
 
 
 # Case 2: an rsID with mismatched coordinates should fail.
@@ -64,27 +83,35 @@ write_case_config(file.path(case2, "study"), file.path(case2, "markers.tsv"), fi
 
 
 # Run the negative case and confirm the expected error.
-status <- system2("Rscript", c("scripts/infer_genome_build.R", "--config", file.path(case2, "config.yaml"),
-  "--out", file.path(case2, "build.txt"), "--details", file.path(case2, "details.tsv")),
-  stdout = file.path(case2, "run.log"), stderr = file.path(case2, "run.log"))
+case2_log <- file.path(case2, "run.log")
+status <- run_inference(case2, case2_log)
 stopifnot(!identical(status, 0L))
-stopifnot(any(grepl("no genome-build marker positions matched", readLines(file.path(case2, "run.log")))))
+stopifnot(any(grepl("no genome-build marker positions matched", readLines(case2_log))))
 
 
-# Case 3: PVAR metadata and a marker beyond one scan chunk should be supported.
-case3 <- file.path(tmp, "case3")
+# Case 3: scan reordered PVAR columns, mixed chr prefixes, and paths with spaces.
+case3 <- file.path(tmp, "case 3 with spaces")
 dir.create(case3)
 writeLines(c(
   "variant_id\tchrom\tbuild\tpos",
   "rs1\t1\tGRCh37\t100",
   "rs1\t1\tGRCh38\t110"
 ), file.path(case3, "markers.tsv"))
-noise <- paste(22, seq_len(10005), paste0("noise", seq_len(10005)), "A", "G", "PASS", sep = "\t")
+noise_count <- 200005L
+noise <- paste(
+  paste0("noise", seq_len(noise_count)),
+  "G",
+  22,
+  "PASS",
+  seq_len(noise_count),
+  "A",
+  sep = "\t"
+)
 writeLines(c(
   "##fileformat=VCFv4.2",
-  "#CHROM\tPOS\tID\tREF\tALT\tFILTER",
+  "ID\tALT\t#CHROM\tFILTER\tPOS\tREF",
   noise,
-  "chr1\t100\trs1\tA\tG\tPASS"
+  "rs1\tG\tChr1\tPASS\t100\tA"
 ), file.path(case3, "study.pvar"))
 write_case_config(
   file.path(case3, "study"),
@@ -93,14 +120,80 @@ write_case_config(
   kind = "pgen"
 )
 
-status <- system2("Rscript", c("scripts/infer_genome_build.R", "--config", file.path(case3, "config.yaml"),
-  "--out", file.path(case3, "build.txt"), "--details", file.path(case3, "details.tsv")))
+status <- run_inference(case3)
 stopifnot(status == 0L)
 stopifnot(readLines(file.path(case3, "build.txt")) == "GRCh37")
 details <- read.delim(file.path(case3, "details.tsv"), stringsAsFactors = FALSE, check.names = FALSE)
 selected <- details[details$selected == "True", , drop = FALSE]
 stopifnot(selected$matching_markers == 1L)
 stopifnot(selected$checked_markers == 1L)
+
+
+# Case 4: duplicate metadata candidates retain the original scoring denominator.
+case4 <- file.path(tmp, "case4")
+dir.create(case4)
+writeLines(c(
+  "variant_id\tchrom\tbuild\tpos",
+  "rs1\t1\tGRCh37\t100",
+  "rs1\t1\tGRCh38\t110"
+), file.path(case4, "markers.tsv"))
+writeLines(c(
+  "chr1\trs1\t0\t100\tA\tG",
+  "1\trs1\t0\t100\tA\tG"
+), file.path(case4, "study.bim"))
+write_case_config(file.path(case4, "study"), file.path(case4, "markers.tsv"), file.path(case4, "config.yaml"))
+
+status <- run_inference(case4)
+stopifnot(status == 0L)
+details <- read.delim(file.path(case4, "details.tsv"), stringsAsFactors = FALSE, check.names = FALSE)
+selected <- details[details$selected == "True", , drop = FALSE]
+stopifnot(selected$matching_markers == 2L)
+stopifnot(selected$checked_markers == 2L)
+
+
+# Case 5: malformed PVAR headers fail in the scanner and propagate to R.
+case5 <- file.path(tmp, "case5")
+dir.create(case5)
+writeLines(c(
+  "variant_id\tchrom\tbuild\tpos",
+  "rs1\t1\tGRCh37\t100",
+  "rs1\t1\tGRCh38\t110"
+), file.path(case5, "markers.tsv"))
+writeLines(c(
+  "##fileformat=VCFv4.2",
+  "#CHROM\tPOS\tREF\tALT",
+  "1\t100\tA\tG"
+), file.path(case5, "study.pvar"))
+write_case_config(
+  file.path(case5, "study"),
+  file.path(case5, "markers.tsv"),
+  file.path(case5, "config.yaml"),
+  kind = "pgen"
+)
+
+case5_log <- file.path(case5, "run.log")
+status <- run_inference(case5, case5_log)
+stopifnot(!identical(status, 0L))
+errors <- readLines(case5_log)
+stopifnot(any(grepl("PVAR primary header is missing required CHROM, POS, or ID columns", errors)))
+stopifnot(any(grepl("genome-build metadata scanner failed", errors)))
+
+
+# Case 6: malformed BIM rows fail with their source row number.
+case6 <- file.path(tmp, "case6")
+dir.create(case6)
+writeLines(c(
+  "variant_id\tchrom\tbuild\tpos",
+  "rs1\t1\tGRCh37\t100",
+  "rs1\t1\tGRCh38\t110"
+), file.path(case6, "markers.tsv"))
+writeLines("1\trs1\t0\t100\tA", file.path(case6, "study.bim"))
+write_case_config(file.path(case6, "study"), file.path(case6, "markers.tsv"), file.path(case6, "config.yaml"))
+
+case6_log <- file.path(case6, "run.log")
+status <- run_inference(case6, case6_log)
+stopifnot(!identical(status, 0L))
+stopifnot(any(grepl("BIM row 1 must contain at least 6 columns", readLines(case6_log))))
 
 
 # Report test completion.
