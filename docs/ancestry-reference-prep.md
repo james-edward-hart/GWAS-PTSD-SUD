@@ -39,16 +39,18 @@ The runtime package contract is strict:
 ## Preparation Steps
 
 1. Validate study genotype build and reference build metadata.
-2. Convert reference genotypes to one filtered PLINK2 dataset.
-3. Intersect study and reference variants by ID, build, chromosome, position, and allele.
-4. Keep autosomal biallelic SNPs and remove strand-ambiguous palindromic variants unless a reviewed allele-frequency check supports rescue.
-5. Exclude long-range LD and other cohort-approved problematic regions.
-6. For pre-LD-pruned POP-MaD package panels, copy the harmonized shared marker list to the stable PCA marker path; otherwise LD-prune variants in the reference panel.
-7. Fit reference PCA with PLINK2 allele weights.
-8. Project reference and study samples with the same PLINK2 `--score` command.
-9. Assign ancestry using POP-MaD across 10 PCs: remove reference population outliers, calculate Mahalanobis distance to each population, assign the nearest reviewed label, and exclude ambiguous or outlying samples.
-10. Run within-ancestry PCA in final sex-checked unrelated study strata for final GWAS covariates.
-11. Export labels, excluded sample counts, population counts, assignment confidence metrics, PCs, and the reference-prep report.
+2. Convert reference and study genotypes to sorted, filtered PLINK2 working copies.
+3. Match variants by normalized chromosome, position, and unordered allele pair. Native IDs may be rsID, CPRA, or a mixture.
+4. Select the reference rsID, then the study rsID; otherwise create CPRA only from a PVAR-known REF allele.
+5. Extract each side with its source-native IDs, rename only the ancestry working copies, and require identical harmonized ID/locus/allele sets.
+6. Keep autosomal biallelic SNPs and remove strand-ambiguous palindromic variants unless a reviewed allele-frequency check supports rescue.
+7. Exclude long-range LD and other cohort-approved problematic regions.
+8. For pre-LD-pruned POP-MaD package panels, copy the harmonized shared marker list to the stable PCA marker path; otherwise LD-prune variants in the reference panel.
+9. Fit reference PCA with PLINK2 allele weights.
+10. Project reference and study samples with the same PLINK2 `--score` command.
+11. Assign ancestry using POP-MaD across 10 PCs: remove reference population outliers, calculate Mahalanobis distance to each population, assign the nearest reviewed label, and exclude ambiguous or outlying samples.
+12. Run within-ancestry PCA in final sex-checked unrelated study strata for final GWAS covariates.
+13. Export labels, excluded sample counts, population counts, assignment confidence metrics, PCs, and the reference-prep report.
 
 ## Workflow Inputs
 
@@ -75,7 +77,13 @@ Main generated files:
 results/qc/ancestry/reference/reference_qc.pgen
 results/qc/ancestry/reference/study_qc.pgen
 results/qc/ancestry/reference/shared_variants.txt
+results/qc/ancestry/reference/variant_harmonization.tsv
+results/qc/ancestry/reference/reference_native_variants.txt
+results/qc/ancestry/reference/study_native_variants.txt
+results/qc/ancestry/reference/reference_update_names.tsv
+results/qc/ancestry/reference/study_update_names.tsv
 results/qc/ancestry/reference/shared_variant_mismatches.tsv
+results/qc/ancestry/reference/harmonized_variants.ok
 results/qc/ancestry/reference/ld_prune/ancestry_ld_prune.prune.in
 results/qc/ancestry/reference/reference_pca/reference.eigenvec.allele
 results/qc/ancestry/reference/reference_pcs.tsv
@@ -88,7 +96,18 @@ results/qc/ancestry/reference/reference_prep_report.md
 results/qc/ancestry/within_ancestry_pcs.tsv
 ```
 
-The pipeline is conservative: package fingerprint mismatch fails validation, build mismatch fails validation, raw Hail/VCF/BCF artifacts fail package validation, chromosome/position mismatches are excluded and reported during harmonization, strand-ambiguous palindromic SNPs are excluded by default, allele mismatches are reported rather than flipped silently, fewer than 10,000 shared POP-MaD variants fails harmonization, 10,000-49,999 shared variants warns and continues, reference projection is checked by comparing original reference PCs with reprojected reference samples, and POP-MaD model cutoffs are written for review.
+The pipeline is conservative: package fingerprint mismatch fails validation, build mismatch fails validation, raw Hail/VCF/BCF artifacts fail package validation, strand-ambiguous palindromic SNPs and allele mismatches are excluded and reported, duplicate locus/allele keys and conflicting PVAR-known REF assignments are excluded, and one harmonized ID mapping to multiple loci is a hard failure. Fewer than 10,000 shared POP-MaD variants fails harmonization, 10,000-49,999 shared variants warns and continues, reference projection is checked by comparing original reference PCs with reprojected reference samples, and POP-MaD model cutoffs are written for review.
+
+Here, PVAR-known REF means the row does not carry PLINK2's `INFO/PR`
+provisional-REF flag. It records the input PVAR contract; the pipeline does not
+independently validate REF against a FASTA. Source genotype files, Stage 1 GWAS
+outputs, and ordinary Phase 2 outputs retain their native variant IDs. ReMeta
+continues to use its separate required CPRA export contract.
+
+Variant-ID harmonization scans the sorted ancestry working PVARs with GNU awk
+and compares one locus at a time. If an otherwise valid PVAR is not
+coordinate-sorted, the workflow logs the condition and externally sorts only
+its normalized temporary records before applying the same integrity checks.
 
 ADMIXTURE is available as an independent report-only QC branch when `admixture.enabled: true`. In production it uses the build-matched ADMIXTURE panel resolved from the reference package, writes proportions and POP-MaD comparison tables under `results/qc/admixture/`, and does not alter POP-MaD labels, strata, keep files, within-ancestry PCs, or GWAS covariates.
 

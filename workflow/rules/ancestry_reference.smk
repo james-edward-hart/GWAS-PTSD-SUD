@@ -5,6 +5,12 @@ REFERENCE_QC_PREFIX = f"{ANCESTRY_REF_DIR}/reference_qc"
 STUDY_QC_PREFIX = f"{ANCESTRY_REF_DIR}/study_qc"
 REFERENCE_SHARED_PREFIX = f"{ANCESTRY_REF_DIR}/reference_shared"
 STUDY_SHARED_PREFIX = f"{ANCESTRY_REF_DIR}/study_shared"
+ANCESTRY_VARIANT_MAPPING = f"{ANCESTRY_REF_DIR}/variant_harmonization.tsv"
+ANCESTRY_REFERENCE_NATIVE_VARIANTS = f"{ANCESTRY_REF_DIR}/reference_native_variants.txt"
+ANCESTRY_STUDY_NATIVE_VARIANTS = f"{ANCESTRY_REF_DIR}/study_native_variants.txt"
+ANCESTRY_REFERENCE_UPDATE_NAMES = f"{ANCESTRY_REF_DIR}/reference_update_names.tsv"
+ANCESTRY_STUDY_UPDATE_NAMES = f"{ANCESTRY_REF_DIR}/study_update_names.tsv"
+ANCESTRY_HARMONIZED_VALIDATION = f"{ANCESTRY_REF_DIR}/harmonized_variants.ok"
 LD_PRUNE_PREFIX = f"{ANCESTRY_REF_DIR}/ld_prune/ancestry_ld_prune"
 REFERENCE_PCA_PREFIX = f"{ANCESTRY_REF_DIR}/reference_pca/reference"
 REFERENCE_SCORE_PREFIX = f"{ANCESTRY_REF_DIR}/reference_pca/reference_projected"
@@ -76,6 +82,11 @@ rule write_ancestry_shared_variants:
     output:
         variants=f"{ANCESTRY_REF_DIR}/shared_variants.txt",
         mismatches=f"{ANCESTRY_REF_DIR}/shared_variant_mismatches.tsv",
+        mapping=ANCESTRY_VARIANT_MAPPING,
+        reference_extract=ANCESTRY_REFERENCE_NATIVE_VARIANTS,
+        study_extract=ANCESTRY_STUDY_NATIVE_VARIANTS,
+        reference_update=ANCESTRY_REFERENCE_UPDATE_NAMES,
+        study_update=ANCESTRY_STUDY_UPDATE_NAMES,
     log:
         "results/logs/ancestry/reference/write_shared_variants.log",
     conda:
@@ -91,6 +102,11 @@ rule write_ancestry_shared_variants:
           --study-prefix {params.study_prefix} \
           --out {output.variants} \
           --mismatch-report {output.mismatches} \
+          --mapping {output.mapping} \
+          --reference-extract {output.reference_extract} \
+          --study-extract {output.study_extract} \
+          --reference-update {output.reference_update} \
+          --study-update {output.study_update} \
           > {log} 2>&1
         """
 
@@ -101,7 +117,8 @@ rule extract_shared_reference:
         pgen=f"{REFERENCE_QC_PREFIX}.pgen",
         pvar=f"{REFERENCE_QC_PREFIX}.pvar",
         psam=f"{REFERENCE_QC_PREFIX}.psam",
-        variants=f"{ANCESTRY_REF_DIR}/shared_variants.txt",
+        variants=ANCESTRY_REFERENCE_NATIVE_VARIANTS,
+        update_names=ANCESTRY_REFERENCE_UPDATE_NAMES,
     output:
         pgen=f"{REFERENCE_SHARED_PREFIX}.pgen",
         pvar=f"{REFERENCE_SHARED_PREFIX}.pvar",
@@ -124,6 +141,7 @@ rule extract_shared_reference:
           --config {input.config} \
           --input-prefix {params.input_prefix} \
           --variants {input.variants} \
+          --update-name {input.update_names} \
           --out-prefix {params.out_prefix} \
           --threads {threads} \
           > {log} 2>&1
@@ -136,7 +154,8 @@ rule extract_shared_study:
         pgen=f"{STUDY_QC_PREFIX}.pgen",
         pvar=f"{STUDY_QC_PREFIX}.pvar",
         psam=f"{STUDY_QC_PREFIX}.psam",
-        variants=f"{ANCESTRY_REF_DIR}/shared_variants.txt",
+        variants=ANCESTRY_STUDY_NATIVE_VARIANTS,
+        update_names=ANCESTRY_STUDY_UPDATE_NAMES,
     output:
         pgen=f"{STUDY_SHARED_PREFIX}.pgen",
         pvar=f"{STUDY_SHARED_PREFIX}.pvar",
@@ -159,8 +178,38 @@ rule extract_shared_study:
           --config {input.config} \
           --input-prefix {params.input_prefix} \
           --variants {input.variants} \
+          --update-name {input.update_names} \
           --out-prefix {params.out_prefix} \
           --threads {threads} \
+          > {log} 2>&1
+        """
+
+
+rule validate_harmonized_ancestry_variants:
+    input:
+        config=RUN_CONFIG,
+        reference_pgen=f"{REFERENCE_SHARED_PREFIX}.pgen",
+        reference_pvar=f"{REFERENCE_SHARED_PREFIX}.pvar",
+        reference_psam=f"{REFERENCE_SHARED_PREFIX}.psam",
+        study_pgen=f"{STUDY_SHARED_PREFIX}.pgen",
+        study_pvar=f"{STUDY_SHARED_PREFIX}.pvar",
+        study_psam=f"{STUDY_SHARED_PREFIX}.psam",
+    output:
+        ok=ANCESTRY_HARMONIZED_VALIDATION,
+    log:
+        "results/logs/ancestry/reference/validate_harmonized_variants.log",
+    conda:
+        "../../envs/gwas.yaml",
+    params:
+        reference_prefix=lambda wildcards, input: str(input.reference_pgen)[:-5],
+        study_prefix=lambda wildcards, input: str(input.study_pgen)[:-5],
+    shell:
+        """
+        Rscript scripts/ancestry_reference.R validate-harmonized \
+          --config {input.config} \
+          --reference-prefix {params.reference_prefix} \
+          --study-prefix {params.study_prefix} \
+          --out {output.ok} \
           > {log} 2>&1
         """
 
@@ -172,6 +221,7 @@ rule ld_prune_ancestry_markers:
         pvar=f"{REFERENCE_SHARED_PREFIX}.pvar",
         psam=f"{REFERENCE_SHARED_PREFIX}.psam",
         shared=f"{ANCESTRY_REF_DIR}/shared_variants.txt",
+        harmonized=ANCESTRY_HARMONIZED_VALIDATION,
     output:
         prune_in=f"{LD_PRUNE_PREFIX}.prune.in",
         prune_out=f"{LD_PRUNE_PREFIX}.prune.out",
@@ -356,8 +406,10 @@ rule write_ancestry_reference_report:
     input:
         config=RUN_CONFIG,
         variants=f"{ANCESTRY_REF_DIR}/shared_variants.txt",
+        mapping=ANCESTRY_VARIANT_MAPPING,
         prune_in=f"{LD_PRUNE_PREFIX}.prune.in",
         mismatches=f"{ANCESTRY_REF_DIR}/shared_variant_mismatches.tsv",
+        harmonized_validation=ANCESTRY_HARMONIZED_VALIDATION,
         projection_validation=f"{ANCESTRY_REF_DIR}/reference_projection_validation.tsv",
         reference_pcs=f"{ANCESTRY_REF_DIR}/reference_pcs.tsv",
         study_pcs=f"{ANCESTRY_REF_DIR}/study_projected_pcs.tsv",
@@ -372,8 +424,10 @@ rule write_ancestry_reference_report:
         Rscript scripts/ancestry_reference.R write-report \
           --config {input.config} \
           --shared-variants {input.variants} \
+          --mapping {input.mapping} \
           --prune-in {input.prune_in} \
           --mismatch-report {input.mismatches} \
+          --harmonized-validation {input.harmonized_validation} \
           --projection-validation {input.projection_validation} \
           --reference-pcs {input.reference_pcs} \
           --study-pcs {input.study_pcs} \

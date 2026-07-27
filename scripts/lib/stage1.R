@@ -368,9 +368,9 @@ run_command <- function(command, args) {
 }
 
 
-# Normalize chromosome labels by dropping chr prefixes.
+# Normalize chromosome labels by dropping case-insensitive chr prefixes.
 clean_chrom <- function(value) {
-  sub("^(chr|CHR)", "", as.character(value))
+  sub("^chr", "", as.character(value), ignore.case = TRUE)
 }
 
 
@@ -432,7 +432,7 @@ stream_plink_variant_chunks <- function(block, visit, label = "genotype input", 
   }
 
   columns <- if (kind == "bed") {
-    c(chrom = 1L, variant_id = 2L, pos = 4L, allele1 = 5L, allele2 = 6L)
+    c(chrom = 1L, variant_id = 2L, pos = 4L, allele1 = 5L, allele2 = 6L, info = NA_integer_)
   } else {
     NULL
   }
@@ -455,6 +455,7 @@ stream_plink_variant_chunks <- function(block, visit, label = "genotype input", 
     variant_id <- character(capacity)
     allele1 <- character(capacity)
     allele2 <- character(capacity)
+    info <- character(capacity)
     fields <- vector("list", capacity)
     count <- 0L
 
@@ -477,7 +478,8 @@ stream_plink_variant_chunks <- function(block, visit, label = "genotype input", 
           variant_id = match("ID", parts),
           pos = match("POS", parts),
           allele1 = match("REF", parts),
-          allele2 = match("ALT", parts)
+          allele2 = match("ALT", parts),
+          info = match("INFO", parts)
         )
         required <- c("chrom", "variant_id", "pos")
         if (require_alleles) required <- c(required, "allele1", "allele2")
@@ -507,6 +509,7 @@ stream_plink_variant_chunks <- function(block, visit, label = "genotype input", 
       variant_id[[count]] <- parts[[columns[["variant_id"]]]]
       allele1[[count]] <- if (is.na(columns[["allele1"]])) "" else parts[[columns[["allele1"]]]]
       allele2[[count]] <- if (is.na(columns[["allele2"]])) "" else parts[[columns[["allele2"]]]]
+      info[[count]] <- if (is.na(columns[["info"]])) "" else parts[[columns[["info"]]]]
       fields[[count]] <- parts
     }
 
@@ -521,6 +524,8 @@ stream_plink_variant_chunks <- function(block, visit, label = "genotype input", 
         variant_id = variant_id[keep],
         allele1 = allele1[keep],
         allele2 = allele2[keep],
+        info = info[keep],
+        ref_provisional = grepl("(^|;)PR(;|$)", info[keep]),
         stringsAsFactors = FALSE
       )
       result <- visit(list(

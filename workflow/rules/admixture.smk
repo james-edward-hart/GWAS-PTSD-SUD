@@ -9,6 +9,12 @@ ADMIXTURE_REFERENCE_QC_PREFIX = f"{ADMIXTURE_RAW_DIR}/reference_qc"
 ADMIXTURE_STUDY_QC_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/study_qc"
 ADMIXTURE_REFERENCE_SHARED_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/reference_shared"
 ADMIXTURE_STUDY_SHARED_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/study_shared"
+ADMIXTURE_VARIANT_MAPPING = f"{ADMIXTURE_STRATUM_RAW_DIR}/variant_harmonization.tsv"
+ADMIXTURE_REFERENCE_NATIVE_VARIANTS = f"{ADMIXTURE_STRATUM_RAW_DIR}/reference_native_variants.txt"
+ADMIXTURE_STUDY_NATIVE_VARIANTS = f"{ADMIXTURE_STRATUM_RAW_DIR}/study_native_variants.txt"
+ADMIXTURE_REFERENCE_UPDATE_NAMES = f"{ADMIXTURE_STRATUM_RAW_DIR}/reference_update_names.tsv"
+ADMIXTURE_STUDY_UPDATE_NAMES = f"{ADMIXTURE_STRATUM_RAW_DIR}/study_update_names.tsv"
+ADMIXTURE_HARMONIZED_VALIDATION = f"{ADMIXTURE_STRATUM_RAW_DIR}/harmonized_variants.ok"
 ADMIXTURE_REFERENCE_PRUNED_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/reference_pruned"
 ADMIXTURE_STUDY_PRUNED_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/study_pruned"
 ADMIXTURE_LD_PRUNE_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/ld_prune/admixture_ld_prune"
@@ -88,6 +94,11 @@ rule write_admixture_shared_variants:
     output:
         variants=f"{ADMIXTURE_STRATUM_RAW_DIR}/shared_variants.txt",
         mismatches=f"{ADMIXTURE_STRATUM_RAW_DIR}/shared_variant_mismatches.tsv",
+        mapping=ADMIXTURE_VARIANT_MAPPING,
+        reference_extract=ADMIXTURE_REFERENCE_NATIVE_VARIANTS,
+        study_extract=ADMIXTURE_STUDY_NATIVE_VARIANTS,
+        reference_update=ADMIXTURE_REFERENCE_UPDATE_NAMES,
+        study_update=ADMIXTURE_STUDY_UPDATE_NAMES,
     log:
         "results/logs/admixture/write_shared_variants.{ancestry}.log",
     conda:
@@ -103,6 +114,11 @@ rule write_admixture_shared_variants:
           --study-prefix {params.study_prefix} \
           --out {output.variants} \
           --mismatch-report {output.mismatches} \
+          --mapping {output.mapping} \
+          --reference-extract {output.reference_extract} \
+          --study-extract {output.study_extract} \
+          --reference-update {output.reference_update} \
+          --study-update {output.study_update} \
           > {log} 2>&1
         """
 
@@ -113,7 +129,8 @@ rule extract_shared_admixture_reference:
         pgen=f"{ADMIXTURE_REFERENCE_QC_PREFIX}.pgen",
         pvar=f"{ADMIXTURE_REFERENCE_QC_PREFIX}.pvar",
         psam=f"{ADMIXTURE_REFERENCE_QC_PREFIX}.psam",
-        variants=f"{ADMIXTURE_STRATUM_RAW_DIR}/shared_variants.txt",
+        variants=ADMIXTURE_REFERENCE_NATIVE_VARIANTS,
+        update_names=ADMIXTURE_REFERENCE_UPDATE_NAMES,
     output:
         pgen=f"{ADMIXTURE_REFERENCE_SHARED_PREFIX}.pgen",
         pvar=f"{ADMIXTURE_REFERENCE_SHARED_PREFIX}.pvar",
@@ -136,6 +153,7 @@ rule extract_shared_admixture_reference:
           --config {input.config} \
           --input-prefix {params.input_prefix} \
           --variants {input.variants} \
+          --update-name {input.update_names} \
           --out-prefix {params.out_prefix} \
           --threads {threads} \
           > {log} 2>&1
@@ -148,7 +166,8 @@ rule extract_shared_admixture_study:
         pgen=f"{ADMIXTURE_STUDY_QC_PREFIX}.pgen",
         pvar=f"{ADMIXTURE_STUDY_QC_PREFIX}.pvar",
         psam=f"{ADMIXTURE_STUDY_QC_PREFIX}.psam",
-        variants=f"{ADMIXTURE_STRATUM_RAW_DIR}/shared_variants.txt",
+        variants=ADMIXTURE_STUDY_NATIVE_VARIANTS,
+        update_names=ADMIXTURE_STUDY_UPDATE_NAMES,
     output:
         pgen=f"{ADMIXTURE_STUDY_SHARED_PREFIX}.pgen",
         pvar=f"{ADMIXTURE_STUDY_SHARED_PREFIX}.pvar",
@@ -171,8 +190,38 @@ rule extract_shared_admixture_study:
           --config {input.config} \
           --input-prefix {params.input_prefix} \
           --variants {input.variants} \
+          --update-name {input.update_names} \
           --out-prefix {params.out_prefix} \
           --threads {threads} \
+          > {log} 2>&1
+        """
+
+
+rule validate_harmonized_admixture_variants:
+    input:
+        config=RUN_CONFIG,
+        reference_pgen=f"{ADMIXTURE_REFERENCE_SHARED_PREFIX}.pgen",
+        reference_pvar=f"{ADMIXTURE_REFERENCE_SHARED_PREFIX}.pvar",
+        reference_psam=f"{ADMIXTURE_REFERENCE_SHARED_PREFIX}.psam",
+        study_pgen=f"{ADMIXTURE_STUDY_SHARED_PREFIX}.pgen",
+        study_pvar=f"{ADMIXTURE_STUDY_SHARED_PREFIX}.pvar",
+        study_psam=f"{ADMIXTURE_STUDY_SHARED_PREFIX}.psam",
+    output:
+        ok=ADMIXTURE_HARMONIZED_VALIDATION,
+    log:
+        "results/logs/admixture/validate_harmonized_variants.{ancestry}.log",
+    conda:
+        "../../envs/gwas.yaml",
+    params:
+        reference_prefix=lambda wildcards, input: str(input.reference_pgen)[:-5],
+        study_prefix=lambda wildcards, input: str(input.study_pgen)[:-5],
+    shell:
+        """
+        Rscript scripts/admixture_qc.R validate-harmonized \
+          --config {input.config} \
+          --reference-prefix {params.reference_prefix} \
+          --study-prefix {params.study_prefix} \
+          --out {output.ok} \
           > {log} 2>&1
         """
 
@@ -183,6 +232,7 @@ rule ld_prune_admixture_markers:
         pgen=f"{ADMIXTURE_REFERENCE_SHARED_PREFIX}.pgen",
         pvar=f"{ADMIXTURE_REFERENCE_SHARED_PREFIX}.pvar",
         psam=f"{ADMIXTURE_REFERENCE_SHARED_PREFIX}.psam",
+        harmonized=ADMIXTURE_HARMONIZED_VALIDATION,
     output:
         prune_in=f"{ADMIXTURE_LD_PRUNE_PREFIX}.prune.in",
         prune_out=f"{ADMIXTURE_LD_PRUNE_PREFIX}.prune.out",

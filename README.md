@@ -150,6 +150,10 @@ results/remeta/export/{analysis_name}.{build}.remeta_manifest.tsv
 ```
 
 `{analysis_name}` is the filename-safe version of `project.analysis_name`.
+Ancestry preparation also writes
+`results/qc/ancestry/reference/variant_harmonization.tsv`, which maps
+source-native rsID/CPRA values to ancestry-only working IDs. This does not
+rename Stage 1 GWAS or ordinary Phase 2 association outputs.
 Each GWAS report embeds the POP-MaD projection, QQ, and Manhattan plots and
 summarizes ancestry and ADMIXTURE QC, sample filtering, variant filtering,
 lambda GC, and top association signals.

@@ -34,6 +34,16 @@ run_cmd <- function(args, log) {
   system2("Rscript", c("scripts/ancestry_reference.R", args), stdout = log, stderr = log)
 }
 
+harmonization_args <- function(stem) {
+  c(
+    "--mapping", file.path(tmp, paste0(stem, ".mapping.tsv")),
+    "--reference-extract", file.path(tmp, paste0(stem, ".reference.extract.txt")),
+    "--study-extract", file.path(tmp, paste0(stem, ".study.extract.txt")),
+    "--reference-update", file.path(tmp, paste0(stem, ".reference.update.tsv")),
+    "--study-update", file.path(tmp, paste0(stem, ".study.update.tsv"))
+  )
+}
+
 config <- file.path(tmp, "config.yaml")
 write_config(config)
 
@@ -49,7 +59,8 @@ status <- run_cmd(c(
   "--reference-prefix", ref_prefix_warn,
   "--study-prefix", study_prefix_warn,
   "--out", file.path(tmp, "shared_warn.txt"),
-  "--mismatch-report", file.path(tmp, "mismatch_warn.tsv")
+  "--mismatch-report", file.path(tmp, "mismatch_warn.tsv"),
+  harmonization_args("warn")
 ), warn_log)
 stopifnot(identical(status, 0L))
 warn_text <- readLines(warn_log)
@@ -69,49 +80,50 @@ status <- run_cmd(c(
   "--reference-prefix", ref_prefix_fail,
   "--study-prefix", study_prefix_fail,
   "--out", file.path(tmp, "shared_fail.txt"),
-  "--mismatch-report", file.path(tmp, "mismatch_fail.tsv")
+  "--mismatch-report", file.path(tmp, "mismatch_fail.tsv"),
+  harmonization_args("fail")
 ), fail_log)
 stopifnot(!identical(status, 0L))
 stopifnot(any(grepl("minimum required is 10000", readLines(fail_log), fixed = TRUE)))
 
 dup_config <- file.path(tmp, "dup_config.yaml")
 write_config(dup_config, min_shared = 1, warn_below = 1)
-pos_ref_prefix <- file.path(tmp, "ref_pos")
-pos_study_prefix <- file.path(tmp, "study_pos")
-pos_ref <- data.frame(
+allele_ref_prefix <- file.path(tmp, "ref_allele")
+allele_study_prefix <- file.path(tmp, "study_allele")
+allele_ref <- data.frame(
   `#CHROM` = c("1", "1"),
   POS = c(100, 200),
-  ID = c("rs_keep", "rs_pos_mismatch"),
+  ID = c("rs1", "rs2"),
   REF = "A",
   ALT = "G",
   check.names = FALSE
 )
-pos_study <- pos_ref
-pos_study$POS[[2]] <- 250
-write.table(pos_ref, paste0(pos_ref_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
-write.table(pos_study, paste0(pos_study_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
-pos_log <- file.path(tmp, "pos.log")
-pos_mismatch <- file.path(tmp, "mismatch_pos.tsv")
+allele_study <- allele_ref
+allele_study$ALT[[2]] <- "C"
+write.table(allele_ref, paste0(allele_ref_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(allele_study, paste0(allele_study_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
+allele_log <- file.path(tmp, "allele.log")
+allele_mismatch <- file.path(tmp, "mismatch_allele.tsv")
 status <- run_cmd(c(
   "shared-variants",
   "--config", dup_config,
-  "--reference-prefix", pos_ref_prefix,
-  "--study-prefix", pos_study_prefix,
-  "--out", file.path(tmp, "shared_pos.txt"),
-  "--mismatch-report", pos_mismatch
-), pos_log)
+  "--reference-prefix", allele_ref_prefix,
+  "--study-prefix", allele_study_prefix,
+  "--out", file.path(tmp, "shared_allele.txt"),
+  "--mismatch-report", allele_mismatch,
+  harmonization_args("allele")
+), allele_log)
 stopifnot(identical(status, 0L))
-stopifnot(identical(readLines(file.path(tmp, "shared_pos.txt")), "rs_keep"))
-pos_rows <- read.delim(pos_mismatch, sep = "\t", stringsAsFactors = FALSE)
-stopifnot(identical(pos_rows$reason, "position_mismatch"))
-stopifnot(any(grepl("chromosome/position mismatches", readLines(pos_log), fixed = TRUE)))
+stopifnot(identical(readLines(file.path(tmp, "shared_allele.txt")), "rs1"))
+allele_rows <- read.delim(allele_mismatch, sep = "\t", stringsAsFactors = FALSE)
+stopifnot(identical(allele_rows$reason, "allele_mismatch"))
 
 dup_ref_prefix <- file.path(tmp, "ref_dup")
 dup_study_prefix <- file.path(tmp, "study_dup")
 dup_rows <- data.frame(
   `#CHROM` = c("1", "1", "1"),
   POS = c(100, 200, 200),
-  ID = c("rs_keep", "rs_dup_a", "rs_dup_b"),
+  ID = c("rs1", "rs2", "rs3"),
   REF = "A",
   ALT = "G",
   check.names = FALSE
@@ -125,11 +137,13 @@ status <- run_cmd(c(
   "--reference-prefix", dup_ref_prefix,
   "--study-prefix", dup_study_prefix,
   "--out", file.path(tmp, "shared_dup.txt"),
-  "--mismatch-report", file.path(tmp, "mismatch_dup.tsv")
+  "--mismatch-report", file.path(tmp, "mismatch_dup.tsv"),
+  harmonization_args("duplicate")
 ), dup_log)
 stopifnot(identical(status, 0L))
-stopifnot(identical(readLines(file.path(tmp, "shared_dup.txt")), "rs_keep"))
-stopifnot(any(grepl("duplicated chromosome/position mappings", readLines(dup_log), fixed = TRUE)))
+stopifnot(identical(readLines(file.path(tmp, "shared_dup.txt")), "rs1"))
+dup_mismatches <- read.delim(file.path(tmp, "mismatch_dup.tsv"), sep = "\t", stringsAsFactors = FALSE)
+stopifnot(identical(dup_mismatches$reason, "duplicate_locus_allele_key_both"))
 
 shared <- file.path(tmp, "shared_for_prune.txt")
 writeLines(c("rs1", "rs2", "rs3"), shared)

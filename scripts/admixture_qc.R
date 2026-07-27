@@ -5,6 +5,7 @@
 cmd <- commandArgs(FALSE)
 script_dir <- dirname(normalizePath(sub("^--file=", "", cmd[grepl("^--file=", cmd)][1])))
 source(file.path(script_dir, "lib", "stage1.R"))
+source(file.path(script_dir, "lib", "variant_harmonization.R"))
 
 
 # Parse the first argument as the requested ADMIXTURE QC subtask.
@@ -25,11 +26,6 @@ args <- parse_args(
   repeated = c("keep", "study", "reference", "comparison", "summary", "report"),
   raw = raw[-1]
 )
-
-
-# ADMIXTURE harmonization is restricted to autosomal non-palindromic ACGT SNPs.
-autosomes <- as.character(seq_len(22))
-palindromic <- c("AT", "TA", "CG", "GC")
 
 
 # Resolve configured ADMIXTURE labels in the exact output order.
@@ -64,35 +60,6 @@ admixture_filters <- function(config) {
   if (!is.null(filters$geno_missing_max)) out <- c(out, "--geno", as.character(filters$geno_missing_max))
   if (truthy(filters$remove_duplicate_ids %||% TRUE)) out <- c(out, "--rm-dup", "exclude-all")
   out
-}
-
-
-# Read a PVAR and keep simple autosomal biallelic ACGT variant rows.
-read_pvar <- function(prefix_or_path) {
-  path <- if (grepl("\\.pvar$", prefix_or_path)) prefix_or_path else paste0(prefix_or_path, ".pvar")
-  rows <- read_tsv(path)
-  chrom_col <- if ("#CHROM" %in% names(rows)) "#CHROM" else "CHROM"
-  require_columns(rows, c(chrom_col, "POS", "ID", "REF", "ALT"), path)
-  rows$chrom_clean <- clean_chrom(rows[[chrom_col]])
-  rows$REF <- toupper(rows$REF)
-  rows$ALT <- toupper(rows$ALT)
-  keep <- rows$chrom_clean %in% autosomes &
-    nzchar(rows$ID) & rows$ID != "." &
-    grepl("^[ACGT]$", rows$REF) &
-    grepl("^[ACGT]$", rows$ALT) &
-    rows$REF != rows$ALT
-  rows <- rows[keep, , drop = FALSE]
-  duplicate_ids <- unique(rows$ID[duplicated(rows$ID)])
-  if (length(duplicate_ids)) die("duplicate target variant IDs in ", path, ": ", paste(head(duplicate_ids, 5), collapse = ", "))
-  rows <- drop_duplicate_variant_mappings(rows, "chrom_clean", "POS", path)
-  data.frame(
-    ID = rows$ID,
-    chrom = rows$chrom_clean,
-    pos = as.integer(rows$POS),
-    ref = rows$REF,
-    alt = rows$ALT,
-    stringsAsFactors = FALSE
-  )
 }
 
 
@@ -203,76 +170,39 @@ convert_genotypes <- function(config, block, out_prefix, threads, keep = "", lab
 }
 
 
-# Intersect study/reference variants and report allele, position, and chromosome mismatches.
-shared_variants <- function(config, reference_prefix, study_prefix, out, mismatch_report) {
-  reference <- read_pvar(reference_prefix)
-  study <- read_pvar(study_prefix)
-  merged <- merge(reference, study, by = "ID", suffixes = c("_reference", "_study"))
-  merged <- merged[order(merged$ID), , drop = FALSE]
-  if (!nrow(merged)) die("no ADMIXTURE reference/study variants share IDs after basic SNP filtering")
-
-  reason <- rep("", nrow(merged))
-  reason[merged$chrom_reference != merged$chrom_study] <- "chromosome_mismatch"
-  reason[reason == "" & merged$pos_reference != merged$pos_study] <- "position_mismatch"
-
-  exclude_pal <- truthy(config$admixture$filters$exclude_palindromic %||% TRUE)
-  if (exclude_pal) {
-    pal <- paste0(merged$ref_reference, merged$alt_reference) %in% palindromic |
-      paste0(merged$ref_study, merged$alt_study) %in% palindromic
-    reason[reason == "" & pal] <- "palindromic_snp_excluded"
-  }
-
-  allele_match <- (merged$ref_reference == merged$ref_study & merged$alt_reference == merged$alt_study) |
-    (merged$ref_reference == merged$alt_study & merged$alt_reference == merged$ref_study)
-  reason[reason == "" & !allele_match] <- "allele_mismatch"
-
-  keep <- merged$ID[reason == ""]
-  if (!length(keep)) die("no ADMIXTURE variants survived reference/study harmonization")
-
-  mismatches <- merged[reason != "", , drop = FALSE]
-  mismatch_rows <- data.frame(
-    variant_id = character(),
-    reason = character(),
-    reference_chrom = character(),
-    study_chrom = character(),
-    reference_pos = integer(),
-    study_pos = integer(),
-    reference_ref = character(),
-    reference_alt = character(),
-    study_ref = character(),
-    study_alt = character(),
-    stringsAsFactors = FALSE
-  )
-  if (nrow(mismatches)) {
-    mismatch_rows <- data.frame(
-      variant_id = mismatches$ID,
-      reason = reason[reason != ""],
-      reference_chrom = mismatches$chrom_reference,
-      study_chrom = mismatches$chrom_study,
-      reference_pos = mismatches$pos_reference,
-      study_pos = mismatches$pos_study,
-      reference_ref = mismatches$ref_reference,
-      reference_alt = mismatches$alt_reference,
-      study_ref = mismatches$ref_study,
-      study_alt = mismatches$alt_study,
-      stringsAsFactors = FALSE
+# Harmonize source-native IDs only inside ADMIXTURE working copies.
+shared_variants <- function(config, reference_prefix, study_prefix, out,
+                            mismatch_report, mapping, reference_extract,
+                            study_extract, reference_update, study_update) {
+  result <- harmonize_pvar_variants(
+    reference_prefix = reference_prefix,
+    study_prefix = study_prefix,
+    shared_variants = out,
+    mismatch_report = mismatch_report,
+    mapping = mapping,
+    reference_extract = reference_extract,
+    study_extract = study_extract,
+    reference_update = reference_update,
+    study_update = study_update,
+    exclude_palindromic = truthy(
+      config$admixture$filters$exclude_palindromic %||% TRUE
     )
-  }
-
-  ensure_parent(out)
-  writeLines(keep, out)
-  write_tsv(mismatch_rows, mismatch_report)
-  hard_mismatches <- mismatch_rows$reason %in% c("chromosome_mismatch", "position_mismatch")
-  if (any(hard_mismatches)) {
-    warning("excluded ", sum(hard_mismatches),
-      " ADMIXTURE variants with chromosome/position mismatches; review ", mismatch_report)
-  }
-  cat("Wrote", length(keep), "shared ADMIXTURE markers;", nrow(mismatch_rows), "variants excluded\n")
+  )
+  if (!result$retained) die("no ADMIXTURE variants survived reference/study harmonization")
+  cat("Wrote", result$retained, "shared ADMIXTURE markers;",
+    result$mismatches, "exclusion records\n")
 }
 
 
-# Extract a variant list from a PGEN dataset.
-extract_variants <- function(config, input_prefix, variants, out_prefix, threads) {
+# Extract a variant list, optionally renaming the ancestry-local result.
+extract_variants <- function(config, input_prefix, variants, out_prefix, threads,
+                             update_names = "") {
+  if (!blank(update_names)) {
+    extract_and_rename_pgen(
+      config, input_prefix, variants, update_names, out_prefix, threads
+    )
+    return(invisible(TRUE))
+  }
   ensure_parent(paste0(out_prefix, ".pgen"))
   run_command(plink_tool(config), c(
     "--pfile", input_prefix,
@@ -287,24 +217,20 @@ extract_variants <- function(config, input_prefix, variants, out_prefix, threads
 # Write variants that fall inside long-range LD/problem regions.
 write_region_exclusions <- function(config, pfile_prefix, out) {
   regions_path <- config$admixture$exclusion_regions %||% ""
-  variants <- read_pvar(paste0(pfile_prefix, ".pvar"))
-  excluded <- character()
+  regions <- data.frame(
+    chrom = character(), start = integer(), end = integer(),
+    stringsAsFactors = FALSE
+  )
   if (nzchar(regions_path) && file.exists(regions_path)) {
     regions <- read_tsv(regions_path)
     missing <- setdiff(c("chrom", "start", "end"), names(regions))
     if (length(missing)) die("ADMIXTURE exclusion regions are missing columns: ", paste(missing, collapse = ", "))
     regions$chrom <- clean_chrom(regions$chrom)
-    regions <- regions[regions$chrom %in% autosomes, , drop = FALSE]
-    for (i in seq_len(nrow(regions))) {
-      hit <- variants$chrom == regions$chrom[[i]] &
-        variants$pos >= as.integer(regions$start[[i]]) &
-        variants$pos <= as.integer(regions$end[[i]])
-      excluded <- c(excluded, variants$ID[hit])
-    }
+    regions <- regions[regions$chrom %in% harmonization_autosomes, , drop = FALSE]
   }
-  ensure_parent(out)
-  writeLines(sort(unique(excluded)), out)
-  length(unique(excluded))
+  write_pvar_region_exclusions(
+    pfile_prefix, regions, out, label = "shared ADMIXTURE reference PVAR"
+  )
 }
 
 
@@ -689,6 +615,7 @@ parse_report <- function(config, analysis_ancestry, q_path, p_path, fam_path, bi
   report <- c(
     "# ADMIXTURE QC Report", "",
     "This branch is report-only QC. ADMIXTURE proportions do not replace POP-MaD ancestry labels, do not alter keep files, and are not used as GWAS covariates.", "",
+    "Reference and study variants are matched by locus and unordered allele pair, then renamed only in ADMIXTURE working copies. Source genotype and association-output IDs remain unchanged.", "",
     "## Inputs", "",
     paste0("- Mode: ", config$admixture$mode %||% "supervised"),
     if (!blank(analysis_ancestry)) paste0("- POP-MaD stratum: ", analysis_ancestry),
@@ -787,6 +714,7 @@ combine_reports <- function(study_paths, reference_paths, comparison_paths, summ
     "# ADMIXTURE QC Report", "",
     "This branch is report-only QC. ADMIXTURE proportions do not replace POP-MaD ancestry labels, do not alter keep files, and are not used as GWAS covariates.", "",
     "ADMIXTURE was run separately within each active POP-MaD stratum after the same ADMIXTURE-specific study genotype filters.", "",
+    "Variant IDs are harmonized only in per-stratum ADMIXTURE working copies; source genotype and association-output IDs remain unchanged.", "",
     "## Stratum Runs", "",
     stratum_lines, "",
     "## Outputs", "",
@@ -825,11 +753,38 @@ if (subtask == "convert-reference") {
   convert_genotypes(config, config$genotypes, args[["out-prefix"]], threads, keep = args$keep[[1]],
     label = "ADMIXTURE study genotype input")
 } else if (subtask == "shared-variants") {
-  require_args(args, c("reference-prefix", "study-prefix", "out", "mismatch-report"))
-  shared_variants(config, args[["reference-prefix"]], args[["study-prefix"]], args$out, args[["mismatch-report"]])
+  require_args(args, c(
+    "reference-prefix", "study-prefix", "out", "mismatch-report", "mapping",
+    "reference-extract", "study-extract", "reference-update", "study-update"
+  ))
+  shared_variants(
+    config,
+    args[["reference-prefix"]],
+    args[["study-prefix"]],
+    args$out,
+    args[["mismatch-report"]],
+    args$mapping,
+    args[["reference-extract"]],
+    args[["study-extract"]],
+    args[["reference-update"]],
+    args[["study-update"]]
+  )
 } else if (subtask == "extract-variants") {
   require_args(args, c("input-prefix", "variants", "out-prefix"))
-  extract_variants(config, args[["input-prefix"]], args$variants, args[["out-prefix"]], threads)
+  extract_variants(
+    config,
+    args[["input-prefix"]],
+    args$variants,
+    args[["out-prefix"]],
+    threads,
+    args[["update-name"]] %||% ""
+  )
+} else if (subtask == "validate-harmonized") {
+  require_args(args, c("reference-prefix", "study-prefix", "out"))
+  count <- validate_harmonized_pgen_variants(
+    args[["reference-prefix"]], args[["study-prefix"]], args$out
+  )
+  cat("Validated", count, "identical harmonized ADMIXTURE markers\n")
 } else if (subtask == "ld-prune") {
   require_args(args, c("pfile-prefix", "out-prefix", "prune-in", "excluded-regions"))
   ld_prune(config, args[["pfile-prefix"]], args[["out-prefix"]], args[["prune-in"]], args[["excluded-regions"]], threads)

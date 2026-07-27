@@ -33,6 +33,7 @@ Run focused tests through the utility environment:
 ```bash
 mamba run -n gwas-stage1 Rscript scripts/test_infer_genome_build.R
 mamba run -n gwas-stage1 Rscript scripts/test_reference_package.R
+mamba run -n gwas-stage1 Rscript scripts/test_variant_harmonization.R
 mamba run -n gwas-stage1 Rscript scripts/test_ancestry_reference.R
 mamba run -n gwas-stage1 Rscript scripts/test_admixture_qc.R
 ```

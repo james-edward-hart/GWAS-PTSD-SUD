@@ -80,7 +80,7 @@ noise <- paste(2, seq_len(10000), paste0("noise", seq_len(10000)), "A", "G", "no
 writeLines(c(
   "##fileformat=VCFv4.2",
   "#CHROM\tPOS\tID\tREF\tALT\tINFO",
-  "1\t100\trs_valid\tA\tG\tkeep_valid",
+  "1\t100\trs_valid\tA\tG\tPR;keep_valid",
   noise,
   "1\t200\trs_same\tC\tC\treplace",
   "chrX\t300\trs_multiallelic\tA\tA,C\tkeep_multiallelic"
@@ -105,6 +105,8 @@ stopifnot(!any(safe_pvar$allele1 == safe_pvar$allele2 & !grepl(",", safe_pvar$al
 stopifnot(identical(safe_pvar$allele1[safe_pvar$row_number == 10002L], "A"))
 stopifnot(identical(safe_pvar$allele2[safe_pvar$row_number == 10002L], "C"))
 stopifnot(identical(safe_pvar$variant_id[safe_pvar$row_number == 10003L], "rs_multiallelic"))
+stopifnot(isTRUE(safe_pvar$ref_provisional[safe_pvar$row_number == 1L]))
+stopifnot(!any(safe_pvar$ref_provisional[safe_pvar$row_number != 1L]))
 
 safe_pvar_lines <- readLines(paste0(pgen_args[[2]], ".pvar"), warn = FALSE)
 stopifnot(identical(safe_pvar_lines[[1]], "##fileformat=VCFv4.2"))

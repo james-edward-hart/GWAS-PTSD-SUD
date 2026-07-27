@@ -31,12 +31,22 @@ writeLines(c(
   "  exclusion_regions: resources/ancestry/long_range_ld_regions.GRCh38.tsv"
 ), config)
 
+harmonization_args <- function(stem) {
+  c(
+    "--mapping", file.path(tmp, paste0(stem, ".mapping.tsv")),
+    "--reference-extract", file.path(tmp, paste0(stem, ".reference.extract.txt")),
+    "--study-extract", file.path(tmp, paste0(stem, ".study.extract.txt")),
+    "--reference-update", file.path(tmp, paste0(stem, ".reference.update.tsv")),
+    "--study-update", file.path(tmp, paste0(stem, ".study.update.tsv"))
+  )
+}
+
 dup_ref_prefix <- file.path(tmp, "admixture_ref_dup")
 dup_study_prefix <- file.path(tmp, "admixture_study_dup")
 dup_rows <- data.frame(
   `#CHROM` = c("1", "1", "1"),
   POS = c(100, 200, 200),
-  ID = c("rs_keep", "rs_dup_a", "rs_dup_b"),
+  ID = c("rs1", "rs2", "rs3"),
   REF = "A",
   ALT = "G",
   check.names = FALSE
@@ -51,42 +61,44 @@ status <- system2("Rscript", c(
   "--reference-prefix", dup_ref_prefix,
   "--study-prefix", dup_study_prefix,
   "--out", file.path(tmp, "dup_shared.txt"),
-  "--mismatch-report", file.path(tmp, "dup_mismatch.tsv")
+  "--mismatch-report", file.path(tmp, "dup_mismatch.tsv"),
+  harmonization_args("duplicate")
 ), stdout = dup_log, stderr = dup_log)
 stopifnot(identical(status, 0L))
-stopifnot(identical(readLines(file.path(tmp, "dup_shared.txt")), "rs_keep"))
-stopifnot(any(grepl("duplicated chromosome/position mappings", readLines(dup_log), fixed = TRUE)))
+stopifnot(identical(readLines(file.path(tmp, "dup_shared.txt")), "rs1"))
+dup_mismatches <- read.delim(file.path(tmp, "dup_mismatch.tsv"), sep = "\t", stringsAsFactors = FALSE)
+stopifnot(identical(dup_mismatches$reason, "duplicate_locus_allele_key_both"))
 
-pos_ref_prefix <- file.path(tmp, "admixture_ref_pos")
-pos_study_prefix <- file.path(tmp, "admixture_study_pos")
-pos_ref <- data.frame(
+allele_ref_prefix <- file.path(tmp, "admixture_ref_allele")
+allele_study_prefix <- file.path(tmp, "admixture_study_allele")
+allele_ref <- data.frame(
   `#CHROM` = c("1", "1"),
   POS = c(100, 200),
-  ID = c("rs_keep", "rs_pos_mismatch"),
+  ID = c("rs1", "rs2"),
   REF = "A",
   ALT = "G",
   check.names = FALSE
 )
-pos_study <- pos_ref
-pos_study$POS[[2]] <- 250
-write.table(pos_ref, paste0(pos_ref_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
-write.table(pos_study, paste0(pos_study_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
-pos_log <- file.path(tmp, "pos_shared.log")
-pos_mismatch <- file.path(tmp, "pos_mismatch.tsv")
+allele_study <- allele_ref
+allele_study$ALT[[2]] <- "C"
+write.table(allele_ref, paste0(allele_ref_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(allele_study, paste0(allele_study_prefix, ".pvar"), sep = "\t", quote = FALSE, row.names = FALSE)
+allele_log <- file.path(tmp, "allele_shared.log")
+allele_mismatch <- file.path(tmp, "allele_mismatch.tsv")
 status <- system2("Rscript", c(
   "scripts/admixture_qc.R",
   "shared-variants",
   "--config", config,
-  "--reference-prefix", pos_ref_prefix,
-  "--study-prefix", pos_study_prefix,
-  "--out", file.path(tmp, "pos_shared.txt"),
-  "--mismatch-report", pos_mismatch
-), stdout = pos_log, stderr = pos_log)
+  "--reference-prefix", allele_ref_prefix,
+  "--study-prefix", allele_study_prefix,
+  "--out", file.path(tmp, "allele_shared.txt"),
+  "--mismatch-report", allele_mismatch,
+  harmonization_args("allele")
+), stdout = allele_log, stderr = allele_log)
 stopifnot(identical(status, 0L))
-stopifnot(identical(readLines(file.path(tmp, "pos_shared.txt")), "rs_keep"))
-pos_rows <- read.delim(pos_mismatch, sep = "\t", stringsAsFactors = FALSE)
-stopifnot(identical(pos_rows$reason, "position_mismatch"))
-stopifnot(any(grepl("chromosome/position mismatches", readLines(pos_log), fixed = TRUE)))
+stopifnot(identical(readLines(file.path(tmp, "allele_shared.txt")), "rs1"))
+allele_rows <- read.delim(allele_mismatch, sep = "\t", stringsAsFactors = FALSE)
+stopifnot(identical(allele_rows$reason, "allele_mismatch"))
 
 fake_tool <- function(path, log, body) {
   writeLines(c("#!/bin/sh", paste0("echo \"$0 $@\" >> ", shQuote(log)), body), path)

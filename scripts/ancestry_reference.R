@@ -5,6 +5,7 @@
 cmd <- commandArgs(FALSE)
 script_dir <- dirname(normalizePath(sub("^--file=", "", cmd[grepl("^--file=", cmd)][1])))
 source(file.path(script_dir, "lib", "stage1.R"))
+source(file.path(script_dir, "lib", "variant_harmonization.R"))
 
 
 # Parse the first argument as the requested ancestry-reference subtask.
@@ -12,11 +13,6 @@ raw <- commandArgs(trailingOnly = TRUE)
 if (!length(raw)) die("missing ancestry-reference subtask")
 subtask <- raw[[1]]
 args <- parse_args(defaults = list(threads = "1", eigenvec = character()), repeated = "eigenvec", raw = raw[-1])
-
-
-# Variant harmonization is restricted to autosomal non-palindromic SNPs by default.
-autosomes <- as.character(seq_len(22))
-palindromic <- c("AT", "TA", "CG", "GC")
 
 
 # Translate ancestry-reference QC settings into PLINK2 filters.
@@ -33,115 +29,71 @@ ancestry_filters <- function(config) {
 }
 
 
-# Read a PVAR and keep simple autosomal biallelic variant rows.
-read_pvar <- function(prefix_or_path) {
-  path <- if (grepl("\\.pvar$", prefix_or_path)) prefix_or_path else paste0(prefix_or_path, ".pvar")
-  rows <- read_tsv(path)
-  chrom_col <- if ("#CHROM" %in% names(rows)) "#CHROM" else "CHROM"
-  require_columns(rows, c(chrom_col, "POS", "ID", "REF", "ALT"), path)
-  rows$REF <- toupper(rows$REF)
-  rows$ALT <- toupper(rows$ALT)
-  rows$chrom_clean <- clean_chrom(rows[[chrom_col]])
-  rows <- rows[rows$chrom_clean %in% autosomes & nzchar(rows$ID) & rows$ID != "." &
-    rows$REF != rows$ALT & !grepl(",", rows$ALT, fixed = TRUE), ]
-  duplicate_ids <- unique(rows$ID[duplicated(rows$ID)])
-  if (length(duplicate_ids)) die("duplicate target variant IDs in ", path, ": ", paste(head(duplicate_ids, 5), collapse = ", "))
-  rows <- drop_duplicate_variant_mappings(rows, "chrom_clean", "POS", path)
-  data.frame(
-    ID = rows$ID,
-    chrom = rows$chrom_clean,
-    pos = as.integer(rows$POS),
-    ref = rows$REF,
-    alt = rows$ALT,
-    stringsAsFactors = FALSE
-  )
-}
-
-
-# Convert a configured genotype block to filtered PGEN.
+# Convert a configured genotype block to a filtered, sorted ancestry-only PGEN.
 convert_genotypes <- function(config, block, out_prefix, threads) {
   ensure_parent(paste0(out_prefix, ".pgen"))
-  run_command(plink_tool(config), c(plink_input_args(block, out_prefix, "ancestry genotype input"), ancestry_filters(config), "--make-pgen", "--threads", threads, "--out", out_prefix))
+  run_command(plink_tool(config), c(
+    plink_input_args(block, out_prefix, "ancestry genotype input"),
+    ancestry_filters(config),
+    "--make-pgen", "--sort-vars",
+    "--threads", threads,
+    "--out", out_prefix
+  ))
 }
 
 
-# Intersect study/reference variants and report allele mismatches.
-shared_variants <- function(config, reference_prefix, study_prefix, out, mismatch_report) {
-  reference <- read_pvar(reference_prefix)
-  study <- read_pvar(study_prefix)
-  names_reference <- setNames(seq_len(nrow(reference)), reference$ID)
-  names_study <- setNames(seq_len(nrow(study)), study$ID)
-  ids <- sort(intersect(names(names_reference), names(names_study)))
-  exclude_pal <- truthy(config$ancestry_reference$filters$exclude_palindromic %||% TRUE)
-
-  keep <- character()
-  mismatches <- data.frame()
-  for (id in ids) {
-    ref <- reference[names_reference[[id]], ]
-    obs <- study[names_study[[id]], ]
-    reason <- ""
-    if (ref$chrom != obs$chrom) {
-      reason <- "chromosome_mismatch"
-    } else if (ref$pos != obs$pos) {
-      reason <- "position_mismatch"
-    } else if (exclude_pal && (paste0(ref$ref, ref$alt) %in% palindromic || paste0(obs$ref, obs$alt) %in% palindromic)) {
-      reason <- "palindromic_snp_excluded"
-    } else if (!setequal(c(ref$ref, ref$alt), c(obs$ref, obs$alt))) {
-      reason <- "allele_mismatch"
-    }
-    if (nzchar(reason)) {
-      mismatches <- rbind(mismatches, data.frame(
-        variant_id = id, reason = reason,
-        reference_chrom = ref$chrom, study_chrom = obs$chrom,
-        reference_pos = ref$pos, study_pos = obs$pos,
-        reference_ref = ref$ref, reference_alt = ref$alt,
-        study_ref = obs$ref, study_alt = obs$alt,
-        stringsAsFactors = FALSE
-      ))
-    } else {
-      keep <- c(keep, id)
-    }
-  }
-
+# Harmonize source-native IDs only inside ancestry working copies.
+shared_variants <- function(config, reference_prefix, study_prefix, out,
+                            mismatch_report, mapping, reference_extract,
+                            study_extract, reference_update, study_update) {
+  result <- harmonize_pvar_variants(
+    reference_prefix = reference_prefix,
+    study_prefix = study_prefix,
+    shared_variants = out,
+    mismatch_report = mismatch_report,
+    mapping = mapping,
+    reference_extract = reference_extract,
+    study_extract = study_extract,
+    reference_update = reference_update,
+    study_update = study_update,
+    exclude_palindromic = truthy(
+      config$ancestry_reference$filters$exclude_palindromic %||% TRUE
+    )
+  )
   minimum <- as.integer(config$ancestry_reference$min_shared_variants %||% 10000)
   warn_below <- as.integer(config$ancestry_reference$warn_shared_variants_below %||% 50000)
-  if (length(keep) < minimum) {
-    die("only ", length(keep), " ancestry reference/study variants survived harmonization; minimum required is ", minimum)
+  if (result$retained < minimum) {
+    die("only ", result$retained,
+      " ancestry reference/study variants survived harmonization; minimum required is ",
+      minimum)
   }
-  if (length(keep) < warn_below) {
-    warning("only ", length(keep), " ancestry reference/study variants survived harmonization; warning threshold is ", warn_below)
+  if (result$retained < warn_below) {
+    warning("only ", result$retained,
+      " ancestry reference/study variants survived harmonization; warning threshold is ",
+      warn_below)
   }
-  ensure_parent(out)
-  writeLines(keep, out)
-  write_tsv(mismatches, mismatch_report)
-  coordinate_mismatches <- mismatches$reason %in% c("chromosome_mismatch", "position_mismatch")
-  if (any(coordinate_mismatches)) {
-    warning("excluded ", sum(coordinate_mismatches),
-      " ancestry reference variants with chromosome/position mismatches; review ", mismatch_report)
-  }
-  cat("POP-MaD study/reference overlapping variants:", length(keep), "\n")
-  cat("Wrote", length(keep), "shared ancestry markers;", nrow(mismatches), "variants excluded\n")
+  cat("POP-MaD study/reference overlapping variants:", result$retained, "\n")
+  cat("Wrote", result$retained, "shared ancestry markers;",
+    result$mismatches, "exclusion records\n")
 }
 
 
 # Write variants that fall inside long-range LD/problem regions.
 write_region_exclusions <- function(config, pfile_prefix, out) {
   regions_path <- config$ancestry_reference$exclusion_regions %||% ""
-  variants <- read_pvar(paste0(pfile_prefix, ".pvar"))
-  excluded <- character()
+  regions <- data.frame(
+    chrom = character(), start = integer(), end = integer(),
+    stringsAsFactors = FALSE
+  )
   if (nzchar(regions_path) && file.exists(regions_path)) {
     regions <- read_tsv(regions_path)
     chrom_col <- if ("chrom" %in% names(regions)) "chrom" else "#chrom"
     regions$chrom <- clean_chrom(regions[[chrom_col]])
-    regions <- regions[regions$chrom %in% autosomes, ]
-    for (i in seq_len(nrow(regions))) {
-      hit <- variants$chrom == regions$chrom[[i]] & variants$pos >= as.integer(regions$start[[i]]) & variants$pos <= as.integer(regions$end[[i]])
-      excluded <- c(excluded, variants$ID[hit])
-    }
+    regions <- regions[regions$chrom %in% harmonization_autosomes, , drop = FALSE]
   }
-  ensure_parent(out)
-  writeLines(sort(unique(excluded)), out)
-  length(unique(excluded))
+  write_pvar_region_exclusions(
+    pfile_prefix, regions, out, label = "shared ancestry reference PVAR"
+  )
 }
 
 
@@ -240,7 +192,9 @@ combine_within_pcs <- function(config, eigenvecs, out) {
 
 
 # Write a markdown report for reference preparation QC.
-write_report <- function(config, shared_variants, prune_in, mismatch_report, projection_validation, reference_pcs, study_pcs, out) {
+write_report <- function(config, shared_variants, mapping, prune_in,
+                         mismatch_report, harmonized_validation,
+                         projection_validation, reference_pcs, study_pcs, out) {
   projection <- read_tsv(projection_validation)
   projection_summary <- if (nrow(projection)) {
     paste(sprintf("%s abs(r)=%.3f", projection$pc, as.numeric(projection$abs_correlation)), collapse = ", ")
@@ -262,9 +216,17 @@ write_report <- function(config, shared_variants, prune_in, mismatch_report, pro
     paste0("- Shared harmonized variants: ", shared_count),
     paste0("- Shared variant status: ", overlap_status, " (warn below ", warn_below, "; fail below ", minimum, ")"),
     paste0("- LD-pruned PCA variants: ", count_lines(prune_in)),
-    paste0("- Allele/chromosome mismatch report rows: ", max(count_lines(mismatch_report) - 1, 0)),
+    paste0("- Harmonization exclusion report rows: ", max(count_lines(mismatch_report) - 1, 0)),
     paste0("- Reference PC rows: ", max(count_lines(reference_pcs) - 1, 0)),
     paste0("- Study projected PC rows: ", max(count_lines(study_pcs) - 1, 0)), "",
+    "## Variant-ID Harmonization", "",
+    paste0("- Retained mapping table: `", mapping, "`"),
+    paste0("- Exclusion report: `", mismatch_report, "`"),
+    paste0("- Renamed-copy validation: `", harmonized_validation, "`"),
+    "- Working-ID scope: reference and study ancestry copies only.",
+    "- Association-ID scope: source study genotypes, Stage 1 GWAS, and ordinary Phase 2 outputs retain their native IDs.",
+    "- ID precedence: reference rsID, then study rsID, then CPRA from a PVAR-known REF.",
+    "- PVAR-known REF means the PVAR row lacks PLINK's INFO/PR provisional-REF flag; this workflow does not perform an independent FASTA check.", "",
     "## Projection Validation", "",
     paste0("- Validation file: `", projection_validation, "`"),
     paste0("- Reference eigenvec vs projected reference PC correlations: ", projection_summary), "",
@@ -273,8 +235,9 @@ write_report <- function(config, shared_variants, prune_in, mismatch_report, pro
     "- Status: independent report-only QC branch when enabled. POP-MaD PCA/Mahalanobis assignment remains the active ancestry-label method.",
     "- Decision: ADMIXTURE outputs are reviewed for QC only and do not alter strata, keep files, or GWAS covariates.", "",
     "## Methods", "",
-    "Study and reference genotypes were converted to filtered PGEN datasets, intersected by variant ID,",
-    "and restricted to allele-compatible autosomal SNPs. Long-range LD/problem-region variants were",
+    "Study and reference genotypes were converted to sorted, filtered PGEN working copies and matched",
+    "by normalized chromosome, position, and unordered allele pair. Each side was extracted with its",
+    "source-native IDs and then renamed to the selected ancestry-only operational ID. Long-range LD/problem-region variants were",
     "excluded before PLINK2 LD pruning. PCA was fitted in the reference samples with allele weights,",
     "then both reference and study samples were scored with the same PLINK2 `--score` projection command",
     "so POP-MaD assignment uses PCs on the same projection scale.", "",
@@ -301,14 +264,41 @@ if (subtask == "convert-reference") {
   require_args(args, "out-prefix")
   convert_genotypes(config, config$genotypes, args[["out-prefix"]], threads)
 } else if (subtask == "shared-variants") {
-  # Find allele-compatible variants shared by study and reference.
-  require_args(args, c("reference-prefix", "study-prefix", "out", "mismatch-report"))
-  shared_variants(config, args[["reference-prefix"]], args[["study-prefix"]], args$out, args[["mismatch-report"]])
+  # Match by locus/alleles and write all extraction, rename, and audit files.
+  require_args(args, c(
+    "reference-prefix", "study-prefix", "out", "mismatch-report", "mapping",
+    "reference-extract", "study-extract", "reference-update", "study-update"
+  ))
+  shared_variants(
+    config,
+    args[["reference-prefix"]],
+    args[["study-prefix"]],
+    args$out,
+    args[["mismatch-report"]],
+    args$mapping,
+    args[["reference-extract"]],
+    args[["study-extract"]],
+    args[["reference-update"]],
+    args[["study-update"]]
+  )
 } else if (subtask == "extract-shared") {
-  # Extract the harmonized variant list from a PGEN dataset.
-  require_args(args, c("input-prefix", "variants", "out-prefix"))
-  ensure_parent(paste0(args[["out-prefix"]], ".pgen"))
-  run_command(plink_tool(config), c("--pfile", args[["input-prefix"]], "--extract", args$variants, "--make-pgen", "--threads", threads, "--out", args[["out-prefix"]]))
+  # Extract with native IDs, then rename only the ancestry-local copy.
+  require_args(args, c("input-prefix", "variants", "update-name", "out-prefix"))
+  extract_and_rename_pgen(
+    config,
+    args[["input-prefix"]],
+    args$variants,
+    args[["update-name"]],
+    args[["out-prefix"]],
+    threads
+  )
+} else if (subtask == "validate-harmonized") {
+  # Require identical operational ID/locus/allele sets before PCA.
+  require_args(args, c("reference-prefix", "study-prefix", "out"))
+  count <- validate_harmonized_pgen_variants(
+    args[["reference-prefix"]], args[["study-prefix"]], args$out
+  )
+  cat("Validated", count, "identical harmonized ancestry markers\n")
 } else if (subtask == "ld-prune") {
   # Exclude problem regions and LD-prune PCA markers.
   require_args(args, c("pfile-prefix", "out-prefix", "prune-in", "excluded-regions"))
@@ -374,8 +364,23 @@ if (subtask == "convert-reference") {
   combine_within_pcs(config, args$eigenvec, args$out)
 } else if (subtask == "write-report") {
   # Write the reference-preparation QC report.
-  require_args(args, c("shared-variants", "prune-in", "mismatch-report", "projection-validation", "reference-pcs", "study-pcs", "out"))
-  write_report(config, args[["shared-variants"]], args[["prune-in"]], args[["mismatch-report"]], args[["projection-validation"]], args[["reference-pcs"]], args[["study-pcs"]], args$out)
+  require_args(args, c(
+    "shared-variants", "mapping", "prune-in", "mismatch-report",
+    "harmonized-validation", "projection-validation",
+    "reference-pcs", "study-pcs", "out"
+  ))
+  write_report(
+    config,
+    args[["shared-variants"]],
+    args$mapping,
+    args[["prune-in"]],
+    args[["mismatch-report"]],
+    args[["harmonized-validation"]],
+    args[["projection-validation"]],
+    args[["reference-pcs"]],
+    args[["study-pcs"]],
+    args$out
+  )
 } else {
   die("unknown ancestry-reference subtask: ", subtask)
 }

@@ -571,13 +571,17 @@ preparation.
 
 **Symptom:** Ancestry reference preparation reports too few shared variants.
 
-**Likely cause:** Build mismatch, rsID mismatch, allele mismatch, palindromic
-SNP exclusion, or strict filters.
+**Likely cause:** Build mismatch, allele mismatch, palindromic SNP exclusion,
+duplicate locus/allele records, PVAR-known REF disagreement, or strict filters.
+rsID/CPRA namespace differences alone should be resolved by ancestry-local
+harmonization.
 
 **Fix:** Review:
 
 ```text
 results/qc/ancestry/reference/shared_variant_mismatches.tsv
+results/qc/ancestry/reference/variant_harmonization.tsv
+results/qc/ancestry/reference/harmonized_variants.ok
 results/qc/ancestry/reference/reference_prep_report.md
 ```
 
@@ -614,8 +618,10 @@ ambiguous, or supervised components cannot be mapped cleanly.
 
 ```text
 results/logs/admixture/
-results/qc/admixture/raw/shared_variant_mismatches.tsv
-results/qc/admixture/raw/ld_prune/admixture_ld_prune.prune.in
+results/qc/admixture/raw/{ancestry}/shared_variant_mismatches.tsv
+results/qc/admixture/raw/{ancestry}/variant_harmonization.tsv
+results/qc/admixture/raw/{ancestry}/harmonized_variants.ok
+results/qc/admixture/raw/{ancestry}/ld_prune/admixture_ld_prune.prune.in
 results/qc/admixture/admixture_report.md
 ```
 

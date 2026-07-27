@@ -321,6 +321,11 @@ Reference genotype, metadata, build, exclusion-region, and source fields are
 resolved from the reference package. Do not add local reference paths to
 editable production configs.
 
+ADMIXTURE variant matching is independent of source ID namespace. The workflow
+matches normalized loci and unordered allele pairs, then renames only the
+per-stratum ADMIXTURE working copies. Source genotype and association IDs are
+not changed.
+
 If `exclusion_regions` is set, the TSV must include:
 
 ```text
@@ -364,11 +369,19 @@ Production package resolution injects `ancestry_reference.reference_genotypes`,
 Main outputs:
 
 ```text
+results/qc/ancestry/reference/variant_harmonization.tsv
+results/qc/ancestry/reference/shared_variant_mismatches.tsv
+results/qc/ancestry/reference/harmonized_variants.ok
 results/qc/ancestry/reference/reference_pcs.tsv
 results/qc/ancestry/reference/study_projected_pcs.tsv
 results/qc/ancestry/reference/reference_prep_report.md
 results/qc/ancestry/within_ancestry_pcs.tsv
 ```
+
+The mapping table distinguishes source-native IDs from ancestry-only
+operational IDs. A PVAR row without PLINK2's `INFO/PR` flag is treated as
+PVAR-known REF for CPRA generation; this is metadata provenance, not a new
+FASTA validation step.
 
 ### `qc`
 
