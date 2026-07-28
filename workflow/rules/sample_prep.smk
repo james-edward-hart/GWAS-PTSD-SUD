@@ -7,6 +7,8 @@ rule run_sex_check:
         drop="results/qc/sex/sex_mismatches.remove.tsv",
         keep="results/qc/sex/sex_checked.keep.tsv",
         summary="results/qc/sex/sex_check_summary.tsv",
+        prune_in="results/qc/sex/plink_sex_check.sex_marker_prune.prune.in",
+        prune_out="results/qc/sex/plink_sex_check.sex_marker_prune.prune.out",
     log:
         "results/logs/sample_prep/sex_check.log",
     threads:

@@ -20,6 +20,8 @@ Before changing workflow behavior:
 snakemake -n --use-conda  # requires a production-style config/config.yaml
 Rscript scripts/test_reference_package.R
 Rscript scripts/test_infer_genome_build.R
+Rscript scripts/test_genotype_input_sanitizer.R
+Rscript scripts/test_sex_check.R
 Rscript scripts/test_remeta_cohort.R
 python scripts/test_remeta_resources.py
 ```

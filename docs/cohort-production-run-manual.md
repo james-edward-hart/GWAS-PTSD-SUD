@@ -639,6 +639,8 @@ thresholds are inappropriate for the dataset.
 ```text
 results/qc/sex/sexcheck.tsv
 results/qc/sex/sex_check_summary.tsv
+results/qc/sex/plink_sex_check.sex_marker_prune.prune.in
+results/qc/sex/plink_sex_check.sex_marker_prune.prune.out
 results/logs/sample_prep/sex_check.log
 ```
 
@@ -646,8 +648,21 @@ Fix manifest sex coding first. Custom chrX thresholds must include both
 `max_female_xf` and `min_male_xf`. Y-rate thresholds are optional but must be
 supplied as a pair.
 
-If genotype data are autosome-only, set `sex_check.allow_no_sex_markers: true`
-only after external sex QC has been completed and documented.
+The summary should show the source X/Y/PAR counts, whether PAR was already
+split or split with `b37`/`b38`, the post-MAF/missingness count, and the
+LD-pruned count. Only manifest samples and non-PAR X/Y markers enter the final
+check. Borderline `XF` calls can legitimately differ from older runs that used
+rare and correlated markers; review the distribution instead of forcing exact
+agreement with the old values.
+
+If genotype data are autosome-only or otherwise lack usable non-PAR X markers,
+set `sex_check.allow_no_sex_markers: true` only after external sex QC has been
+completed and documented.
+
+If the rule approaches its 60-minute limit, first confirm that the log reports
+the GNU AWK metadata scan and a compact sex-marker PGEN. Do not create a pooled
+12-million-variant MAF-filtered dataset as a workaround; that can discard
+variants which are uncommon overall but informative within an ancestry.
 
 ### Relatedness Marker Set Is Empty
 

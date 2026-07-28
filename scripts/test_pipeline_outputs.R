@@ -52,7 +52,20 @@ require_file(build_file, "missing inferred genome build")
 require_file(file.path(results, "config", "effective_config.yaml"), "missing effective config snapshot")
 require_file(file.path(results, "config", "resolved_config.yaml"), "missing resolved config snapshot")
 require_file(file.path(results, "qc", "relatedness", "relatedness_summary.tsv"), "missing relatedness marker summary")
-require_file(file.path(results, "qc", "sex", "sex_check_summary.tsv"), "missing sex-check summary")
+sex_summary_path <- file.path(results, "qc", "sex", "sex_check_summary.tsv")
+require_file(sex_summary_path, "missing sex-check summary")
+sex_prune_prefix <- file.path(results, "qc", "sex", "plink_sex_check.sex_marker_prune.prune")
+require_file(paste0(sex_prune_prefix, ".in"), "missing sex-check retained-marker audit")
+require_file(paste0(sex_prune_prefix, ".out"), "missing sex-check pruned-marker audit")
+sex_summary <- read_tsv(sex_summary_path)
+required_sex_metrics <- c(
+  "source_x_variants", "source_y_variants", "par_handling",
+  "post_qc_variants", "pruned_variants"
+)
+missing_sex_metrics <- setdiff(required_sex_metrics, sex_summary$metric)
+if (length(missing_sex_metrics)) {
+  die("sex-check summary is missing marker audit metrics: ", paste(missing_sex_metrics, collapse = ", "))
+}
 build <- if (args$build == "auto") trimws(readLines(build_file, warn = FALSE)[[1]]) else args$build
 
 

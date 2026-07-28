@@ -34,6 +34,8 @@ Run focused tests through the utility environment:
 mamba run -n gwas-stage1 Rscript scripts/test_infer_genome_build.R
 mamba run -n gwas-stage1 Rscript scripts/test_reference_package.R
 mamba run -n gwas-stage1 Rscript scripts/test_variant_harmonization.R
+mamba run -n gwas-stage1 Rscript scripts/test_genotype_input_sanitizer.R
+mamba run -n gwas-stage1 Rscript scripts/test_sex_check.R
 mamba run -n gwas-stage1 Rscript scripts/test_ancestry_reference.R
 mamba run -n gwas-stage1 Rscript scripts/test_admixture_qc.R
 ```

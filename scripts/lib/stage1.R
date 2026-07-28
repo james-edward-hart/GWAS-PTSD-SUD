@@ -1,5 +1,15 @@
 # Shared helpers for Stage 1 R task scripts.
 
+# Resolve sibling shell helpers from this file, independent of the caller's
+# current working directory.
+stage1_library_dir <- local({
+  source_path <- tryCatch(sys.frame(1)$ofile, error = function(err) "")
+  if (is.null(source_path) || !nzchar(source_path)) {
+    return(normalizePath(file.path("scripts", "lib"), mustWork = FALSE))
+  }
+  dirname(normalizePath(source_path, mustWork = FALSE))
+})
+
 
 # Stop with a consistent pipeline error prefix.
 die <- function(...) {
@@ -409,10 +419,12 @@ genotype_args <- function(block) {
 }
 
 
-# Stream BIM/PVAR metadata in bounded chunks. The callback receives normalized
-# columns plus raw lines/fields so sanitizers can preserve source formatting.
-stream_plink_variant_chunks <- function(block, visit, label = "genotype input", output = "",
-                                        chunk_size = 10000L, require_alleles = FALSE) {
+# Cache completed scans only within the current R task. This lets a caller use
+# chromosome counts after sanitization without rereading a large BIM/PVAR.
+plink_metadata_cache <- new.env(parent = emptyenv())
+
+
+plink_metadata_path <- function(block, label = "genotype input") {
   kind <- tolower(block$type)
   suffix <- if (kind == "bed") ".bim" else if (kind == "pgen") ".pvar" else {
     die("unsupported genotype type '", kind, "'. Use 'pgen' or 'bed'.")
@@ -420,6 +432,106 @@ stream_plink_variant_chunks <- function(block, visit, label = "genotype input", 
   path <- paste0(block$prefix, suffix)
   if (!file.exists(path)) die(label, " ", toupper(sub("^\\.", "", suffix)), " file not found: ", path)
   if (file.info(path)$size == 0) die(label, " ", toupper(sub("^\\.", "", suffix)), " file is empty: ", path)
+  list(kind = kind, path = path)
+}
+
+
+plink_metadata_cache_key <- function(kind, path) {
+  info <- file.info(path)
+  paste(kind, normalizePath(path, mustWork = TRUE), info$size, as.numeric(info$mtime), sep = "\t")
+}
+
+
+# Parse the scanner's compact metric/value output into a named character list.
+read_plink_metadata_summary <- function(path) {
+  rows <- read_tsv(path)
+  require_columns(rows, c("metric", "value"), "PLINK metadata scan summary")
+  if (anyDuplicated(rows$metric)) die("PLINK metadata scan summary contains duplicate metrics: ", path)
+  setNames(as.list(as.character(rows$value)), rows$metric)
+}
+
+
+# Run the shared GNU AWK scanner. Optional sanitizer paths cause a second pass
+# only when duplicate allele codes are actually present.
+inspect_plink_metadata <- function(block, label = "genotype input", targets = character(),
+                                   stop_on_target = FALSE, inspect_alleles = FALSE,
+                                   sanitizer_paths = NULL) {
+  metadata <- plink_metadata_path(block, label)
+  helper <- file.path(dirname(stage1_library_dir), "inspect_plink_metadata.sh")
+  if (!file.exists(helper)) die("PLINK metadata helper not found: ", helper)
+
+  summary_path <- tempfile("plink-metadata-summary-", fileext = ".tsv")
+  on.exit(unlink(summary_path), add = TRUE)
+  command_args <- c(
+    helper,
+    "--type", metadata$kind,
+    "--metadata", metadata$path,
+    "--summary", summary_path,
+    "--label", label
+  )
+  if (length(targets)) {
+    command_args <- c(command_args, "--target-chromosomes", paste(targets, collapse = ","))
+  }
+  if (isTRUE(stop_on_target)) command_args <- c(command_args, "--stop-on-target")
+  if (isTRUE(inspect_alleles)) command_args <- c(command_args, "--inspect-alleles")
+  if (!is.null(sanitizer_paths)) {
+    command_args <- c(
+      command_args,
+      "--safe-metadata", sanitizer_paths$safe_metadata,
+      "--invalid-report", sanitizer_paths$report,
+      "--invalid-exclude", sanitizer_paths$exclude
+    )
+  }
+
+  status <- suppressWarnings(system2(
+    "bash",
+    args = vapply(command_args, shQuote, character(1), type = "sh")
+  ))
+  if (!identical(status, 0L)) die("PLINK metadata inspection failed for ", metadata$path)
+
+  summary <- read_plink_metadata_summary(summary_path)
+  if (identical(summary$scan_complete, "true")) {
+    key <- plink_metadata_cache_key(metadata$kind, metadata$path)
+    assign(key, list(summary = summary, inspected_alleles = isTRUE(inspect_alleles)), envir = plink_metadata_cache)
+  }
+  summary
+}
+
+
+cached_plink_metadata_summary <- function(block, require_alleles = FALSE, label = "genotype input") {
+  metadata <- plink_metadata_path(block, label)
+  key <- plink_metadata_cache_key(metadata$kind, metadata$path)
+  if (!exists(key, envir = plink_metadata_cache, inherits = FALSE)) return(NULL)
+  cached <- get(key, envir = plink_metadata_cache, inherits = FALSE)
+  if (isTRUE(require_alleles) && !isTRUE(cached$inspected_alleles)) return(NULL)
+  cached$summary
+}
+
+
+# Return exact full-file counts, reusing a completed scan when one is available.
+plink_metadata_summary <- function(block, label = "genotype input", require_alleles = FALSE) {
+  cached <- cached_plink_metadata_summary(block, require_alleles, label)
+  if (!is.null(cached)) return(cached)
+  inspect_plink_metadata(block, label = label, inspect_alleles = require_alleles)
+}
+
+
+plink_metadata_count <- function(summary, metric) {
+  value <- suppressWarnings(as.numeric(summary[[metric]]))
+  if (length(value) != 1 || is.na(value)) {
+    die("PLINK metadata scan summary is missing numeric metric: ", metric)
+  }
+  value
+}
+
+
+# Stream BIM/PVAR metadata in bounded chunks for ancestry validators that still
+# need row-level R callbacks. Large input inspection/sanitization uses GNU AWK.
+stream_plink_variant_chunks <- function(block, visit, label = "genotype input", output = "",
+                                        chunk_size = 10000L, require_alleles = FALSE) {
+  metadata <- plink_metadata_path(block, label)
+  kind <- metadata$kind
+  path <- metadata$path
 
   input_connection <- file(path, open = "rt")
   on.exit(close(input_connection), add = TRUE)
@@ -570,28 +682,40 @@ scan_plink_variant_metadata <- function(block, visit, label = "genotype input", 
 }
 
 
-# Stop scanning as soon as any requested chromosome is observed.
-genotype_has_chromosomes <- function(block, chromosomes, label = "genotype input") {
-  targets <- toupper(clean_chrom(chromosomes))
-  found <- FALSE
-  scan_plink_variant_metadata(block, function(rows) {
-    if (any(toupper(clean_chrom(rows$chrom)) %in% targets)) {
-      found <<- TRUE
-      return(FALSE)
-    }
-    TRUE
-  }, label = label)
-  found
+# Normalize PLINK chromosome aliases used by BIM/PVAR and --chr.
+normalize_plink_chromosome <- function(value) {
+  value <- toupper(trimws(clean_chrom(value)))
+  value[value == "23"] <- "X"
+  value[value == "24"] <- "Y"
+  value[value == "25"] <- "XY"
+  value
 }
 
 
-# Identify metadata rows PLINK2 rejects before normal variant filters can run.
-duplicate_variant_alleles <- function(rows, kind) {
-  allele1 <- toupper(trimws(as.character(rows$allele1)))
-  allele2 <- toupper(trimws(as.character(rows$allele2)))
-  invalid <- nzchar(allele1) & nzchar(allele2) & allele1 == allele2
-  if (kind == "pgen") invalid <- invalid & !grepl(",", allele2, fixed = TRUE)
-  invalid
+# Stop the GNU AWK scan as soon as any requested chromosome is observed.
+genotype_has_chromosomes <- function(block, chromosomes, label = "genotype input") {
+  targets <- unique(normalize_plink_chromosome(chromosomes))
+  cached <- cached_plink_metadata_summary(block, label = label)
+  fixed_metrics <- c(
+    X = "x_variants",
+    Y = "y_variants",
+    XY = "xy_variants",
+    PAR1 = "par1_variants",
+    PAR2 = "par2_variants"
+  )
+  if (!is.null(cached) && all(targets %in% names(fixed_metrics))) {
+    return(any(vapply(fixed_metrics[targets], function(metric) {
+      plink_metadata_count(cached, metric) > 0
+    }, logical(1))))
+  }
+
+  summary <- inspect_plink_metadata(
+    block,
+    label = label,
+    targets = targets,
+    stop_on_target = TRUE
+  )
+  plink_metadata_count(summary, "target_matches") > 0
 }
 
 
@@ -604,20 +728,28 @@ path_exists_or_symlink <- function(path) {
 # Link a large genotype component into a sanitized temporary prefix.
 link_plink_component <- function(src, dest, component) {
   src_abs <- normalizePath(src, mustWork = TRUE)
-  ok <- suppressWarnings(file.symlink(src_abs, dest))
-  if (!isTRUE(ok) || !file.exists(dest)) {
-    if (path_exists_or_symlink(dest)) unlink(dest)
-    ok <- suppressWarnings(file.link(src_abs, dest))
+  ensure_parent(dest)
+  temp <- tempfile(paste0(".", basename(dest), "-"), tmpdir = dirname(dest))
+  on.exit(if (path_exists_or_symlink(temp)) unlink(temp), add = TRUE)
+  ok <- suppressWarnings(file.symlink(src_abs, temp))
+  if (!isTRUE(ok) || !file.exists(temp)) {
+    if (path_exists_or_symlink(temp)) unlink(temp)
+    ok <- suppressWarnings(file.link(src_abs, temp))
   }
-  if (!isTRUE(ok) || !file.exists(dest)) {
+  if (!isTRUE(ok) || !file.exists(temp)) {
     die("could not create ", component, " link for sanitized PLINK input at ", dest,
       ". Check filesystem permissions for ", dirname(dest))
+  }
+  if (path_exists_or_symlink(dest)) unlink(dest)
+  if (!file.rename(temp, dest)) {
+    die("could not finalize ", component, " link for sanitized PLINK input at ", dest)
   }
 }
 
 
-# Create a lightweight PLINK view while keeping metadata scanning and rewriting
-# bounded by chunk size. Clean inputs continue to use their original prefix.
+# Create a lightweight PLINK view around malformed metadata. The GNU AWK helper
+# scans clean inputs once and performs a second streaming rewrite only when a
+# duplicate allele code would otherwise prevent PLINK2 from loading the file.
 sanitize_plink_input_args <- function(block, out_prefix, label = "genotype input") {
   kind <- tolower(block$type)
   if (!kind %in% c("bed", "pgen")) die("unsupported genotype type '", kind, "'. Use 'pgen' or 'bed'.")
@@ -636,107 +768,41 @@ sanitize_plink_input_args <- function(block, out_prefix, label = "genotype input
   report_path <- paste0(out_prefix, ".invalid_", invalid_tag, "_alleles.tsv")
   final_paths <- c(safe_metadata, safe_binary, safe_samples, exclude_path, report_path)
 
-  initialized <- FALSE
-  successful <- FALSE
-  invalid_count <- 0L
-  report_temp <- ""
-  exclude_temp <- ""
-  safe_temp <- ""
-  report_connection <- NULL
-  exclude_connection <- NULL
+  sanitizer_paths <- if (blank(out_prefix)) NULL else list(
+    safe_metadata = safe_metadata,
+    report = report_path,
+    exclude = exclude_path
+  )
+  summary <- inspect_plink_metadata(
+    block,
+    label = label,
+    inspect_alleles = TRUE,
+    sanitizer_paths = sanitizer_paths
+  )
+  invalid_count <- plink_metadata_count(summary, "invalid_duplicate_alleles")
 
-  close_reports <- function() {
-    if (!is.null(report_connection)) {
-      close(report_connection)
-      report_connection <<- NULL
+  if (!invalid_count) {
+    # The helper removes stale text artifacts only after a successful clean
+    # scan; remove the corresponding stale component links at the same point.
+    if (!blank(out_prefix)) {
+      for (path in c(safe_binary, safe_samples)) {
+        if (path_exists_or_symlink(path)) unlink(path)
+      }
     }
-    if (!is.null(exclude_connection)) {
-      close(exclude_connection)
-      exclude_connection <<- NULL
-    }
+    return(genotype_args(block))
   }
+  if (blank(out_prefix)) {
+    die("out_prefix is required to sanitize malformed ", format_label, " alleles for ", label)
+  }
+
+  successful <- FALSE
   on.exit({
-    close_reports()
-    unlink(c(report_temp, exclude_temp, safe_temp)[nzchar(c(report_temp, exclude_temp, safe_temp))])
-    if (initialized && !successful) {
+    if (!successful) {
       for (path in final_paths) if (path_exists_or_symlink(path)) unlink(path)
     }
   }, add = TRUE)
-
-  initialize_reports <- function() {
-    if (initialized) return(invisible(TRUE))
-    if (blank(out_prefix)) die("out_prefix is required to sanitize malformed ", format_label, " alleles for ", label)
-
-    ensure_parent(safe_metadata)
-    for (path in final_paths) if (path_exists_or_symlink(path)) unlink(path)
-    report_temp <<- tempfile(paste0(".", invalid_tag, "-report-"), tmpdir = dirname(report_path))
-    exclude_temp <<- tempfile(paste0(".", invalid_tag, "-exclude-"), tmpdir = dirname(exclude_path))
-    report_connection <<- file(report_temp, open = "wt")
-    exclude_connection <<- file(exclude_temp, open = "wt")
-    report_header <- if (kind == "bed") {
-      c("row_number", "variant_id", "chrom", "pos", "allele1", "allele2", "replacement_variant_id", "reason")
-    } else {
-      c("row_number", "variant_id", "chrom", "pos", "ref", "alt", "replacement_variant_id", "reason")
-    }
-    writeLines(paste(report_header, collapse = "\t"), report_connection)
-    initialized <<- TRUE
-    invisible(TRUE)
-  }
-
-  scan_plink_variant_metadata(block, function(rows) {
-    invalid <- duplicate_variant_alleles(rows, kind)
-    if (!any(invalid)) return(TRUE)
-
-    initialize_reports()
-    bad <- rows[invalid, , drop = FALSE]
-    replacement <- paste0("__stage1_excluded_invalid_", invalid_tag, "_", bad$row_number)
-    report <- data.frame(
-      row_number = bad$row_number,
-      variant_id = bad$variant_id,
-      chrom = bad$chrom,
-      pos = bad$pos,
-      allele1 = bad$allele1,
-      allele2 = bad$allele2,
-      replacement_variant_id = replacement,
-      reason = "duplicate_allele_code",
-      stringsAsFactors = FALSE
-    )
-    names(report)[5:6] <- if (kind == "bed") c("allele1", "allele2") else c("ref", "alt")
-    write.table(report, report_connection, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE, na = "")
-    writeLines(replacement, exclude_connection)
-    invalid_count <<- invalid_count + nrow(bad)
-    TRUE
-  }, label = label, require_alleles = TRUE)
-
-  if (!invalid_count) return(genotype_args(block))
-  close_reports()
-
-  safe_temp <- tempfile(paste0(".", invalid_tag, "-safe-"), tmpdir = dirname(safe_metadata))
-  stream_plink_variant_chunks(
-    block,
-    function(chunk) {
-      invalid <- duplicate_variant_alleles(chunk$variants, kind)
-      if (!any(invalid)) return(NULL)
-
-      lines <- chunk$lines
-      for (i in which(invalid)) {
-        fields <- chunk$fields[[i]]
-        fields[[chunk$columns[["variant_id"]]]] <- paste0(
-          "__stage1_excluded_invalid_", invalid_tag, "_", chunk$variants$row_number[[i]]
-        )
-        fields[[chunk$columns[["allele1"]]]] <- "A"
-        fields[[chunk$columns[["allele2"]]]] <- "C"
-        lines[[chunk$data_line_index[[i]]]] <- paste(fields, collapse = "\t")
-      }
-      list(lines = lines)
-    },
-    label = label,
-    output = safe_temp,
-    require_alleles = TRUE
-  )
-
-  for (pair in list(c(report_temp, report_path), c(exclude_temp, exclude_path), c(safe_temp, safe_metadata))) {
-    if (!file.rename(pair[[1]], pair[[2]])) die("could not finalize sanitized PLINK metadata file: ", pair[[2]])
+  for (path in c(safe_binary, safe_samples)) {
+    if (path_exists_or_symlink(path)) unlink(path)
   }
   link_plink_component(paste0(prefix, binary_suffix), safe_binary, toupper(sub("^\\.", "", binary_suffix)))
   link_plink_component(paste0(prefix, sample_suffix), safe_samples, toupper(sub("^\\.", "", sample_suffix)))
@@ -750,8 +816,8 @@ sanitize_plink_input_args <- function(block, out_prefix, label = "genotype input
 }
 
 
-# Convert genotype config to PLINK2 input arguments, sanitizing BED metadata
-# rows that PLINK2 cannot parse before normal --exclude/--snps-only filters.
+# Convert genotype config to PLINK2 input arguments, sanitizing BIM/PVAR rows
+# that PLINK2 cannot parse before normal --exclude/--snps-only filters.
 plink_input_args <- function(block, out_prefix = "", label = "genotype input") {
   sanitize_plink_input_args(block, out_prefix, label)
 }

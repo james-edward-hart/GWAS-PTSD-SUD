@@ -11,6 +11,29 @@ dir.create(tmp)
 on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
 
 
+# Invoke the scanner directly when checking its exact parser failures.
+run_metadata_helper <- function(kind, metadata, stem, extra = character()) {
+  summary <- file.path(tmp, paste0(stem, ".summary.tsv"))
+  log <- file.path(tmp, paste0(stem, ".log"))
+  helper <- file.path(script_dir, "inspect_plink_metadata.sh")
+  helper_args <- c(
+    helper,
+    "--type", kind,
+    "--metadata", metadata,
+    "--summary", summary,
+    "--inspect-alleles",
+    extra
+  )
+  status <- system2(
+    "bash",
+    vapply(helper_args, shQuote, character(1), type = "sh"),
+    stdout = log,
+    stderr = log
+  )
+  list(status = status, summary = summary, log = readLines(log, warn = FALSE))
+}
+
+
 # BED/BIM/FAM inputs with same-allele BIM rows should be wrapped in a temporary
 # parseable prefix, and those rows should be excluded from downstream PLINK2.
 bed_prefix <- file.path(tmp, "study_bed")
@@ -31,6 +54,7 @@ write.table(data.frame(
   a1 = c("A", "A", "g", "C"),
   a2 = c("G", "A", "g", "T")
 ), paste0(bed_prefix, ".bim"), sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+source_bim_sha256 <- sha256_file(paste0(bed_prefix, ".bim"))
 
 bed_out <- file.path(tmp, "out", "study_bed_qc")
 bed_args <- plink_input_args(list(type = "bed", prefix = bed_prefix), bed_out, "test BED input")
@@ -54,6 +78,7 @@ stopifnot(identical(safe_bim$variant_id[[1]], "rs_valid"))
 stopifnot(grepl("^__stage1_excluded_invalid_bim_", safe_bim$variant_id[[2]]))
 stopifnot(identical(safe_bim$allele1[[2]], "A"))
 stopifnot(identical(safe_bim$allele2[[2]], "C"))
+stopifnot(identical(sha256_file(paste0(bed_prefix, ".bim")), source_bim_sha256))
 
 clean_bed_prefix <- file.path(tmp, "clean_bed")
 invisible(file.copy(paste0(bed_prefix, ".bed"), paste0(clean_bed_prefix, ".bed")))
@@ -70,6 +95,8 @@ stopifnot(identical(
   plink_input_args(list(type = "bed", prefix = clean_bed_prefix), file.path(tmp, "clean_out"), "clean BED input"),
   c("--bfile", clean_bed_prefix)
 ))
+stopifnot(!file.exists(file.path(tmp, "clean_out.plink_safe_input.bim")))
+stopifnot(!file.exists(file.path(tmp, "clean_out.invalid_bim_alleles.tsv")))
 
 
 # PGEN/PVAR/PSAM inputs should receive the same protection for REF == ALT rows.
@@ -85,6 +112,7 @@ writeLines(c(
   "1\t200\trs_same\tC\tC\treplace",
   "chrX\t300\trs_multiallelic\tA\tA,C\tkeep_multiallelic"
 ), paste0(pgen_prefix, ".pvar"))
+source_pvar_sha256 <- sha256_file(paste0(pgen_prefix, ".pvar"))
 
 pgen_out <- file.path(tmp, "out", "study_pgen_qc")
 pgen_args <- plink_input_args(list(type = "pgen", prefix = pgen_prefix), pgen_out, "test PGEN input")
@@ -107,6 +135,16 @@ stopifnot(identical(safe_pvar$allele2[safe_pvar$row_number == 10002L], "C"))
 stopifnot(identical(safe_pvar$variant_id[safe_pvar$row_number == 10003L], "rs_multiallelic"))
 stopifnot(isTRUE(safe_pvar$ref_provisional[safe_pvar$row_number == 1L]))
 stopifnot(!any(safe_pvar$ref_provisional[safe_pvar$row_number != 1L]))
+stopifnot(identical(sha256_file(paste0(pgen_prefix, ".pvar")), source_pvar_sha256))
+
+scan_summary <- plink_metadata_summary(
+  list(type = "pgen", prefix = pgen_prefix),
+  "test PGEN input",
+  require_alleles = TRUE
+)
+stopifnot(plink_metadata_count(scan_summary, "rows_scanned") == 10003)
+stopifnot(plink_metadata_count(scan_summary, "x_variants") == 1)
+stopifnot(plink_metadata_count(scan_summary, "invalid_duplicate_alleles") == 1)
 
 safe_pvar_lines <- readLines(paste0(pgen_args[[2]], ".pvar"), warn = FALSE)
 stopifnot(identical(safe_pvar_lines[[1]], "##fileformat=VCFv4.2"))
@@ -181,10 +219,74 @@ missing_id_error <- tryCatch({
   ""
 }, error = function(err) conditionMessage(err))
 stopifnot(grepl("missing required column(s): variant_id", missing_id_error, fixed = TRUE))
+missing_id_result <- run_metadata_helper("pgen", paste0(missing_id_prefix, ".pvar"), "missing_id")
+stopifnot(missing_id_result$status != 0)
+stopifnot(any(grepl("missing required column(s): variant_id", missing_id_result$log, fixed = TRUE)))
 
 chrom_header_prefix <- file.path(tmp, "chrom_header")
 writeLines(c("CHROM\tPOS\tID\tREF\tALT", "chrY\t100\trsY\tA\tG"), paste0(chrom_header_prefix, ".pvar"))
 stopifnot(genotype_has_chromosomes(list(type = "pgen", prefix = chrom_header_prefix), c("24", "Y")))
+
+
+# Reordered columns, repeated metadata lines, chromosome aliases, and optional
+# INFO are all parsed from the primary header rather than fixed positions.
+reordered_prefix <- file.path(tmp, "reordered")
+writeLines(c(
+  "##fileformat=VCFv4.2",
+  "##source=test",
+  "ID\tALT\tPOS\tINFO\t#CHROM\tREF",
+  "rsX\tG\t100\t.\tchr23\tA",
+  "rsY\tT\t200\t.\t24\tC",
+  "rsXY\tC\t300\t.\t25\tA",
+  "rsPAR1\tA\t400\t.\tchrPAR1\tG",
+  "rsPAR2\tG\t500\t.\tPAR2\tT"
+), paste0(reordered_prefix, ".pvar"))
+reordered <- plink_metadata_summary(
+  list(type = "pgen", prefix = reordered_prefix),
+  "reordered PVAR",
+  require_alleles = TRUE
+)
+stopifnot(plink_metadata_count(reordered, "rows_scanned") == 5)
+stopifnot(plink_metadata_count(reordered, "x_variants") == 1)
+stopifnot(plink_metadata_count(reordered, "y_variants") == 1)
+stopifnot(plink_metadata_count(reordered, "xy_variants") == 1)
+stopifnot(plink_metadata_count(reordered, "par1_variants") == 1)
+stopifnot(plink_metadata_count(reordered, "par2_variants") == 1)
+stopifnot(identical(reordered$pvar_info_column, "true"))
+
+no_info_prefix <- file.path(tmp, "no_info")
+writeLines(c("#CHROM\tPOS\tID\tREF\tALT", "X\t100\trsX\tA\tG"), paste0(no_info_prefix, ".pvar"))
+no_info <- plink_metadata_summary(
+  list(type = "pgen", prefix = no_info_prefix),
+  "PVAR without INFO",
+  require_alleles = TRUE
+)
+stopifnot(identical(no_info$pvar_info_column, "false"))
+
+header_only_prefix <- file.path(tmp, "header_only")
+writeLines("#CHROM\tPOS\tID\tREF\tALT", paste0(header_only_prefix, ".pvar"))
+header_only <- plink_metadata_summary(
+  list(type = "pgen", prefix = header_only_prefix),
+  "empty eligible PVAR",
+  require_alleles = TRUE
+)
+stopifnot(plink_metadata_count(header_only, "rows_scanned") == 0)
+
+
+# Malformed rows and invalid positions fail before a summary is published.
+short_pvar <- file.path(tmp, "short.pvar")
+writeLines(c("#CHROM\tPOS\tID\tREF\tALT", "X\t100\trs_short\tA"), short_pvar)
+short_result <- run_metadata_helper("pgen", short_pvar, "short")
+stopifnot(short_result$status != 0)
+stopifnot(any(grepl("has fewer columns than its header", short_result$log, fixed = TRUE)))
+stopifnot(!file.exists(short_result$summary))
+
+bad_position_pvar <- file.path(tmp, "bad_position.pvar")
+writeLines(c("#CHROM\tPOS\tID\tREF\tALT", "X\tzero\trs_bad\tA\tG"), bad_position_pvar)
+position_result <- run_metadata_helper("pgen", bad_position_pvar, "bad_position")
+stopifnot(position_result$status != 0)
+stopifnot(any(grepl("non-integer or nonpositive position", position_result$log, fixed = TRUE)))
+stopifnot(!file.exists(position_result$summary))
 
 malformed_bim_prefix <- file.path(tmp, "malformed_bim")
 writeLines("1\trs1\t0\t100\tA", paste0(malformed_bim_prefix, ".bim"))
@@ -193,6 +295,19 @@ malformed_bim_error <- tryCatch({
   ""
 }, error = function(err) conditionMessage(err))
 stopifnot(grepl("must contain at least 6 columns", malformed_bim_error, fixed = TRUE))
+malformed_bim_result <- run_metadata_helper(
+  "bed",
+  paste0(malformed_bim_prefix, ".bim"),
+  "malformed_bim"
+)
+stopifnot(malformed_bim_result$status != 0)
+stopifnot(any(grepl("must contain at least 6 columns", malformed_bim_result$log, fixed = TRUE)))
+
+bad_position_bim <- file.path(tmp, "bad_position.bim")
+writeLines("23\trs_bad\t0\t-1\tA\tG", bad_position_bim)
+bad_bim_result <- run_metadata_helper("bed", bad_position_bim, "bad_bim_position")
+stopifnot(bad_bim_result$status != 0)
+stopifnot(any(grepl("non-integer or nonpositive position", bad_bim_result$log, fixed = TRUE)))
 
 
 # Blank sex-check thresholds should use conventional chrX defaults instead of

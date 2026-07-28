@@ -10,7 +10,8 @@ This Snakemake workflow runs Stage 1 ancestry-stratified GWAS and Phase 2 pooled
 - Resolves one fingerprinted, unpacked reference package.
 - Computes POP-MaD ancestry and within-ancestry GWAS PCs from package-backed reference projection.
 - Optionally runs supervised K=5 ADMIXTURE as report-only QC.
-- Runs genetic sex checks and can warn, fail, or exclude mismatches based on config.
+- Runs genetic sex checks on a manifest-only, PAR-aware, MAF/missingness-filtered,
+  LD-pruned X/Y marker set and can warn, fail, or exclude mismatches based on config.
 - Prepares one phenotype file and one covariate file per trait.
 - Builds ancestry-stratum keep files, excludes ambiguous/unassigned POP-MaD samples, and keeps unrelated samples using the configured KING threshold.
 - Runs PLINK2 `--glm` within each ancestry stratum.

@@ -21,8 +21,13 @@ Official source:
 https://www.cog-genomics.org/plink/2.0/
 ```
 
-Use a Linux x86_64 build on HPC systems. The workflow uses PLINK2 for genotype input, filtering, relatedness pruning, PCA, projection, and `--glm` GWAS.
-The default rule environment installs PLINK2 from conda.
+Use an approved alpha 7.1-or-newer Linux x86_64 build on HPC systems, as
+recorded in `resources/manifests/software.tsv`. The workflow uses PLINK2 for
+genotype input, filtering, sex-marker PAR splitting and LD pruning, PCA,
+projection, and `--glm` GWAS. At the time of this repository update, the
+Bioconda package resolves to alpha 6.9; production runs must therefore point
+`tools.plink2` to the approved site-managed or official alpha 7.1+ Linux
+binary instead of silently accepting that older package.
 
 ### PLINK 1.9
 

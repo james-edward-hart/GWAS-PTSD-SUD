@@ -431,8 +431,8 @@ if ((config$sex_check$action %||% "warn") != "exclude") {
   die("sex_check.action: \"exclude\" is required in config/config.yaml")
 }
 if (!truthy(config$sex_check$allow_no_sex_markers %||% FALSE) &&
-    !genotype_has_chromosomes(config$genotypes, c("23", "24", "X", "Y"), "genotype input")) {
-  die("sex-chromosome markers are required for sex_check.action: exclude, or set sex_check.allow_no_sex_markers: true with documented external sex QC")
+    !genotype_has_chromosomes(config$genotypes, c("23", "X"), "genotype input")) {
+  die("usable chrX markers are required for sex_check.action: exclude, or set sex_check.allow_no_sex_markers: true with documented external sex QC")
 }
 if (!blank(config$resources$input_manifest %||% "")) {
   validate_input_manifest(config$resources$input_manifest, config)

@@ -223,7 +223,7 @@ fingerprinted reference package. Do not add ancestry-label or PC-path fields to
 
 | Parameter | Required | Description |
 | --- | --- | --- |
-| `plink2` | Yes | PLINK2 command or executable path. The default rule environment installs it from conda. Validation checks that it can run `--version`. |
+| `plink2` | Yes | PLINK2 command or executable path. Production requires the alpha 7.1+ Linux binary recorded in the software manifest; the current Bioconda package is alpha 6.9. Validation checks that the configured command can run `--version`. |
 | `plink1` | When ADMIXTURE enabled | PLINK 1.9 command or executable path. The default rule environment installs it from conda. Used for the supervised ADMIXTURE sample merge. |
 | `admixture` | When ADMIXTURE enabled | ADMIXTURE command or executable path. The default rule environment installs it from conda. Required when `admixture.enabled: true`. |
 
@@ -444,7 +444,7 @@ results/qc/relatedness/relatedness_summary.tsv
 | --- | --- | --- |
 | `enabled` | Production | `true` or `false`. Production requires `true`. |
 | `action` | Yes | `warn`, `fail`, or `exclude`. Production requires `exclude`. |
-| `allow_no_sex_markers` | Production review | If `false`, production fails when genotype data lack X/Y markers. Set `true` only with documented external sex QC. |
+| `allow_no_sex_markers` | Production review | If `false`, production fails when genotype data lack usable non-PAR X markers. Set `true` only with documented external sex QC. |
 | `max_female_xf` | Optional | Custom PLINK `--check-sex` female X inbreeding threshold when nonblank. |
 | `min_male_xf` | Optional | Custom PLINK `--check-sex` male X inbreeding threshold when nonblank. |
 | `max_female_yrate` | Optional | Custom PLINK `--check-sex` female Y-rate threshold when nonblank. |
@@ -456,6 +456,13 @@ and `min-male-xf=0.8`. Set cohort-specific thresholds after reviewing the
 settings must include both `max_female_xf` and `min_male_xf`; Y-rate thresholds
 are optional but must be supplied as a pair.
 
+Sex QC is run on manifest-listed samples only. The workflow makes a temporary
+X/Y/XY/PAR1/PAR2 PGEN, splits PAR with the inferred GRCh37/GRCh38 boundaries
+when necessary, applies `qc.maf_min`, `qc.geno_missing_max`, biallelic and
+duplicate-ID filters, and LD-prunes non-PAR X/Y markers with
+`relatedness.ld_prune`. It does not apply HWE or sample-missingness filters to
+this marker set, and it does not create a pooled genome-wide MAF-filtered copy.
+
 Outputs:
 
 ```text
@@ -463,10 +470,15 @@ results/qc/sex/sexcheck.tsv
 results/qc/sex/sex_mismatches.remove.tsv
 results/qc/sex/sex_checked.keep.tsv
 results/qc/sex/sex_check_summary.tsv
+results/qc/sex/plink_sex_check.sex_marker_prune.prune.in
+results/qc/sex/plink_sex_check.sex_marker_prune.prune.out
 ```
 
 `sex_checked.keep.tsv` contains all samples for `action: "warn"` and excludes
-problematic samples for `action: "exclude"`.
+problematic samples for `action: "exclude"`. The summary records source
+sex-chromosome counts, PAR handling, post-filter marker counts, pruning counts,
+and the reused marker-filter settings. The retained prune files are the exact
+marker audit trail for `--check-sex`.
 
 ### `gwas`
 

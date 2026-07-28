@@ -214,6 +214,11 @@ PLINK 1.9, PLINK2, and ADMIXTURE from conda channels. Phase 2 regenie execution
 uses a separate Snakemake rule environment from `envs/regenie.yaml`; do not
 create it as the active driver or preflight environment.
 
+The current Bioconda PLINK2 build is alpha 6.9, while this repository's
+software manifest requires alpha 7.1 or newer. For production, install the
+approved official/site-managed Linux binary and set `tools.plink2` to its
+absolute path; the conda package remains useful only for non-production setup.
+
 If either environment already exists, update it instead:
 
 ```bash
