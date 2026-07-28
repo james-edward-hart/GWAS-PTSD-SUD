@@ -146,6 +146,71 @@ admixture_plink_keep_args <- function(path, out_prefix, reference_ids) {
 }
 
 
+# TEMPORARY WORKAROUND — DELETE AFTER THE GRCh38 REFERENCE PACKAGE IS REBUILT.
+# That package retained 629 related genotype samples which its metadata had
+# already removed. Refuse every other mismatch so this cannot silently become
+# a general policy for discarding reference samples without metadata.
+write_temporary_reference_remove <- function(config, out) {
+  genotype <- read_genotype_sample_ids(
+    config$admixture$reference_genotypes, "ADMIXTURE reference genotype input"
+  )
+  require_unique_ids(genotype, "ADMIXTURE reference genotype samples")
+
+  settings <- config$admixture$metadata
+  metadata <- read_tsv(settings$path)
+  sample_col <- settings$sample_id_column
+  fid_col <- settings$fid_column %||% ""
+  require_columns(metadata, sample_col, "ADMIXTURE reference metadata")
+  if (nzchar(fid_col) && !fid_col %in% names(metadata)) {
+    die("ADMIXTURE reference metadata is missing configured FID column: ", fid_col)
+  }
+  metadata_ids <- data.frame(
+    FID = if (nzchar(fid_col)) metadata[[fid_col]] else metadata[[sample_col]],
+    IID = metadata[[sample_col]],
+    stringsAsFactors = FALSE
+  )
+  require_unique_ids(metadata_ids, "ADMIXTURE reference metadata")
+
+  genotype_map <- sample_key_map(genotype, "ADMIXTURE reference genotype samples")
+  metadata_map <- sample_key_map(metadata_ids, "ADMIXTURE reference metadata")
+  metadata_match <- match_sample_rows(metadata_ids, genotype_map)
+  if (anyNA(metadata_match)) {
+    missing <- paste(metadata_ids$FID[is.na(metadata_match)], metadata_ids$IID[is.na(metadata_match)])
+    die("ADMIXTURE reference metadata contains samples absent from the genotype data: ",
+      paste(head(missing, 5), collapse = ", "))
+  }
+
+  remove <- genotype[is.na(match_sample_rows(genotype, metadata_map)), , drop = FALSE]
+  if (!nrow(remove)) {
+    ensure_parent(out)
+    writeLines(character(), out)
+    cat("Reference genotype and metadata sample sets already match; temporary removal list is empty\n")
+    return(invisible(0L))
+  }
+
+  known_broken_package <- identical(
+    tolower(config$reference_package$observed_fingerprint %||% ""),
+    "532a1e34598aa8c92ca72a8c3983dd06c82f19ea0562c45cd75d31054647976f"
+  )
+  known_panel <- identical(tolower(config$admixture$source_panel_id %||% ""), "admixture_grch38")
+  known_build <- identical(tolower(config$admixture$reference_genome_build %||% ""), "grch38")
+  if (!known_broken_package || !known_panel || !known_build || nrow(remove) != 629L) {
+    die(
+      "ADMIXTURE reference genotype/metadata mismatch is not the known 629-sample ",
+      "GRCh38 package defect; refusing to remove ", nrow(remove), " sample(s)"
+    )
+  }
+
+  write_plink_id_file(remove, out)
+  cat(
+    "TEMPORARY WORKAROUND: removing 629 genotype samples absent from reference metadata; ",
+    "deprecate this step after installing the repaired GRCh38 reference package\n",
+    sep = ""
+  )
+  invisible(nrow(remove))
+}
+
+
 # Read a BIM file for variant counts in reports.
 read_bim <- function(path) {
   rows <- read.table(path, stringsAsFactors = FALSE, quote = "", comment.char = "")
@@ -155,7 +220,8 @@ read_bim <- function(path) {
 
 
 # Convert a configured genotype block to filtered, sorted PGEN.
-convert_genotypes <- function(config, block, out_prefix, threads, keep = "", label = "ADMIXTURE genotype input") {
+convert_genotypes <- function(config, block, out_prefix, threads, keep = "", remove = "",
+                              label = "ADMIXTURE genotype input") {
   ensure_parent(paste0(out_prefix, ".pgen"))
   input_args <- plink_input_args(block, out_prefix, label)
   keep_args <- character()
@@ -163,8 +229,13 @@ convert_genotypes <- function(config, block, out_prefix, threads, keep = "", lab
     reference_ids <- read_genotype_sample_ids(block, label)
     keep_args <- admixture_plink_keep_args(keep, out_prefix, reference_ids)
   }
+  remove_args <- character()
+  if (!blank(remove)) {
+    require_existing_file(remove, "ADMIXTURE reference removal file")
+    if (file.info(remove)$size > 0) remove_args <- c("--remove", remove)
+  }
   run_command(plink_tool(config), c(
-    input_args, keep_args, admixture_filters(config),
+    input_args, keep_args, remove_args, admixture_filters(config),
     "--make-pgen", "--sort-vars", "--threads", threads, "--out", out_prefix
   ))
 }
@@ -743,9 +814,13 @@ threads <- args$threads %||% "1"
 
 
 # Dispatch to the requested ADMIXTURE QC subtask.
-if (subtask == "convert-reference") {
-  require_args(args, "out-prefix")
+if (subtask == "temporary-reference-remove") {
+  require_args(args, "out")
+  write_temporary_reference_remove(config, args$out)
+} else if (subtask == "convert-reference") {
+  require_args(args, c("out-prefix", "remove"))
   convert_genotypes(config, config$admixture$reference_genotypes, args[["out-prefix"]], threads,
+    remove = args$remove,
     label = "ADMIXTURE reference genotype input")
 } else if (subtask == "convert-study") {
   require_args(args, c("out-prefix", "keep"))

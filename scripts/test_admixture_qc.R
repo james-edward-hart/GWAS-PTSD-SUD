@@ -105,6 +105,114 @@ fake_tool <- function(path, log, body) {
   Sys.chmod(path, mode = "0755")
 }
 
+# TEMPORARY WORKAROUND TESTS: remove these with the GRCh38 reference-package
+# workaround after the repaired package is installed.
+temporary_reference_prefix <- file.path(tmp, "temporary_reference")
+temporary_reference_ids <- sprintf("R%04d", seq_len(630))
+stopifnot(file.create(paste0(temporary_reference_prefix, ".pgen")))
+write.table(data.frame(
+  `#CHROM` = "1", POS = 100, ID = "rs1", REF = "A", ALT = "G",
+  check.names = FALSE
+), paste0(temporary_reference_prefix, ".pvar"),
+sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(data.frame(`#IID` = temporary_reference_ids, check.names = FALSE),
+  paste0(temporary_reference_prefix, ".psam"),
+  sep = "\t", quote = FALSE, row.names = FALSE)
+
+temporary_metadata <- file.path(tmp, "temporary_reference_metadata.tsv")
+write.table(data.frame(
+  sample_id = temporary_reference_ids[[1]],
+  population = "YRI",
+  super_population = "AFR"
+), temporary_metadata, sep = "\t", quote = FALSE, row.names = FALSE)
+
+temporary_convert_log <- file.path(tmp, "temporary_reference_convert.log")
+temporary_plink2 <- file.path(tmp, "temporary_reference_plink2")
+fake_tool(temporary_plink2, temporary_convert_log, c(
+  "args=\"$*\"",
+  "case \" $args \" in *\" --remove \"*) ;; *) exit 6;; esac",
+  "out=\"\"",
+  "while [ \"$#\" -gt 0 ]; do",
+  "  if [ \"$1\" = \"--out\" ]; then out=\"$2\"; shift 2; else shift; fi",
+  "done",
+  "[ -n \"$out\" ] || exit 2",
+  ": > \"$out.pgen\"; : > \"$out.pvar\"; : > \"$out.psam\"",
+  "exit 0"
+))
+temporary_config <- file.path(tmp, "temporary_reference_config.yaml")
+writeLines(c(
+  "tools:",
+  paste0("  plink2: ", shQuote(temporary_plink2)),
+  "reference_package:",
+  "  observed_fingerprint: 532a1e34598aa8c92ca72a8c3983dd06c82f19ea0562c45cd75d31054647976f",
+  "admixture:",
+  "  source_panel_id: admixture_grch38",
+  "  reference_genome_build: GRCh38",
+  "  reference_genotypes:",
+  "    type: pgen",
+  paste0("    prefix: ", shQuote(temporary_reference_prefix)),
+  "  metadata:",
+  paste0("    path: ", shQuote(temporary_metadata)),
+  "    sample_id_column: sample_id",
+  "    fid_column: ''",
+  "  filters: {}"
+), temporary_config)
+
+temporary_remove <- file.path(tmp, "temporary_reference.remove.tsv")
+status <- system2("Rscript", c(
+  "scripts/admixture_qc.R",
+  "temporary-reference-remove",
+  "--config", temporary_config,
+  "--out", temporary_remove
+), stdout = file.path(tmp, "temporary_reference_remove.log"),
+stderr = file.path(tmp, "temporary_reference_remove.log"))
+stopifnot(identical(status, 0L))
+temporary_remove_rows <- read.table(temporary_remove, sep = "\t", stringsAsFactors = FALSE)
+stopifnot(nrow(temporary_remove_rows) == 629L)
+stopifnot(identical(as.character(temporary_remove_rows[[2]]), temporary_reference_ids[-1]))
+
+status <- system2("Rscript", c(
+  "scripts/admixture_qc.R",
+  "convert-reference",
+  "--config", temporary_config,
+  "--remove", temporary_remove,
+  "--out-prefix", file.path(tmp, "temporary_reference_out")
+), stdout = file.path(tmp, "temporary_reference_convert.stdout.log"),
+stderr = file.path(tmp, "temporary_reference_convert.stdout.log"))
+stopifnot(identical(status, 0L))
+stopifnot(any(grepl(temporary_remove, readLines(temporary_convert_log), fixed = TRUE)))
+
+write.table(data.frame(
+  sample_id = temporary_reference_ids[1:2],
+  population = "YRI",
+  super_population = "AFR"
+), temporary_metadata, sep = "\t", quote = FALSE, row.names = FALSE)
+unexpected_remove_log <- file.path(tmp, "unexpected_temporary_reference_remove.log")
+status <- system2("Rscript", c(
+  "scripts/admixture_qc.R",
+  "temporary-reference-remove",
+  "--config", temporary_config,
+  "--out", file.path(tmp, "unexpected_temporary_reference.remove.tsv")
+), stdout = unexpected_remove_log, stderr = unexpected_remove_log)
+stopifnot(!identical(status, 0L))
+stopifnot(any(grepl("is not the known 629-sample", readLines(unexpected_remove_log), fixed = TRUE)))
+
+write.table(data.frame(
+  sample_id = temporary_reference_ids,
+  population = "YRI",
+  super_population = "AFR"
+), temporary_metadata, sep = "\t", quote = FALSE, row.names = FALSE)
+matched_remove <- file.path(tmp, "matched_temporary_reference.remove.tsv")
+status <- system2("Rscript", c(
+  "scripts/admixture_qc.R",
+  "temporary-reference-remove",
+  "--config", temporary_config,
+  "--out", matched_remove
+), stdout = file.path(tmp, "matched_temporary_reference_remove.log"),
+stderr = file.path(tmp, "matched_temporary_reference_remove.log"))
+stopifnot(identical(status, 0L))
+stopifnot(file.info(matched_remove)$size == 0)
+
 convert_log <- file.path(tmp, "fake_convert_tool.log")
 fake_convert_plink2 <- file.path(tmp, "fake_convert_plink2")
 fake_tool(fake_convert_plink2, convert_log, c(

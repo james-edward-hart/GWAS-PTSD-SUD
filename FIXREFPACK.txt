@@ -1,0 +1,527 @@
+FIX THE GRCh38 ADMIXTURE REFERENCE PACKAGE
+===========================================
+
+Problem
+-------
+
+The GRCh38 ADMIXTURE BED/FAM contains 3,202 samples, while metadata.tsv
+contains 2,573. The 629 genotype-only samples are the official PLINK2
+first/second-degree related-sample exclusions.
+
+The builder downloaded a one-column removal file with this shape:
+
+#IID
+HG00405
+...
+
+It then added FID to the source PSAM, producing two-part FID/IID sample IDs,
+but passed the original one-column file to PLINK2 --remove. The genotype
+filter therefore matched no samples. The metadata writer independently read
+the first column and did remove all 629 samples.
+
+Do not add labels for the 629 samples, mark them as study samples, or remove
+only HG00405. Rebuild the affected panel with a two-column FID/IID removal
+file. This is required for scientific integrity and for supervised ADMIXTURE.
+
+
+Expected final state
+--------------------
+
+The repair is complete only when all of these are true:
+
+* The official removal file has SHA-256
+  22094d03c593276ba88ea5c564e106bab2a755f0d2a3e6c77aaff2f8bcd83b66.
+* The repaired GRCh38 FAM has 2,573 samples.
+* Its FID/IID set exactly equals the GRCh38 metadata FID/sample_id set.
+* The original 3,202-sample set minus the repaired set exactly equals the
+  official 629-sample removal set.
+* Metadata contains 2,573 unique, completely labeled samples:
+  AFR=680, AMR=351, EAS=506, EUR=525, SAS=511.
+* The repaired BIM has unique IDs and unique chromosome/position coordinates.
+* Package validation, fingerprint validation, and archive checksum validation
+  all pass.
+* A rerun reports 2,573, not 3,202, reference samples.
+
+
+1. Work in a new staging directory
+----------------------------------
+
+Run on Apollo. Do not run the multi-gigabyte rebuild on a login node. First
+request an interactive SLURM allocation:
+
+srun \
+  --account=hartj5 \
+  --partition=cpu \
+  --cpus-per-task=16 \
+  --mem=160G \
+  --time=08:00:00 \
+  --pty bash -l
+
+After the compute-node prompt appears, run the commands below. These paths
+match the failing run and the builder provenance. The commands intentionally
+leave the current package untouched.
+
+set -euo pipefail
+
+REPO=/lustre/home/hartj5/GWAS-PTSD-SUD-WD/GWAS-PTSD-SUD
+SOURCE_PACKAGE="$REPO/reference-data/stage1_reference_package"
+BUILDER="$REPO/reference_package_builder"
+CACHE=/home/hartj5/stage1_reference_build/source-cache/plink2_1kg_hg38
+REPAIR_PARENT=/lustre/home/hartj5/stage1_reference_package_repair_20260728
+REPAIRED_PACKAGE="$REPAIR_PARENT/stage1_reference_package"
+WORK="$REPAIR_PARENT/work"
+
+test -d "$SOURCE_PACKAGE"
+test -f "$BUILDER/scripts/build_from_prepared_panels.R"
+test ! -e "$REPAIR_PARENT"
+mkdir -p "$REPAIR_PARENT" "$WORK/input" "$WORK/output"
+cp -a "$SOURCE_PACKAGE" "$REPAIRED_PACKAGE"
+
+Allow at least 25 GiB of free space for the staging package, decompressed
+source, rebuilt BED, and archive:
+
+df -h "$REPAIR_PARENT"
+
+Use the builder's bundled Linux PLINK2 when available. The fallback is the
+exact GWAS environment used by the failed run.
+
+if [[ -x "$BUILDER/bin/plink2" ]]; then
+  PLINK2="$BUILDER/bin/plink2"
+else
+  PLINK2=/lustre/home/hartj5/conda-home/b73f87efc471a5f6fc95196b83ff0fcf_/bin/plink2
+fi
+test -x "$PLINK2"
+"$PLINK2" --version
+
+
+2. Verify the four original public inputs
+-----------------------------------------
+
+Do not rebuild from files with different hashes. These are the hashes recorded
+in the existing package provenance.
+
+cat > "$WORK/source.sha256" <<EOF
+61112b5cda8ca9738f81c4d98aff8f6fbdc9f3f177fe6d0870077bcb5b6a8fa3  $CACHE/all_hg38.pgen.zst
+b07449dba35891c5546c05e4182b1246c6e1adad60886b8c5b12ab806ac54d6b  $CACHE/all_hg38.pvar.zst
+727a01b637d5e1ef02516a53069dc552b1fa46f442004ad50ea3d069c7741cdd  $CACHE/hg38_corrected.psam
+22094d03c593276ba88ea5c564e106bab2a755f0d2a3e6c77aaff2f8bcd83b66  $CACHE/deg2_hg38.king.cutoff.out.id
+EOF
+sha256sum -c "$WORK/source.sha256"
+
+Stop if any source is missing or any hash fails. Do not substitute another
+1000 Genomes release.
+
+
+3. Build matching two-part sample IDs
+-------------------------------------
+
+Create the same FID=IID convention used by the package, and translate the
+official one-column removal file to headerless FID/IID pairs for PLINK2.
+
+python3 - "$CACHE/hg38_corrected.psam" "$WORK/input/all_hg38.psam" <<'PY'
+import sys
+
+source, target = sys.argv[1:3]
+with open(source) as inp, open(target, "w") as out:
+    header = inp.readline().rstrip("\n").split("\t")
+    if not header or header[0] != "#IID":
+        raise SystemExit("expected hg38_corrected.psam to begin with #IID")
+    out.write("#FID\tIID\t" + "\t".join(header[1:]) + "\n")
+    for line in inp:
+        fields = line.rstrip("\n").split("\t")
+        if not fields or not fields[0]:
+            raise SystemExit("empty IID in corrected PSAM")
+        out.write(fields[0] + "\t" + "\t".join(fields) + "\n")
+PY
+
+awk '
+  BEGIN { OFS = "\t" }
+  NR == 1 {
+    if ($1 != "#IID") exit 2
+    next
+  }
+  NF != 1 { exit 3 }
+  { print $1, $1 }
+' "$CACHE/deg2_hg38.king.cutoff.out.id" \
+  | LC_ALL=C sort -u > "$WORK/input/deg2_hg38.remove.tsv"
+
+test "$(wc -l < "$WORK/input/deg2_hg38.remove.tsv")" -eq 629
+
+Link the compressed variant file and decompress only the PGEN, as required by
+PLINK2:
+
+ln -s "$CACHE/all_hg38.pvar.zst" "$WORK/input/all_hg38.pvar.zst"
+"$PLINK2" --zst-decompress \
+  "$CACHE/all_hg38.pgen.zst" \
+  "$WORK/input/all_hg38.pgen"
+
+
+4. Rebuild only the GRCh38 ADMIXTURE panel
+-----------------------------------------
+
+This repeats the original builder filters, but --remove now receives matching
+FID/IID pairs. MAF is intentionally recalculated after removal; filtering the
+existing BED alone would not faithfully reproduce the intended build.
+
+"$PLINK2" \
+  --pfile "$WORK/input/all_hg38" vzs \
+  --chr 1-22 \
+  --snps-only just-acgt \
+  --max-alleles 2 \
+  --maf 0.01 \
+  --remove "$WORK/input/deg2_hg38.remove.tsv" \
+  --rm-dup exclude-all \
+  --make-pgen \
+  --sort-vars \
+  --threads 16 \
+  --out "$WORK/output/admixture.GRCh38.sorted_pgen"
+
+Confirm the first rebuild stage contains 2,573 samples:
+
+test "$(
+  awk '$1 !~ /^#/ {n++} END {print n + 0}' \
+    "$WORK/output/admixture.GRCh38.sorted_pgen.psam"
+)" -eq 2573
+
+Exclude every variant at a duplicated coordinate, matching the original
+builder contract:
+
+awk '
+  BEGIN { FS = "[ \t]+" }
+  $1 ~ /^#/ { next }
+  {
+    chrom = $1
+    sub(/^chr/, "", chrom)
+    coord = chrom ":" $2
+    id = $3
+    if (coord in seen) {
+      if (!(coord in duplicate)) {
+        print first_id[coord]
+        duplicate[coord] = 1
+      }
+      print id
+    } else {
+      first_id[coord] = id
+    }
+    seen[coord] = 1
+  }
+' "$WORK/output/admixture.GRCh38.sorted_pgen.pvar" \
+  > "$WORK/output/admixture.GRCh38.duplicate_coords.exclude"
+
+EXCLUDE_ARGS=()
+if [[ -s "$WORK/output/admixture.GRCh38.duplicate_coords.exclude" ]]; then
+  EXCLUDE_ARGS=(
+    --exclude "$WORK/output/admixture.GRCh38.duplicate_coords.exclude"
+  )
+fi
+
+"$PLINK2" \
+  --pfile "$WORK/output/admixture.GRCh38.sorted_pgen" \
+  "${EXCLUDE_ARGS[@]}" \
+  --make-bed \
+  --threads 16 \
+  --out "$WORK/output/admixture.GRCh38"
+
+
+5. Regenerate metadata from the same source and exclusion list
+--------------------------------------------------------------
+
+python3 - \
+  "$WORK/input/all_hg38.psam" \
+  "$CACHE/deg2_hg38.king.cutoff.out.id" \
+  "$WORK/output/metadata.tsv" <<'PY'
+import csv
+import sys
+
+psam_path, remove_path, output_path = sys.argv[1:4]
+
+with open(remove_path) as handle:
+    if handle.readline().strip() != "#IID":
+        raise SystemExit("expected removal file header #IID")
+    remove = {line.strip() for line in handle if line.strip()}
+
+if len(remove) != 629:
+    raise SystemExit(f"expected 629 removal IDs, observed {len(remove)}")
+
+with open(psam_path, newline="") as inp, open(
+    output_path, "w", newline=""
+) as out:
+    reader = csv.DictReader(inp, delimiter="\t")
+    required = {"#FID", "IID", "Population", "SuperPop", "SEX"}
+    missing = required.difference(reader.fieldnames or [])
+    if missing:
+        raise SystemExit(f"corrected PSAM missing columns: {sorted(missing)}")
+
+    fields = [
+        "sample_id", "FID", "population", "super_population", "sex"
+    ]
+    writer = csv.DictWriter(out, delimiter="\t", fieldnames=fields)
+    writer.writeheader()
+    for row in reader:
+        if row["IID"] in remove:
+            continue
+        writer.writerow({
+            "sample_id": row["IID"],
+            "FID": row["#FID"],
+            "population": row["Population"],
+            "super_population": row["SuperPop"],
+            "sex": row["SEX"],
+        })
+PY
+
+
+6. Run mandatory sample and variant integrity checks
+----------------------------------------------------
+
+Create normalized ID sets:
+
+ORIGINAL_PREFIX="$SOURCE_PACKAGE/panels/admixture.GRCh38/admixture.GRCh38"
+FIXED_PREFIX="$WORK/output/admixture.GRCh38"
+
+awk 'BEGIN {OFS="\t"} {print $1, $2}' "$ORIGINAL_PREFIX.fam" \
+  | LC_ALL=C sort -u > "$WORK/original.ids"
+awk 'BEGIN {OFS="\t"} {print $1, $2}' "$FIXED_PREFIX.fam" \
+  | LC_ALL=C sort -u > "$WORK/fixed.ids"
+awk -F '\t' 'BEGIN {OFS="\t"} NR > 1 {print $2, $1}' \
+  "$WORK/output/metadata.tsv" \
+  | LC_ALL=C sort -u > "$WORK/metadata.ids"
+
+Require all exact set relationships:
+
+test "$(wc -l < "$WORK/original.ids")" -eq 3202
+test "$(wc -l < "$WORK/fixed.ids")" -eq 2573
+test "$(wc -l < "$WORK/metadata.ids")" -eq 2573
+cmp "$WORK/fixed.ids" "$WORK/metadata.ids"
+
+comm -23 "$WORK/original.ids" "$WORK/fixed.ids" \
+  > "$WORK/observed_removed.ids"
+test "$(wc -l < "$WORK/observed_removed.ids")" -eq 629
+cmp "$WORK/observed_removed.ids" "$WORK/input/deg2_hg38.remove.tsv"
+
+Require complete metadata and the expected label counts:
+
+awk -F '\t' '
+  NR == 1 { next }
+  $1 == "" || $2 == "" || $3 == "" || $4 == "" { bad++ }
+  { count[$4]++ }
+  END {
+    if (bad) exit 2
+    if (count["AFR"] != 680) exit 3
+    if (count["AMR"] != 351) exit 4
+    if (count["EAS"] != 506) exit 5
+    if (count["EUR"] != 525) exit 6
+    if (count["SAS"] != 511) exit 7
+  }
+' "$WORK/output/metadata.tsv"
+
+Require unique variant IDs and coordinates:
+
+awk '
+  BEGIN { FS = "[ \t]+" }
+  {
+    chrom = $1
+    sub(/^chr/, "", chrom)
+    id = $2
+    coord = chrom ":" $4
+    if (id in ids || coord in coords) exit 2
+    ids[id] = 1
+    coords[coord] = 1
+  }
+' "$FIXED_PREFIX.bim"
+
+Also require a nonempty, plausible panel:
+
+test "$(wc -l < "$FIXED_PREFIX.bim")" -gt 1000000
+
+
+7. Publish into the staged package and refresh QC
+-------------------------------------------------
+
+Only the staging copy is overwritten:
+
+TARGET_PREFIX="$REPAIRED_PACKAGE/panels/admixture.GRCh38/admixture.GRCh38"
+cp "$FIXED_PREFIX.bed" "$TARGET_PREFIX.bed"
+cp "$FIXED_PREFIX.bim" "$TARGET_PREFIX.bim"
+cp "$FIXED_PREFIX.fam" "$TARGET_PREFIX.fam"
+cp "$FIXED_PREFIX.log" "$TARGET_PREFIX.log"
+cp "$WORK/output/metadata.tsv" \
+  "$REPAIRED_PACKAGE/panels/admixture.GRCh38/metadata.tsv"
+
+Rerun build inference for the repaired panel:
+
+cat > "$WORK/admixture_grch38.build.yaml" <<EOF
+genotypes:
+  type: "bed"
+  prefix: "$TARGET_PREFIX"
+genome_build:
+  marker_file: "$BUILDER/resources/build_markers.tsv"
+  min_markers: 50
+  min_match_fraction: 0.95
+  min_marker_margin: 20
+  min_fraction_margin: 0.20
+EOF
+
+Rscript "$BUILDER/scripts/infer_genome_build.R" \
+  --config "$WORK/admixture_grch38.build.yaml" \
+  --out "$WORK/admixture_grch38.build.txt" \
+  --details \
+    "$REPAIRED_PACKAGE/qc_reports/admixture_grch38.build_inference.tsv"
+test "$(tr -d '[:space:]' < "$WORK/admixture_grch38.build.txt")" = GRCh38
+
+Update panel_qc.tsv with measured counts without loading the large BIM into R:
+
+SAMPLE_COUNT="$(awk 'END {print NR + 0}' "$TARGET_PREFIX.fam")"
+VARIANT_COUNT="$(awk 'END {print NR + 0}' "$TARGET_PREFIX.bim")"
+Rscript - \
+  "$REPAIRED_PACKAGE/qc_reports/panel_qc.tsv" \
+  "$SAMPLE_COUNT" \
+  "$VARIANT_COUNT" <<'RS'
+args <- commandArgs(TRUE)
+qc <- read.delim(args[[1]], check.names = FALSE, stringsAsFactors = FALSE)
+row <- which(qc$panel_id == "admixture_grch38")
+stopifnot(length(row) == 1L)
+qc$samples[row] <- as.integer(args[[2]])
+qc$variants[row] <- as.integer(args[[3]])
+stopifnot(qc$samples[row] == 2573L, qc$variants[row] > 1000000L)
+write.table(
+  qc, args[[1]], sep = "\t", quote = FALSE,
+  row.names = FALSE, na = ""
+)
+RS
+
+Write a compact audit report:
+
+{
+  printf 'panel_id\toriginal_samples\tremoved_samples\tretained_samples\tmetadata_samples\tvariant_count\tremove_sha256\tsample_sets_identical\n'
+  printf 'admixture_grch38\t3202\t629\t2573\t2573\t%s\t%s\ttrue\n' \
+    "$VARIANT_COUNT" \
+    22094d03c593276ba88ea5c564e106bab2a755f0d2a3e6c77aaff2f8bcd83b66
+} > "$REPAIRED_PACKAGE/qc_reports/admixture_grch38.sample_qc.tsv"
+
+Append the repair provenance to methods.md:
+
+printf '%s\n' \
+  '' \
+  'GRCh38 ADMIXTURE sample repair (2026-07-28): the official PLINK2 KING 0.0884 first/second-degree removal list was converted from one-column IID to matching FID/IID pairs before PLINK2 filtering. The repaired genotype and metadata sample sets are exactly identical (2,573 retained; 629 removed; removal-list SHA-256 22094d03c593276ba88ea5c564e106bab2a755f0d2a3e6c77aaff2f8bcd83b66).' \
+  >> "$REPAIRED_PACKAGE/methods.md"
+
+
+8. Regenerate package integrity artifacts and archive
+-----------------------------------------------------
+
+Use the package builder helpers so the fingerprint exactly matches the runtime
+contract:
+
+Rscript "$BUILDER/scripts/build_from_prepared_panels.R" \
+  --package-root "$REPAIRED_PACKAGE"
+
+NEW_FINGERPRINT="$(
+  tr -d '[:space:]' \
+    < "$REPAIRED_PACKAGE/content_fingerprint.sha256"
+)"
+
+Rscript "$BUILDER/scripts/validate_reference_package.R" \
+  --package-root "$REPAIRED_PACKAGE" \
+  --fingerprint "$NEW_FINGERPRINT"
+
+THREADS=16 PIGZ_THREADS=16 \
+  bash "$BUILDER/scripts/package_reference.sh" "$REPAIRED_PACKAGE"
+
+sha256sum -c "$REPAIR_PARENT/stage1_reference_package.tar.gz.sha256"
+tar -tzf "$REPAIR_PARENT/stage1_reference_package.tar.gz" \
+  > "$WORK/archive_contents.txt"
+grep -Fx \
+  'stage1_reference_package/qc_reports/admixture_grch38.sample_qc.tsv' \
+  "$WORK/archive_contents.txt"
+
+Record these two final identifiers:
+
+printf 'Content fingerprint: %s\n' "$NEW_FINGERPRINT"
+cat "$REPAIR_PARENT/stage1_reference_package.tar.gz.sha256"
+
+
+9. Point the pipeline at the repaired package
+---------------------------------------------
+
+Keep the original package for audit; do not overwrite or delete it. Update
+config/config.yaml to use the staging package and its new content fingerprint:
+
+reference_package:
+  root: "/lustre/home/hartj5/stage1_reference_package_repair_20260728/stage1_reference_package"
+  fingerprint: "<NEW_FINGERPRINT printed above>"
+
+Then run:
+
+cd /lustre/home/hartj5/GWAS-PTSD-SUD-WD/GWAS-PTSD-SUD
+snakemake -n --use-conda \
+  --shared-fs-usage input-output persistence software-deployment sources storage-local-copies
+snakemake --profile profiles/slurm
+
+The new root and fingerprint are new inputs, so Snakemake should rebuild the
+reference-dependent ancestry and ADMIXTURE jobs without deleting prior output.
+
+Check the next run:
+
+grep -E \
+  'samples .*loaded|samples remaining|Wrote ADMIXTURE .pop' \
+  results/logs/admixture/convert_reference.log \
+  results/logs/admixture/write_pop.*.log
+
+Every converted ADMIXTURE reference should report 2,573 samples. For the
+previous AFR stratum, write_pop.AFR.log should report 2,573 reference and 1,910
+study samples.
+
+
+10. Permanently fix the builder
+-------------------------------
+
+In reference_package_builder/scripts/build_stage1_reference_package.pbs.sh,
+create the two-column removal file immediately after all_hg38.psam is written:
+
+HG38_REMOVE_FID_IID="$WORK_DIR/plink2_hg38_input/deg2_hg38.remove.tsv"
+awk '
+  BEGIN { OFS = "\t" }
+  NR == 1 {
+    if ($1 != "#IID") exit 2
+    next
+  }
+  NF != 1 { exit 3 }
+  { print $1, $1 }
+' "$CACHE_ROOT/plink2_1kg_hg38/deg2_hg38.king.cutoff.out.id" \
+  > "$HG38_REMOVE_FID_IID"
+[[ "$(wc -l < "$HG38_REMOVE_FID_IID")" -eq 629 ]] \
+  || die "expected 629 GRCh38 related-sample exclusions"
+
+Change the GRCh38 PLINK2 call from:
+
+--remove "$CACHE_ROOT/plink2_1kg_hg38/deg2_hg38.king.cutoff.out.id"
+
+to:
+
+--remove "$HG38_REMOVE_FID_IID"
+
+Keep the metadata writer on the original one-column file.
+
+After writing the GRCh38 FAM and metadata, add a hard assertion that:
+
+* each side has unique FID/IID rows;
+* FAM and metadata contain exactly the same FID/IID set;
+* the retained count is 2,573;
+* original minus retained equals the 629 two-column removal rows.
+
+Also add the same exact sample-set equality validation to
+reference_package_builder/scripts/build_from_prepared_panels.R and the tracked
+runtime package validation in scripts/lib/stage1.R. Add regression fixtures
+where genotype has one metadata-less sample and metadata has one genotype-less
+sample; both must hard-fail before ancestry jobs start.
+
+
+Scientific-integrity note
+-------------------------
+
+The 629-sample exclusion is not an optimization. It is part of the declared
+GRCh38 reference-panel sample definition and prevents close relatives from
+being treated as independent supervised reference observations. The repair
+must retain the official checksum, exact set comparisons, rebuilt MAF filter,
+and new package fingerprint. Never reuse the old fingerprint or archive
+checksum after changing the panel.

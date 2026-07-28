@@ -6,6 +6,11 @@ ADMIXTURE_STRATUM_RAW_DIR = f"{ADMIXTURE_RAW_DIR}/{{ancestry}}"
 ADMIXTURE_K = int(config.get("admixture", {}).get("k", 5))
 
 ADMIXTURE_REFERENCE_QC_PREFIX = f"{ADMIXTURE_RAW_DIR}/reference_qc"
+# TEMPORARY WORKAROUND: remove this artifact and its producing rule as soon as
+# the repaired GRCh38 reference package replaces the known broken package.
+ADMIXTURE_TEMPORARY_REFERENCE_REMOVE = (
+    f"{ADMIXTURE_RAW_DIR}/temporary_broken_grch38_reference.remove.tsv"
+)
 ADMIXTURE_STUDY_QC_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/study_qc"
 ADMIXTURE_REFERENCE_SHARED_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/reference_shared"
 ADMIXTURE_STUDY_SHARED_PREFIX = f"{ADMIXTURE_STRATUM_RAW_DIR}/study_shared"
@@ -26,10 +31,34 @@ active_admixture_outputs = lambda wildcards, filename: active_admixture_stratum_
 )
 
 
+# TEMPORARY WORKAROUND — DEPRECATE AFTER THE REFERENCE PACKAGE IS REBUILT.
+# The broken GRCh38 package left 629 related samples in its genotype files even
+# though its metadata had already removed them. This rule creates a narrowly
+# validated removal list; it must not become a general metadata-mismatch filter.
+rule write_temporary_admixture_reference_remove:
+    input:
+        config=RUN_CONFIG,
+        ok="results/qc/input_validation/validation.ok",
+    output:
+        exclusions=ADMIXTURE_TEMPORARY_REFERENCE_REMOVE,
+    log:
+        "results/logs/admixture/temporary_reference_remove.log",
+    conda:
+        "../../envs/gwas.yaml",
+    shell:
+        """
+        Rscript scripts/admixture_qc.R temporary-reference-remove \
+          --config {input.config} \
+          --out {output.exclusions} \
+          > {log} 2>&1
+        """
+
+
 rule convert_reference_for_admixture:
     input:
         config=RUN_CONFIG,
         ok="results/qc/input_validation/validation.ok",
+        exclusions=ADMIXTURE_TEMPORARY_REFERENCE_REMOVE,
     output:
         pgen=f"{ADMIXTURE_REFERENCE_QC_PREFIX}.pgen",
         pvar=f"{ADMIXTURE_REFERENCE_QC_PREFIX}.pvar",
@@ -49,6 +78,7 @@ rule convert_reference_for_admixture:
         """
         Rscript scripts/admixture_qc.R convert-reference \
           --config {input.config} \
+          --remove {input.exclusions} \
           --out-prefix {params.out_prefix} \
           --threads {threads} \
           > {log} 2>&1
