@@ -541,7 +541,9 @@ checks the source PVAR for numeric `R2`/`INFO`-style imputation-quality metadata
 or `R2=`/`INFO=` keys inside the VCF-style `INFO` field. When present, variants
 with finite values below `qc.info_min` are removed before hardcall conversion;
 variants with missing INFO/R2 values are retained so unimputed hardcall markers
-continue through the standard MAC and hardcall-variance QC.
+continue through the standard MAC and hardcall-variance QC. The source-PVAR
+quality scan and post-QC problem-region scan use bounded GNU AWK streams; large
+PVARs are never assembled into an R object.
 
 Phase 2 trait type is detected from the trait registry:
 

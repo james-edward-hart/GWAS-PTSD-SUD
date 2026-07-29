@@ -73,20 +73,6 @@ ensure_regenie_psam_has_fid <- function(prefix_or_path) {
 }
 
 
-read_pvar_variants <- function(prefix_or_path) {
-  path <- if (grepl("\\.pvar$", prefix_or_path)) prefix_or_path else paste0(prefix_or_path, ".pvar")
-  rows <- read_tsv_no_metadata(path)
-  chrom_col <- if ("#CHROM" %in% names(rows)) "#CHROM" else "CHROM"
-  require_columns(rows, c(chrom_col, "POS", "ID"), path)
-  data.frame(
-    ID = rows$ID,
-    chrom = clean_chrom(rows[[chrom_col]]),
-    pos = suppressWarnings(as.integer(rows$POS)),
-    stringsAsFactors = FALSE
-  )
-}
-
-
 read_sscore <- function(path, pcs) {
   rows <- read_tsv_no_metadata(path)
   ids <- table_sample_ids(rows, paste("projected score file", path))
@@ -272,109 +258,97 @@ phase2_filter_args <- function(config, branch) {
 }
 
 
-parse_info_field_metric <- function(value, keys) {
-  raw <- as.character(value)
-  out <- rep(NA_real_, length(raw))
-  missing <- raw %in% c("", ".", "NA")
-  for (key in keys) {
-    pattern <- paste0("(^|;)", key, "=([^;]+)")
-    hit <- regexec(pattern, raw, ignore.case = TRUE)
-    parts <- regmatches(raw, hit)
-    matched <- lengths(parts) > 0
-    if (any(matched)) {
-      idx <- which(matched)
-      parsed <- suppressWarnings(as.numeric(vapply(parts[matched], function(x) x[[3]], character(1))))
-      fill <- is.na(out[idx])
-      out[idx[fill]] <- parsed[fill]
-    }
-  }
-  out[missing] <- NA_real_
-  out
-}
-
-
-pvar_info_metric <- function(rows) {
-  require_columns(rows, "ID", "PVAR file")
-  names_upper <- toupper(names(rows))
-  direct_candidates <- c("R2", "INFO", "MACH_R2", "MINIMAC3_R2", "IMPUTE_INFO", "IMPUTE2_INFO", "INFO_SCORE", "RSQ")
-  info_keys <- c("R2", "INFO", "MACH_R2", "MINIMAC3_R2", "IMPUTE_INFO", "IMPUTE2_INFO", "INFO_SCORE", "RSQ")
-  for (candidate in direct_candidates) {
-    idx <- match(candidate, names_upper)
-    if (is.na(idx)) next
-    col <- names(rows)[[idx]]
-    value <- suppressWarnings(as.numeric(as.character(rows[[col]])))
-    if (any(is.finite(value))) return(list(name = col, value = value))
-    if (identical(candidate, "INFO")) {
-      value <- parse_info_field_metric(rows[[col]], info_keys)
-      if (any(is.finite(value))) return(list(name = paste0(col, ":", "INFO/R2"), value = value))
-    }
-  }
-  NULL
-}
-
-
 phase2_step1_info_filter_args <- function(config, pfile_prefix, out_prefix) {
   threshold <- phase2_step1_info_min(config)
   if (!is.finite(threshold)) return(character())
 
   pvar_path <- paste0(pfile_prefix, ".pvar")
-  rows <- read_tsv_no_metadata(pvar_path)
-  metric <- pvar_info_metric(rows)
-  if (is.null(metric)) {
-    cat("Step 1 INFO/R2 marker filter: skipped; no INFO/R2 column or INFO key found in ", pvar_path, "\n", sep = "")
-    return(character())
-  }
-
-  value <- metric$value
-  low <- is.finite(value) & value < threshold
-  if (!any(low)) {
-    cat("Step 1 INFO/R2 marker filter: active on ", metric$name,
-      "; threshold=", threshold, "; removed=0\n", sep = "")
-    return(character())
-  }
-
-  pass_ids <- as.character(rows$ID[!low])
-  pass_ids <- pass_ids[nzchar(pass_ids) & pass_ids != "." & pass_ids != "NA"]
-  if (!length(pass_ids)) die("Step 1 INFO/R2 marker filter removed all variants from ", pvar_path)
-
   pass_path <- paste0(out_prefix, ".info_r2.pass.snplist")
   excluded_path <- paste0(out_prefix, ".info_r2.excluded.tsv")
   ensure_parent(pass_path)
-  writeLines(pass_ids, pass_path)
-  write_tsv(data.frame(
-    variant_id = as.character(rows$ID[low]),
-    info_metric = metric$name,
-    info_value = value[low],
-    info_min = threshold,
-    exclusion_reason = "info_r2_below_min",
-    stringsAsFactors = FALSE
-  ), excluded_path)
-  cat("Step 1 INFO/R2 marker filter: active on ", metric$name,
-    "; threshold=", threshold, "; removed=", sum(low), "\n", sep = "")
+  summary_path <- tempfile("phase2-pvar-info-", tmpdir = dirname(pass_path), fileext = ".tsv")
+  on.exit(unlink(summary_path), add = TRUE)
+
+  helper <- file.path(script_dir, "filter_pvar_info.sh")
+  require_existing_file(helper, "Phase 2 INFO/R2 PVAR helper")
+  helper_args <- c(
+    helper,
+    "--pvar", pvar_path,
+    "--threshold", as.character(threshold),
+    "--pass-ids", pass_path,
+    "--excluded-report", excluded_path,
+    "--summary", summary_path
+  )
+  status <- suppressWarnings(system2(
+    "bash",
+    args = vapply(helper_args, shQuote, character(1), type = "sh")
+  ))
+  if (!identical(status, 0L)) {
+    die("streaming Step 1 INFO/R2 PVAR filter failed for ", pvar_path)
+  }
+
+  summary <- read_plink_metadata_summary(summary_path)
+  required <- c("rows_scanned", "metric_name", "finite_values", "below_min", "pass_variants")
+  missing <- setdiff(required, names(summary))
+  if (length(missing)) {
+    die("Phase 2 INFO/R2 PVAR helper summary is missing: ", paste(missing, collapse = ", "))
+  }
+  count <- function(name) {
+    value <- suppressWarnings(as.numeric(summary[[name]]))
+    if (length(value) != 1L || !is.finite(value) || value < 0 || value != floor(value)) {
+      die("Phase 2 INFO/R2 PVAR helper wrote an invalid ", name, " count")
+    }
+    value
+  }
+
+  metric_name <- as.character(summary$metric_name)
+  if (length(metric_name) != 1L || is.na(metric_name)) metric_name <- ""
+  counts <- vapply(c("rows_scanned", "finite_values", "below_min"), count, numeric(1))
+  removed <- counts[["below_min"]]
+  if (!nzchar(metric_name)) {
+    cat("Step 1 INFO/R2 marker filter: skipped; no INFO/R2 column or INFO key found in ", pvar_path, "\n", sep = "")
+    return(character())
+  }
+  if (!removed) {
+    cat("Step 1 INFO/R2 marker filter: active on ", metric_name,
+      "; threshold=", threshold, "; removed=0\n", sep = "")
+    return(character())
+  }
+  if (count("pass_variants") < 1 || !file.exists(pass_path) || !file.exists(excluded_path)) {
+    die("Phase 2 INFO/R2 PVAR helper did not publish its retained-variant artifacts")
+  }
+  cat("Step 1 INFO/R2 marker filter: active on ", metric_name,
+    "; threshold=", threshold, "; removed=", removed, "\n", sep = "")
   c("--extract", pass_path)
 }
 
 
 write_region_exclusions <- function(config, pfile_prefix, out) {
   regions_path <- config$ancestry_reference$exclusion_regions %||% ""
-  variants <- read_pvar_variants(pfile_prefix)
-  excluded <- character()
-  if (nzchar(regions_path) && file.exists(regions_path)) {
-    regions <- read_tsv(regions_path)
-    chrom_col <- if ("chrom" %in% names(regions)) "chrom" else "#chrom"
-    require_columns(regions, c(chrom_col, "start", "end"), "Phase 2 exclusion regions")
-    regions$chrom <- clean_chrom(regions[[chrom_col]])
-    regions <- regions[regions$chrom %in% autosomes, , drop = FALSE]
-    for (i in seq_len(nrow(regions))) {
-      hit <- variants$chrom == regions$chrom[[i]] &
-        variants$pos >= as.integer(regions$start[[i]]) &
-        variants$pos <= as.integer(regions$end[[i]])
-      excluded <- c(excluded, variants$ID[hit])
-    }
+  if (!nzchar(regions_path) || !file.exists(regions_path)) {
+    ensure_parent(out)
+    writeLines(character(), out)
+    return(FALSE)
   }
+
   ensure_parent(out)
-  writeLines(sort(unique(excluded)), out)
-  length(unique(excluded))
+  helper <- file.path(script_dir, "extract_pvar_region_variants.sh")
+  require_existing_file(helper, "Phase 2 PVAR region helper")
+  helper_args <- c(
+    helper,
+    "--pvar", paste0(pfile_prefix, ".pvar"),
+    "--regions", regions_path,
+    "--out", out
+  )
+  status <- suppressWarnings(system2(
+    "bash",
+    args = vapply(helper_args, shQuote, character(1), type = "sh")
+  ))
+  if (!identical(status, 0L)) {
+    die("streaming Phase 2 PVAR region exclusion failed for ", pfile_prefix, ".pvar")
+  }
+  require_existing_file(out, "Phase 2 region-exclusion variant list")
+  file.info(out)$size > 0
 }
 
 
@@ -546,11 +520,11 @@ prepare_marker_set <- function(config, branch, pfile_prefix, keep, out_prefix, p
   ensure_parent(paste0(out_prefix, ".pgen"))
   run_command(plink_tool(config), command)
 
-  n_excluded <- write_region_exclusions(config, out_prefix, excluded_regions)
+  has_exclusions <- write_region_exclusions(config, out_prefix, excluded_regions)
   prune <- config$phase2_regenie[[branch]]$ld_prune
   default_window <- if (identical(branch, "step1")) "1000kb" else "500kb"
   command <- c("--pfile", out_prefix)
-  if (n_excluded > 0) command <- c(command, "--exclude", excluded_regions)
+  if (has_exclusions) command <- c(command, "--exclude", excluded_regions)
   command <- c(command,
     "--indep-pairwise",
     as.character(prune$window %||% default_window),

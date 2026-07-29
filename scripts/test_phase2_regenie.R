@@ -17,6 +17,31 @@ write_lines <- function(lines, path) {
   writeLines(lines, path)
 }
 
+run_info_helper <- function(pvar, stem, expect_success = TRUE) {
+  paths <- list(
+    pass = paste0(stem, ".pass.snplist"),
+    excluded = paste0(stem, ".excluded.tsv"),
+    summary = paste0(stem, ".summary.tsv")
+  )
+  command <- c(
+    file.path(repo, "scripts", "filter_pvar_info.sh"),
+    "--pvar", pvar,
+    "--threshold", "0.8",
+    "--pass-ids", paths$pass,
+    "--excluded-report", paths$excluded,
+    "--summary", paths$summary
+  )
+  output <- suppressWarnings(system2("bash", command, stdout = TRUE, stderr = TRUE))
+  code <- attr(output, "status") %||% 0L
+  if (expect_success && !identical(as.integer(code), 0L)) {
+    stop("filter_pvar_info.sh failed:\n", paste(output, collapse = "\n"), call. = FALSE)
+  }
+  if (!expect_success && identical(as.integer(code), 0L)) {
+    stop("filter_pvar_info.sh unexpectedly succeeded", call. = FALSE)
+  }
+  c(paths, list(output = output))
+}
+
 run_phase2 <- function(args, expect_success = TRUE) {
   status <- system2("Rscript", c(file.path(repo, "scripts", "phase2_regenie.R"), args), stdout = TRUE, stderr = TRUE)
   code <- attr(status, "status") %||% 0L
@@ -28,6 +53,87 @@ run_phase2 <- function(args, expect_success = TRUE) {
   }
   status
 }
+
+# Reordered columns, metadata lines, direct-field precedence, and missing-value
+# retention must match the former R implementation.
+helper_direct_pvar <- file.path(tmp, "helper_direct.pvar")
+write_lines(c(
+  "##fileformat=VCFv4.3",
+  "##INFO=<ID=R2,Number=1,Type=Float,Description=\"quality\">",
+  "ALT\tID\tPOS\tINFO\tREF\t#CHROM\tR2",
+  "G\trs_low\t100\tR2=0.99\tA\t1\t0.50",
+  "T\trs_missing\t101\tR2=0.10\tC\t1\t.",
+  "C\trs_high\t102\t.\tA\t1\t0.95"
+), helper_direct_pvar)
+helper_direct <- run_info_helper(helper_direct_pvar, file.path(tmp, "helper_direct"))
+stopifnot(identical(readLines(helper_direct$pass), c("rs_missing", "rs_high")))
+helper_direct_excluded <- read_tsv(helper_direct$excluded)
+stopifnot(
+  identical(helper_direct_excluded$variant_id, "rs_low"),
+  identical(helper_direct_excluded$info_metric, "R2"),
+  identical(helper_direct_excluded$exclusion_reason, "info_r2_below_min")
+)
+
+helper_keys_pvar <- file.path(tmp, "helper_keys.pvar")
+write_lines(c(
+  "#CHROM\tPOS\tID\tREF\tALT\tR2\tINFO",
+  "1\t100\trs_key_low\tA\tG\t.\tPR;R2=0.50",
+  "1\t101\trs_key_high\tC\tT\t.\tINFO=0.90",
+  "1\t102\trs_key_missing\tA\tC\t.\tPR"
+), helper_keys_pvar)
+helper_keys <- run_info_helper(helper_keys_pvar, file.path(tmp, "helper_keys"))
+stopifnot(identical(readLines(helper_keys$pass), c("rs_key_high", "rs_key_missing")))
+helper_keys_excluded <- read_tsv(helper_keys$excluded)
+stopifnot(
+  identical(helper_keys_excluded$variant_id, "rs_key_low"),
+  identical(helper_keys_excluded$info_metric, "INFO:INFO/R2")
+)
+
+# A PVAR with no quality annotation is scanned once and leaves no stale filter
+# artifacts. Malformed short rows remain hard failures.
+helper_none_pvar <- file.path(tmp, "helper_none.pvar")
+write_lines(c("#CHROM\tPOS\tID\tREF\tALT", "1\t100\trs1\tA\tG"), helper_none_pvar)
+helper_none_stem <- file.path(tmp, "helper_none")
+write_lines("stale", paste0(helper_none_stem, ".pass.snplist"))
+write_lines("stale", paste0(helper_none_stem, ".excluded.tsv"))
+helper_none <- run_info_helper(helper_none_pvar, helper_none_stem)
+stopifnot(!file.exists(helper_none$pass), !file.exists(helper_none$excluded))
+
+helper_no_low_pvar <- file.path(tmp, "helper_no_low.pvar")
+write_lines(c("#CHROM\tPOS\tID\tREF\tALT\tR2", "1\t100\trs1\tA\tG\t0.9"), helper_no_low_pvar)
+helper_no_low <- run_info_helper(helper_no_low_pvar, file.path(tmp, "helper_no_low"))
+stopifnot(!file.exists(helper_no_low$pass), !file.exists(helper_no_low$excluded))
+
+helper_short_pvar <- file.path(tmp, "helper_short.pvar")
+write_lines(c("#CHROM\tPOS\tID\tREF\tALT\tR2", "1\t100\trs1\tA\tG"), helper_short_pvar)
+invisible(run_info_helper(helper_short_pvar, file.path(tmp, "helper_short"), expect_success = FALSE))
+
+helper_all_low_pvar <- file.path(tmp, "helper_all_low.pvar")
+write_lines(c("#CHROM\tPOS\tID\tREF\tALT\tR2", "1\t100\trs1\tA\tG\t0.1"), helper_all_low_pvar)
+invisible(run_info_helper(helper_all_low_pvar, file.path(tmp, "helper_all_low"), expect_success = FALSE))
+
+# A larger fixture exercises both sequential passes and source preservation.
+helper_large_pvar <- file.path(tmp, "helper_large.pvar")
+helper_large_connection <- file(helper_large_pvar, open = "wt")
+writeLines("#CHROM\tPOS\tID\tREF\tALT\tR2", helper_large_connection)
+for (first in seq.int(1L, 100000L, by = 10000L)) {
+  index <- seq.int(first, min(first + 9999L, 100000L))
+  quality <- ifelse(index %% 10L == 0L, "0.5", "0.9")
+  writeLines(paste("1", index, paste0("rs", index), "A", "G", quality, sep = "\t"),
+    helper_large_connection)
+}
+close(helper_large_connection)
+helper_large_sha <- sha256_file(helper_large_pvar)
+helper_large <- run_info_helper(helper_large_pvar, file.path(tmp, "helper_large"))
+helper_large_summary <- read_plink_metadata_summary(helper_large$summary)
+if (as.integer(helper_large_summary$rows_scanned) != 100000L) {
+  stop("large INFO/R2 fixture row count was ", helper_large_summary$rows_scanned)
+}
+stopifnot(
+  identical(sha256_file(helper_large_pvar), helper_large_sha),
+  as.integer(helper_large_summary$below_min) == 10000L,
+  count_lines(helper_large$pass) == 90000L
+)
 
 samples <- file.path(tmp, "samples.tsv")
 traits <- file.path(tmp, "traits.tsv")
@@ -402,7 +508,7 @@ write_lines(c(
   "    observed=$(cat \"$extract\")",
   "    if [ \"$observed\" != \"$expected\" ]; then echo 'Step 1 INFO/R2 pass list is wrong' >&2; cat \"$extract\" >&2; exit 26; fi",
   "    printf 'PGEN\\n' > \"$out.pgen\"",
-  "    printf '#CHROM\\tPOS\\tID\\tREF\\tALT\\n1\\t100\\trs_high\\tA\\tG\\n1\\t102\\trs_unimputed\\tA\\tG\\n' > \"$out.pvar\"",
+  "    printf '##fileformat=VCFv4.3\\nID\\tALT\\tPOS\\tREF\\t#CHROM\\nrs_high\\tG\\t100\\tA\\tchr1\\nrs_unimputed\\tG\\t102\\tA\\tchr1\\n' > \"$out.pvar\"",
   "    printf '#IID\\nI1\\nI2\\n' > \"$out.psam\"",
   "    exit 0",
   "    ;;",
@@ -417,8 +523,19 @@ write_lines(c(
 ), fake_marker_info_plink2)
 Sys.chmod(fake_marker_info_plink2, "0755")
 marker_info_config <- file.path(tmp, "config_marker_info_plink.yaml")
+marker_info_regions <- file.path(tmp, "marker_info_regions.tsv")
+write_lines(c(
+  "chrom\tstart\tend\tlabel",
+  "1\t102\t102\ttest_region"
+), marker_info_regions)
 marker_info_lines <- readLines(config)
 marker_info_lines <- sub("plink2: plink2", paste0("plink2: '", fake_marker_info_plink2, "'"), marker_info_lines, fixed = TRUE)
+marker_info_lines <- sub(
+  "  exclusion_regions: ''",
+  paste0("  exclusion_regions: '", marker_info_regions, "'"),
+  marker_info_lines,
+  fixed = TRUE
+)
 write_lines(marker_info_lines, marker_info_config)
 marker_info_input <- file.path(tmp, "marker_info_input")
 write_lines(c(
@@ -429,15 +546,19 @@ write_lines(c(
 ), paste0(marker_info_input, ".pvar"))
 marker_info_prefix <- file.path(tmp, "step1_marker_info_qc")
 marker_info_prune_prefix <- file.path(tmp, "step1_marker_info_prune")
+marker_info_region_excluded <- file.path(tmp, "step1_marker_info.excluded_regions.txt")
 run_phase2(c(
   "prepare-marker-set", "--config", marker_info_config, "--branch", "step1",
   "--pfile-prefix", marker_info_input, "--out-prefix", marker_info_prefix,
   "--prune-prefix", marker_info_prune_prefix, "--prune-in", paste0(marker_info_prune_prefix, ".prune.in"),
-  "--excluded-regions", file.path(tmp, "step1_marker_info.excluded_regions.txt"),
+  "--excluded-regions", marker_info_region_excluded,
   "--threads", "1"
 ))
 info_excluded <- read_tsv(paste0(marker_info_prefix, ".info_r2.excluded.tsv"))
 if (!identical(info_excluded$variant_id, "rs_low")) stop("Step 1 INFO/R2 filter excluded the wrong marker")
+if (!identical(readLines(marker_info_region_excluded), "rs_unimputed")) {
+  stop("Step 1 long-range-region filter excluded the wrong marker")
+}
 
 fake_filter_plink2 <- file.path(tmp, "fake_filter_plink2.sh")
 write_lines(c(
