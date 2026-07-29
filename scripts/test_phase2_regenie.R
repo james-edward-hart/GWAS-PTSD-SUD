@@ -8,6 +8,8 @@ script_path <- sub("^--file=", "", cmd[grepl("^--file=", cmd)][1])
 repo <- normalizePath(file.path(dirname(script_path), ".."), mustWork = TRUE)
 source(file.path(repo, "scripts", "lib", "stage1.R"))
 
+if (!identical(qc_info_min(list(qc = list())), 0.9)) stop("shared INFO/R2 default is not 0.9")
+
 tmp <- tempfile("phase2-reg-")
 dir.create(tmp, recursive = TRUE)
 on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
@@ -102,7 +104,12 @@ stopifnot(!file.exists(helper_none$pass), !file.exists(helper_none$excluded))
 helper_no_low_pvar <- file.path(tmp, "helper_no_low.pvar")
 write_lines(c("#CHROM\tPOS\tID\tREF\tALT\tR2", "1\t100\trs1\tA\tG\t0.9"), helper_no_low_pvar)
 helper_no_low <- run_info_helper(helper_no_low_pvar, file.path(tmp, "helper_no_low"))
-stopifnot(!file.exists(helper_no_low$pass), !file.exists(helper_no_low$excluded))
+helper_no_low_summary <- read_plink_metadata_summary(helper_no_low$summary)
+stopifnot(
+  identical(helper_no_low_summary$below_min, "0"),
+  !file.exists(helper_no_low$pass),
+  !file.exists(helper_no_low$excluded)
+)
 
 helper_short_pvar <- file.path(tmp, "helper_short.pvar")
 write_lines(c("#CHROM\tPOS\tID\tREF\tALT\tR2", "1\t100\trs1\tA\tG"), helper_short_pvar)
@@ -447,6 +454,7 @@ write_lines(c(
   "if [ -z \"$out\" ]; then echo 'missing --out' >&2; exit 2; fi",
   "case \"$args\" in",
   "  *' --make-pgen '* )",
+  "    case \"$args\" in *' --extract '* ) echo 'zero-removal INFO/R2 filter unexpectedly passed --extract' >&2; exit 30 ;; esac",
   "    case \"$args\" in *' fill-missing-from-dosage '* ) ;; * ) echo 'Step 1 marker prep missing fill-missing-from-dosage' >&2; exit 22 ;; esac",
   "    case \"$args\" in *' erase-dosage '* ) ;; * ) echo 'Step 1 marker prep missing erase-dosage' >&2; exit 23 ;; esac",
   "    printf 'PGEN\\n' > \"$out.pgen\"",
@@ -470,12 +478,12 @@ marker_lines <- sub("plink2: plink2", paste0("plink2: '", fake_marker_plink2, "'
 write_lines(marker_lines, marker_config)
 marker_input <- file.path(tmp, "marker_input")
 write_lines(c(
-  "#CHROM\tPOS\tID\tREF\tALT",
-  "1\t100\trs1\tA\tG"
+  "#CHROM\tPOS\tID\tREF\tALT\tR2",
+  "1\t100\trs1\tA\tG\t0.95"
 ), paste0(marker_input, ".pvar"))
 marker_prefix <- file.path(tmp, "step1_marker_qc")
 marker_prune_prefix <- file.path(tmp, "step1_marker_prune")
-run_phase2(c(
+marker_output <- run_phase2(c(
   "prepare-marker-set", "--config", marker_config, "--branch", "step1",
   "--pfile-prefix", marker_input, "--out-prefix", marker_prefix,
   "--prune-prefix", marker_prune_prefix, "--prune-in", paste0(marker_prune_prefix, ".prune.in"),
@@ -483,6 +491,9 @@ run_phase2(c(
   "--threads", "1"
 ))
 if (!file.exists(paste0(marker_prune_prefix, ".prune.in"))) stop("Step 1 marker prep did not produce prune.in")
+if (!any(grepl("threshold=0.9; removed=0", marker_output, fixed = TRUE))) {
+  stop("Step 1 INFO/R2 fallback was not 0.9 or zero-removal handling failed")
+}
 
 fake_marker_info_plink2 <- file.path(tmp, "fake_marker_info_plink2.sh")
 write_lines(c(
@@ -508,7 +519,7 @@ write_lines(c(
   "    observed=$(cat \"$extract\")",
   "    if [ \"$observed\" != \"$expected\" ]; then echo 'Step 1 INFO/R2 pass list is wrong' >&2; cat \"$extract\" >&2; exit 26; fi",
   "    printf 'PGEN\\n' > \"$out.pgen\"",
-  "    printf '##fileformat=VCFv4.3\\nID\\tALT\\tPOS\\tREF\\t#CHROM\\nrs_high\\tG\\t100\\tA\\tchr1\\nrs_unimputed\\tG\\t102\\tA\\tchr1\\n' > \"$out.pvar\"",
+  "    printf '##fileformat=VCFv4.3\\nID\\tALT\\tPOS\\tREF\\t#CHROM\\nrs_high\\tG\\t100\\tA\\tchr1\\nrs_unimputed\\tG\\t103\\tA\\tchr1\\n' > \"$out.pvar\"",
   "    printf '#IID\\nI1\\nI2\\n' > \"$out.psam\"",
   "    exit 0",
   "    ;;",
@@ -526,7 +537,7 @@ marker_info_config <- file.path(tmp, "config_marker_info_plink.yaml")
 marker_info_regions <- file.path(tmp, "marker_info_regions.tsv")
 write_lines(c(
   "chrom\tstart\tend\tlabel",
-  "1\t102\t102\ttest_region"
+  "1\t103\t103\ttest_region"
 ), marker_info_regions)
 marker_info_lines <- readLines(config)
 marker_info_lines <- sub("plink2: plink2", paste0("plink2: '", fake_marker_info_plink2, "'"), marker_info_lines, fixed = TRUE)
@@ -541,8 +552,9 @@ marker_info_input <- file.path(tmp, "marker_info_input")
 write_lines(c(
   "#CHROM\tPOS\tID\tREF\tALT\tR2",
   "1\t100\trs_high\tA\tG\t0.95",
-  "1\t101\trs_low\tA\tG\t0.50",
-  "1\t102\trs_unimputed\tA\tG\t."
+  "1\t101\trs_between\tA\tG\t0.85",
+  "1\t102\trs_low\tA\tG\t0.50",
+  "1\t103\trs_unimputed\tA\tG\t."
 ), paste0(marker_info_input, ".pvar"))
 marker_info_prefix <- file.path(tmp, "step1_marker_info_qc")
 marker_info_prune_prefix <- file.path(tmp, "step1_marker_info_prune")
@@ -555,7 +567,9 @@ run_phase2(c(
   "--threads", "1"
 ))
 info_excluded <- read_tsv(paste0(marker_info_prefix, ".info_r2.excluded.tsv"))
-if (!identical(info_excluded$variant_id, "rs_low")) stop("Step 1 INFO/R2 filter excluded the wrong marker")
+if (!identical(info_excluded$variant_id, c("rs_between", "rs_low"))) {
+  stop("Step 1 INFO/R2 filter did not apply the default 0.9 threshold")
+}
 if (!identical(readLines(marker_info_region_excluded), "rs_unimputed")) {
   stop("Step 1 long-range-region filter excluded the wrong marker")
 }

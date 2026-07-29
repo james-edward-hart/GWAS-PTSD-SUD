@@ -137,7 +137,7 @@ ancestry_reference:
 
 # GWAS variant/sample QC filters; boolean options: true, false.
 qc:
-  info_min: 0.8
+  info_min: 0.9
   maf_min: 0.01
   hwe_p_min: 1e-6
   geno_missing_max: 0.05

@@ -313,7 +313,7 @@ text <- c(
   "## QC Settings",
   "",
   paste0("- INFO/R2 filter enabled: ", ifelse(truthy(config$qc$use_mach_r2_filter %||% TRUE), "True", "False")),
-  paste0("- INFO/R2 minimum when enabled: ", config$qc$info_min),
+  paste0("- INFO/R2 minimum when enabled: ", qc_info_min(config)),
   paste0("- MAF minimum: ", config$qc$maf_min),
   paste0("- HWE P minimum: ", config$qc$hwe_p_min, " (calculated in controls only)"),
   paste0("- Genotype missingness maximum: ", config$qc$geno_missing_max),

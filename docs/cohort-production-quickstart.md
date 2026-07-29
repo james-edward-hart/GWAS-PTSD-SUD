@@ -151,7 +151,7 @@ sex_check:
 
 qc:
   use_mach_r2_filter: true
-  info_min: 0.8
+  info_min: 0.9
 
 gwas:
   allow_missing_pcs: false

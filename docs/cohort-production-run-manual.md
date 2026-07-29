@@ -284,7 +284,7 @@ expected and documented.
 ```yaml
 qc:
   use_mach_r2_filter: true
-  info_min: 0.8
+  info_min: 0.9
 ```
 
 PLINK2 expects INFO/MaCH R2 annotations for this filter. For unimputed genotype

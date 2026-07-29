@@ -389,7 +389,7 @@ These settings drive PLINK2 GWAS variant and sample filters.
 
 | Parameter | Required | Description |
 | --- | --- | --- |
-| `info_min` | Optional | Minimum INFO/MaCH R2 threshold when `use_mach_r2_filter: true`. |
+| `info_min` | Optional | Minimum INFO/MaCH R2 threshold when `use_mach_r2_filter: true`. Defaults to `0.9`. |
 | `maf_min` | Recommended | Minimum GWAS minor allele frequency. |
 | `hwe_p_min` | Recommended | Minimum Hardy-Weinberg p-value filter, calculated in controls only before GWAS. |
 | `geno_missing_max` | Recommended | Maximum per-variant missingness. |
@@ -403,7 +403,7 @@ For imputed dosage data, keep INFO/R2 filtering enabled:
 ```yaml
 qc:
   use_mach_r2_filter: true
-  info_min: 0.8
+  info_min: 0.9
 ```
 
 For unimputed genotype data or imputed data without INFO annotations, use:

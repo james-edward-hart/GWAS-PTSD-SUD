@@ -139,7 +139,7 @@ phase2_step1_hardcall_mac_min <- function(config) {
 
 
 phase2_step1_info_min <- function(config) {
-  value <- config$phase2_regenie$step1$filters$info_min %||% config$qc$info_min %||% 0.8
+  value <- config$phase2_regenie$step1$filters$info_min %||% qc_info_min(config)
   if (blank(value)) return(NA_real_)
   threshold <- suppressWarnings(as.numeric(value))
   if (is.na(threshold) || !is.finite(threshold) || threshold < 0 || threshold > 1) {
@@ -999,7 +999,7 @@ regenie_step2_args <- function(config, group, pfile_prefix, pheno, covar, pred_l
     "--threads", threads
   )
   if (truthy(config$qc$use_mach_r2_filter %||% FALSE)) {
-    command <- c(command, "--minINFO", as.character(config$qc$info_min %||% 0.8))
+    command <- c(command, "--minINFO", as.character(qc_info_min(config)))
   }
   if (identical(info$trait_type, "bt")) {
     command <- c(command, "--firth", "--approx", "--pThresh", as.character(config$phase2_regenie$p_thresh %||% 0.01))
@@ -1168,7 +1168,7 @@ make_phase2_report <- function(config, trait, build, stats, summary_path, group_
     paste0("- Pooled missingness threshold: ", config$qc$geno_missing_max %||% 0.05),
     paste0("- Step 2 pooled MAF minimum: ", step2_maf_label),
     paste0("- Regenie minMAC: ", config$phase2_regenie$min_mac %||% 1),
-    paste0("- Regenie minINFO: ", ifelse(truthy(config$qc$use_mach_r2_filter %||% FALSE), as.character(config$qc$info_min %||% 0.8), "not_applied")), "",
+    paste0("- Regenie minINFO: ", ifelse(truthy(config$qc$use_mach_r2_filter %||% FALSE), as.character(qc_info_min(config)), "not_applied")), "",
     "## REGENIE Run Settings", "",
     paste0("- Global PCs: ", phase2_pc_count(config)),
     paste0("- Step 1 block size: ", config$phase2_regenie$step1_bsize %||% 1000),

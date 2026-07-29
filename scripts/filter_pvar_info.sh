@@ -246,7 +246,7 @@ trap cleanup EXIT
     print "rows_scanned", pass_rows[1] + 0 >> summary_file
     print "metric_name", chosen ? metric_name[chosen] : "" >> summary_file
     print "finite_values", chosen ? finite_count[chosen] : 0 >> summary_file
-    print "below_min", chosen ? low_count[chosen] : 0 >> summary_file
+    print "below_min", chosen ? low_count[chosen] + 0 : 0 >> summary_file
     print "pass_variants", pass_count + 0 >> summary_file
     close(summary_file)
   }
