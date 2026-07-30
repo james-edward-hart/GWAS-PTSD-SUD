@@ -313,9 +313,23 @@ validate_group <- function(target_prefix, keep, gene_list, htp_paths, index_path
   genes <- read.table(gene_list, sep = "", header = FALSE, stringsAsFactors = FALSE, quote = "", comment.char = "")
   if (ncol(genes) < 4 || !nrow(genes)) die("invalid ReMeta gene list: ", gene_list)
   gene_ids <- as.character(genes[[1]])
+  if (anyDuplicated(gene_ids)) die("ReMeta gene list contains duplicate gene IDs")
+  gene_chrom <- clean_chrom(genes[[2]])
+  gene_start <- suppressWarnings(as.integer(genes[[3]]))
+  gene_end <- suppressWarnings(as.integer(genes[[4]]))
+  if (any(!gene_chrom %in% as.character(seq_len(22))) ||
+      any(is.na(gene_start) | is.na(gene_end) | gene_start < 1L | gene_end < gene_start)) {
+    die("ReMeta gene list contains invalid autosomal coordinates")
+  }
+  gene_row <- setNames(seq_along(gene_ids), gene_ids)
+  variant_row <- setNames(seq_along(variant_ids), variant_ids)
+  variant_pos <- suppressWarnings(as.integer(variants$POS))
 
   indexed_genes <- 0L
+  indexed_gene_ids <- character()
   ld_variant_ids <- character()
+  ld_gene_variant_assignments <- 0L
+  ld_assignments_within_gene_bounds <- 0L
   for (path in index_paths) {
     lines <- read_text_maybe_gzip(path)
     lines <- lines[nzchar(lines)]
@@ -325,14 +339,30 @@ validate_group <- function(target_prefix, keep, gene_list, htp_paths, index_path
       if (!fields[[1]] %in% gene_ids) die("LD index contains gene absent from bundled gene list: ", fields[[1]])
       ids <- strsplit(fields[[4]], ",", fixed = TRUE)[[1]]
       ids <- ids[nzchar(ids)]
+      if (!length(ids)) die("ReMeta LD index gene has no target variants: ", fields[[1]])
       missing <- setdiff(ids, variant_ids)
       if (length(missing)) die("LD index variants are absent from target PVAR: ", paste(head(missing, 5), collapse = ", "))
+      gene_idx <- unname(gene_row[[fields[[1]]]])
+      variant_idx <- unname(variant_row[ids])
+      within_gene <- variants$CHROM_CLEAN[variant_idx] == gene_chrom[[gene_idx]] &
+        variant_pos[variant_idx] >= gene_start[[gene_idx]] &
+        variant_pos[variant_idx] <= gene_end[[gene_idx]]
       ld_variant_ids <- c(ld_variant_ids, ids)
+      indexed_gene_ids <- c(indexed_gene_ids, fields[[1]])
       indexed_genes <- indexed_genes + 1L
+      ld_gene_variant_assignments <- ld_gene_variant_assignments + length(ids)
+      ld_assignments_within_gene_bounds <- ld_assignments_within_gene_bounds + sum(within_gene)
     }
   }
   if (!indexed_genes) die("ReMeta LD indexes contain no genes")
   ld_variant_ids <- unique(ld_variant_ids)
+  indexed_gene_count <- length(unique(indexed_gene_ids))
+  target_variants_not_indexed <- length(setdiff(variant_ids, ld_variant_ids))
+  ld_assignments_outside_gene_bounds <- ld_gene_variant_assignments - ld_assignments_within_gene_bounds
+  percent <- function(numerator, denominator) {
+    if (!denominator) return("NA")
+    sprintf("%.6f", 100 * numerator / denominator)
+  }
 
   htp_variants <- 0L
   for (path in htp_paths) {
@@ -342,8 +372,21 @@ validate_group <- function(target_prefix, keep, gene_list, htp_paths, index_path
     status = "validated",
     sample_count = sample_count,
     target_variant_count = nrow(variants),
+    unique_ld_target_variant_count = length(ld_variant_ids),
+    target_variants_not_indexed = target_variants_not_indexed,
+    target_variant_ld_coverage_pct = percent(length(ld_variant_ids), nrow(variants)),
     htp_variant_rows = htp_variants,
-    indexed_gene_rows = indexed_genes
+    reference_gene_count = length(gene_ids),
+    indexed_gene_rows = indexed_genes,
+    indexed_gene_count = indexed_gene_count,
+    genes_without_indexed_variants = length(gene_ids) - indexed_gene_count,
+    indexed_gene_coverage_pct = percent(indexed_gene_count, length(gene_ids)),
+    ld_gene_variant_assignments = ld_gene_variant_assignments,
+    ld_assignments_within_gene_bounds = ld_assignments_within_gene_bounds,
+    ld_assignments_outside_gene_bounds = ld_assignments_outside_gene_bounds,
+    ld_assignment_gene_bound_coverage_pct = percent(
+      ld_assignments_within_gene_bounds, ld_gene_variant_assignments
+    )
   ), out)
 }
 

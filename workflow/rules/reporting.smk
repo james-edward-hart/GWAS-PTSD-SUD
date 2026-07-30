@@ -169,12 +169,23 @@ rule make_phase2_regenie_report:
         manhattan=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.manhattan.png",
         manhattan_pdf=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.manhattan.pdf",
         stage1_summary=phase2_trait_stage1_summaries,
+        remeta_validation=lambda wildcards: [
+            f"{REMETA_DIR}/work/{wildcards.build}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.validation.ok"
+        ]
+        if remeta_enabled_for_config(config)
+        else [],
     output:
         report=f"results/reports/{{trait}}/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.report.md",
     log:
         "results/logs/reporting/make_phase2_regenie_report.{trait}.{build}.log",
     conda:
         "../../envs/gwas.yaml",
+    params:
+        remeta_validation_arg=lambda wildcards, input: (
+            f"--remeta-validation {input.remeta_validation[0]}"
+            if input.remeta_validation
+            else ""
+        ),
     shell:
         """
         Rscript scripts/phase2_regenie.R make-report \
@@ -191,6 +202,7 @@ rule make_phase2_regenie_report:
           --manhattan {input.manhattan} \
           --manhattan-pdf {input.manhattan_pdf} \
           --stage1-summary {input.stage1_summary} \
+          {params.remeta_validation_arg} \
           --out {output.report} \
           > {log} 2>&1
         """

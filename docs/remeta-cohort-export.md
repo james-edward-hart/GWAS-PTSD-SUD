@@ -97,8 +97,15 @@ For each Phase 2 phenotype/covariate group, the branch:
 3. Runs rare-variant regenie Step 2 with the existing group Step 1 predictions.
 4. Runs ReMeta independently on chromosomes 1-22 with `--skip-buffer`.
 5. Verifies sample identity, CPRA consistency, HTP-to-PVAR and HTP-to-LD
-   membership, LD-index-to-PVAR membership, and gene-list membership.
+   membership, LD-index-to-PVAR membership, gene-list membership, and
+   gene/variant coverage of the generated LD indexes.
 6. Writes the export manifest with SHA-256 hashes and byte counts.
+
+When ReMeta is enabled, each final Phase 2 PAN report includes a **ReMeta LD
+Target Coverage** section derived from that trait group's validated artifacts.
+It reports target genes with indexed variants, unique QC-passing target-region
+variants represented in the LD indexes, gene-variant assignments within their
+declared gene spans, uncovered counts, and the no-buffer policy.
 
 The group keep file is the intersection of nonmissing covariates and nonmissing
 phenotypes across all active traits in that group. This allows one LD matrix to

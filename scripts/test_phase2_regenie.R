@@ -204,7 +204,9 @@ write_lines(c(
   "    ld_prune: {window: 500kb, step: 1, r2: 0.2}",
   "  step1:",
   "    filters: {maf_min: 0.01, geno_missing_max: 0.02, snps_only_acgt: true, autosome_only: true, max_alleles: 2, remove_duplicate_ids: true}",
-  "    ld_prune: {window: 1000kb, step: 1, r2: 0.2}"
+  "    ld_prune: {window: 1000kb, step: 1, r2: 0.2}",
+  "remeta:",
+  "  enabled: true"
 ), config)
 
 groups <- file.path(tmp, "groups.tsv")
@@ -354,26 +356,50 @@ if (!identical(readLines(raw), readLines(native_stats))) stop("native regenie ou
 pan_summary <- file.path(tmp, "pan_summary.tsv")
 ancestry <- file.path(tmp, "ancestry.tsv")
 stage1_summary <- file.path(tmp, "stage1_summary.tsv")
+remeta_validation <- file.path(tmp, "remeta_validation.tsv")
 report <- file.path(tmp, "report.md")
 write_lines(c("metric\tvalue", "phase2_pan_samples\t4"), pan_summary)
 write_lines(c("FID\tIID\tphase2_ancestry", "F1\tI1\tEUR", "F2\tI2\tUNKNOWN"), ancestry)
 write_lines(c("metric\tvalue", "lambda_gc\t1.020000", "valid_p_value_variants\t100"), stage1_summary)
+write_lines(c(
+  "key\tvalue",
+  "status\tvalidated",
+  "target_variant_count\t100",
+  "unique_ld_target_variant_count\t98",
+  "target_variants_not_indexed\t2",
+  "target_variant_ld_coverage_pct\t98.000000",
+  "reference_gene_count\t20",
+  "indexed_gene_count\t18",
+  "genes_without_indexed_variants\t2",
+  "indexed_gene_coverage_pct\t90.000000",
+  "ld_gene_variant_assignments\t110",
+  "ld_assignments_within_gene_bounds\t109",
+  "ld_assignments_outside_gene_bounds\t1",
+  "ld_assignment_gene_bound_coverage_pct\t99.090909"
+), remeta_validation)
 run_phase2(c(
   "make-report", "--config", config, "--trait", "bt2", "--build", "GRCh38",
   "--stats", native_stats, "--summary", native_summary, "--group-summary", group_summary,
   "--union-summary", union_summary, "--pan-summary", pan_summary, "--ancestry-summary", ancestry,
   "--qq", "qq.png", "--manhattan", "mh.png", "--manhattan-pdf", "mh.pdf",
-  "--stage1-summary", stage1_summary, "--out", report
+  "--stage1-summary", stage1_summary, "--remeta-validation", remeta_validation, "--out", report
 ))
 text <- readLines(report)
 if (!any(grepl("Stage 1 Lambda Comparison", text, fixed = TRUE))) stop("Phase 2 report missing Stage 1 comparison")
 if (!any(grepl("Step 2 pooled MAF minimum: 0.01", text, fixed = TRUE))) stop("Phase 2 report missing pooled MAF threshold")
 if (!any(grepl("![QQ plot](qq.png)", text, fixed = TRUE))) stop("Phase 2 report missing embedded QQ plot")
 if (!any(grepl("![Manhattan plot](mh.png)", text, fixed = TRUE))) stop("Phase 2 report missing embedded Manhattan plot")
+if (!any(grepl("QC-passing target-region variants represented in LD indexes | 98 | 100 | 98.00%", text, fixed = TRUE))) {
+  stop("Phase 2 report missing ReMeta target-variant LD coverage")
+}
+if (!any(grepl("Conditional buffer variants: not included", text, fixed = TRUE))) {
+  stop("Phase 2 report missing ReMeta buffer policy")
+}
 pan_sections <- c(
   "## Model Overview",
   "## PAN Sample Set",
   "## Variant Sources and QC",
+  "## ReMeta LD Target Coverage",
   "## REGENIE Run Settings",
   "## Association Results",
   "## Top Hits",

@@ -54,7 +54,10 @@ invisible(write_lines(c(
   "1\t120\t1:120:C:T\tC\tT"
 ), "target.pvar"))
 invisible(write_lines(c("F1\tI1", "F2\tI2"), "keep.txt"))
-gene_list <- write_lines("ENSG000001\t1\t90\t130", "gene_list.tsv")
+gene_list <- write_lines(c(
+  "ENSG000001\t1\t90\t130",
+  "ENSG000002\t1\t200\t250"
+), "gene_list.tsv")
 htp <- write_gzip(c(
   paste(htp_columns, collapse = "\t"),
   htp_row("1:100:A:G", "1", "100", "A", "G", "SCORE=0.2;SKATV=0.1")
@@ -70,6 +73,14 @@ stopifnot(is.null(attr(output, "status")), file.exists(ok))
 validation <- read.delim(ok, stringsAsFactors = FALSE)
 stopifnot(validation$value[validation$key == "sample_count"] == "2")
 stopifnot(validation$value[validation$key == "target_variant_count"] == "2")
+stopifnot(validation$value[validation$key == "unique_ld_target_variant_count"] == "2")
+stopifnot(validation$value[validation$key == "target_variant_ld_coverage_pct"] == "100.000000")
+stopifnot(validation$value[validation$key == "reference_gene_count"] == "2")
+stopifnot(validation$value[validation$key == "indexed_gene_count"] == "1")
+stopifnot(validation$value[validation$key == "indexed_gene_coverage_pct"] == "50.000000")
+stopifnot(validation$value[validation$key == "ld_gene_variant_assignments"] == "2")
+stopifnot(validation$value[validation$key == "ld_assignments_within_gene_bounds"] == "2")
+stopifnot(validation$value[validation$key == "ld_assignment_gene_bound_coverage_pct"] == "100.000000")
 
 
 # A score-statistic variant without matching LD target data must fail.

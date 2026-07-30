@@ -22,6 +22,7 @@ from workflow.snake_helpers import (
     phase2_trait_regenie_done as phase2_trait_regenie_done_for_context,
     phase2_trait_stage1_summaries as phase2_trait_stage1_summaries_for_context,
     remeta_manifest_inputs as remeta_manifest_inputs_for_config,
+    remeta_enabled as remeta_enabled_for_config,
     remeta_group_htp_inputs as remeta_group_htp_inputs_for_config,
     remeta_group_index_inputs as remeta_group_index_inputs_for_config,
     remeta_resource_file as remeta_resource_file_for_config,

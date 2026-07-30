@@ -11,7 +11,8 @@ raw <- commandArgs(trailingOnly = TRUE)
 if (!length(raw)) die("missing Phase 2 regenie subtask")
 subtask <- raw[[1]]
 args <- parse_args(
-  defaults = list(threads = "1", keep = "", "stage1-summary" = character(), "stage1-stats" = character()),
+  defaults = list(threads = "1", keep = "", "stage1-summary" = character(),
+    "stage1-stats" = character(), "remeta-validation" = ""),
   repeated = c("stage1-summary", "stage1-stats"),
   raw = raw[-1]
 )
@@ -1096,8 +1097,88 @@ top_hit_lines <- function(rows, p, max_rows = 10) {
 }
 
 
+key_value <- function(df, key, default = "NA") {
+  if (!nrow(df) || !"key" %in% names(df) || !"value" %in% names(df)) return(default)
+  hit <- df$value[df$key == key]
+  if (length(hit)) as.character(hit[[1]]) else default
+}
+
+
+coverage_percent_label <- function(value) {
+  numeric_value <- suppressWarnings(as.numeric(value))
+  if (length(numeric_value) && is.finite(numeric_value[[1]])) {
+    return(sprintf("%.2f%%", numeric_value[[1]]))
+  }
+  "NA"
+}
+
+
+remeta_ld_coverage_lines <- function(config, validation_path) {
+  if (!truthy(config$remeta$enabled %||% FALSE)) return(character())
+  if (blank(validation_path) || !file.exists(validation_path)) {
+    die("ReMeta is enabled but its group validation summary is unavailable: ", validation_path)
+  }
+  coverage <- read_tsv(validation_path)
+  require_columns(coverage, c("key", "value"), validation_path)
+  required <- c(
+    "target_variant_count", "unique_ld_target_variant_count", "target_variants_not_indexed",
+    "target_variant_ld_coverage_pct", "reference_gene_count", "indexed_gene_count",
+    "genes_without_indexed_variants", "indexed_gene_coverage_pct", "ld_gene_variant_assignments",
+    "ld_assignments_within_gene_bounds", "ld_assignments_outside_gene_bounds",
+    "ld_assignment_gene_bound_coverage_pct"
+  )
+  missing <- setdiff(required, coverage$key)
+  if (length(missing)) {
+    die("ReMeta group validation summary lacks LD coverage metric(s): ", paste(missing, collapse = ", "))
+  }
+
+  c(
+    "## ReMeta LD Target Coverage", "",
+    paste0(
+      "Coverage is calculated from the group-specific LD indexes and their matching QC-filtered ",
+      "target PGEN. A target variant can be assigned to more than one overlapping gene, so unique ",
+      "variants and gene-variant assignments are reported separately."
+    ), "",
+    "| Coverage metric | Observed | Denominator | Coverage |",
+    "| --- | ---: | ---: | ---: |",
+    paste0(
+      "| Target genes with at least one indexed LD variant | ",
+      key_value(coverage, "indexed_gene_count"), " | ",
+      key_value(coverage, "reference_gene_count"), " | ",
+      coverage_percent_label(key_value(coverage, "indexed_gene_coverage_pct")), " |"
+    ),
+    paste0(
+      "| QC-passing target-region variants represented in LD indexes | ",
+      key_value(coverage, "unique_ld_target_variant_count"), " | ",
+      key_value(coverage, "target_variant_count"), " | ",
+      coverage_percent_label(key_value(coverage, "target_variant_ld_coverage_pct")), " |"
+    ),
+    paste0(
+      "| Indexed gene-variant assignments within declared gene spans | ",
+      key_value(coverage, "ld_assignments_within_gene_bounds"), " | ",
+      key_value(coverage, "ld_gene_variant_assignments"), " | ",
+      coverage_percent_label(key_value(coverage, "ld_assignment_gene_bound_coverage_pct")), " |"
+    ), "",
+    paste0(
+      "- Target genes without an indexed LD variant: ",
+      key_value(coverage, "genes_without_indexed_variants")
+    ),
+    paste0(
+      "- Target-region variants absent from every LD gene index: ",
+      key_value(coverage, "target_variants_not_indexed")
+    ),
+    paste0(
+      "- Indexed gene-variant assignments outside the declared gene span: ",
+      key_value(coverage, "ld_assignments_outside_gene_bounds")
+    ),
+    "- Conditional buffer variants: not included (`--skip-buffer`; marginal LD export)."
+  )
+}
+
+
 make_phase2_report <- function(config, trait, build, stats, summary_path, group_summary, union_summary, pan_summary,
-                               ancestry_summary, qq, manhattan, manhattan_pdf, stage1_summaries, out) {
+                               ancestry_summary, qq, manhattan, manhattan_pdf, stage1_summaries,
+                               remeta_validation, out) {
   summary <- read_tsv(summary_path)
   skipped <- identical(summary$skipped[[1]], "True")
   stage1 <- data.frame()
@@ -1147,6 +1228,8 @@ make_phase2_report <- function(config, trait, build, stats, summary_path, group_
   union_n <- union$variants[union$file == "UNION"][[1]]
   step2_maf_min <- phase2_step2_maf_min(config)
   step2_maf_label <- if (is.na(step2_maf_min)) "not_applied" else as.character(step2_maf_min)
+  remeta_lines <- remeta_ld_coverage_lines(config, remeta_validation)
+  remeta_block <- if (length(remeta_lines)) c(remeta_lines, "") else character()
 
   lines <- c(
     paste0("# Phase 2 PAN Regenie Report: ", config$project$analysis_name, " / ", trait), "",
@@ -1169,6 +1252,7 @@ make_phase2_report <- function(config, trait, build, stats, summary_path, group_
     paste0("- Step 2 pooled MAF minimum: ", step2_maf_label),
     paste0("- Regenie minMAC: ", config$phase2_regenie$min_mac %||% 1),
     paste0("- Regenie minINFO: ", ifelse(truthy(config$qc$use_mach_r2_filter %||% FALSE), as.character(qc_info_min(config)), "not_applied")), "",
+    remeta_block,
     "## REGENIE Run Settings", "",
     paste0("- Global PCs: ", phase2_pc_count(config)),
     paste0("- Step 1 block size: ", config$phase2_regenie$step1_bsize %||% 1000),
@@ -1249,7 +1333,8 @@ if (subtask == "write-groups") {
   require_args(args, c("trait", "build", "stats", "summary", "group-summary", "union-summary", "pan-summary", "ancestry-summary", "qq", "manhattan", "manhattan-pdf", "out"))
   make_phase2_report(config, args$trait, args$build, args$stats, args$summary, args[["group-summary"]],
     args[["union-summary"]], args[["pan-summary"]], args[["ancestry-summary"]], args$qq,
-    args$manhattan, args[["manhattan-pdf"]], args[["stage1-summary"]], args$out)
+    args$manhattan, args[["manhattan-pdf"]], args[["stage1-summary"]],
+    args[["remeta-validation"]], args$out)
 } else if (subtask == "check-options") {
   if (!blank(args[["options-file"]] %||% "")) {
     value <- paste(readLines(args[["options-file"]], warn = FALSE), collapse = " ")
