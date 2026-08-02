@@ -29,14 +29,28 @@ regenie_htp_columns <- c(
 
 read_tsv_no_metadata <- function(path) {
   if (!file.exists(path)) die("tab-delimited file not found: ", path)
-  lines <- readLines(path, warn = FALSE)
-  lines <- lines[!grepl("^##", lines)]
-  if (!length(lines) || !any(nzchar(trimws(lines)))) die("tab-delimited file is empty: ", path)
-  header <- lines[nzchar(trimws(lines))][[1]]
-  sep <- if (grepl("\t", header, fixed = TRUE)) "\t" else ""
+  metadata <- local({
+    con <- file(path, open = "rt")
+    on.exit(close(con))
+    skipped <- 0L
+    repeat {
+      header <- readLines(con, n = 1L, warn = FALSE)
+      if (!length(header)) die("tab-delimited file is empty: ", path)
+      if (!nzchar(trimws(header)) || startsWith(header, "##")) {
+        skipped <- skipped + 1L
+        next
+      }
+      break
+    }
+    list(header = header, skipped = skipped)
+  })
+  con <- file(path, open = "rt")
+  on.exit(close(con), add = TRUE)
+  sep <- if (grepl("\t", metadata$header, fixed = TRUE)) "\t" else ""
   tryCatch(
     read.table(
-      text = paste(lines, collapse = "\n"),
+      con,
+      skip = metadata$skipped,
       sep = sep,
       header = TRUE,
       check.names = FALSE,
@@ -1059,40 +1073,23 @@ stage_trait_output <- function(config, trait, group_summary, raw_prefix, out_sta
 }
 
 
-summarize_native_stats <- function(path) {
-  rows <- read_tsv_no_metadata(path)
-  p <- regenie_p_values(rows)
-  valid <- is.finite(p) & p > 0 & p <= 1
-  list(
-    n_variants = nrow(rows),
-    valid_p = sum(valid),
-    lambda_gc = genomic_lambda(p),
-    genomewide = sum(valid & p <= 5e-8),
-    suggestive = sum(valid & p <= 1e-5),
-    rows = rows,
-    p = p
-  )
-}
-
-
-top_hit_lines <- function(rows, p, max_rows = 10) {
-  if (!nrow(rows)) return(c("No variants available."))
-  keep <- is.finite(p) & p > 0 & p <= 1
-  if (!any(keep)) return(c("No valid P values available."))
-  rows <- rows[keep, , drop = FALSE]
-  p <- p[keep]
-  ord <- order(p)
-  ord <- ord[seq_len(min(length(ord), max_rows))]
-  chrom <- if ("CHROM" %in% names(rows)) rows$CHROM else if ("Chr" %in% names(rows)) rows$Chr else if ("chrom" %in% names(rows)) rows$chrom else "NA"
-  pos <- if ("GENPOS" %in% names(rows)) rows$GENPOS else if ("Pos" %in% names(rows)) rows$Pos else if ("pos" %in% names(rows)) rows$pos else "NA"
-  id <- if ("ID" %in% names(rows)) rows$ID else if ("Name" %in% names(rows)) rows$Name else if ("variant_id" %in% names(rows)) rows$variant_id else "NA"
-  effect_label <- if ("Effect" %in% names(rows)) "EFFECT" else "BETA"
-  beta <- if ("BETA" %in% names(rows)) rows$BETA else if ("Effect" %in% names(rows)) rows$Effect else rep("NA", nrow(rows))
-  se <- if ("SE" %in% names(rows)) rows$SE else rep("NA", nrow(rows))
+top_hit_lines <- function(rows) {
+  if (!nrow(rows)) return("No valid P values available.")
+  required <- c("chrom", "pos", "variant_id", "effect", "se", "p")
+  missing <- setdiff(required, names(rows))
+  if (length(missing)) die("top-hit summary is missing column(s): ", paste(missing, collapse = ", "))
+  display <- lapply(rows[required], function(value) {
+    value <- as.character(value)
+    value[is.na(value) | !nzchar(value)] <- "NA"
+    value
+  })
   c(
-    paste0("| CHROM | POS | ID | ", effect_label, " | SE | P |"),
+    "| CHROM | POS | ID | EFFECT | SE | P |",
     "| --- | ---: | --- | ---: | ---: | ---: |",
-    paste0("| ", chrom[ord], " | ", pos[ord], " | ", id[ord], " | ", beta[ord], " | ", se[ord], " | ", signif(p[ord], 4), " |")
+    paste0(
+      "| ", display$chrom, " | ", display$pos, " | ", display$variant_id, " | ",
+      display$effect, " | ", display$se, " | ", signif(suppressWarnings(as.numeric(display$p)), 4), " |"
+    )
   )
 }
 
@@ -1176,8 +1173,9 @@ remeta_ld_coverage_lines <- function(config, validation_path) {
 }
 
 
-make_phase2_report <- function(config, trait, build, stats, summary_path, group_summary, union_summary, pan_summary,
-                               ancestry_summary, qq, manhattan, manhattan_pdf, stage1_summaries,
+make_phase2_report <- function(config, trait, build, stats, stats_metrics_path, top_hits_path, summary_path,
+                               group_summary, union_summary, pan_summary, ancestry_summary, qq, manhattan,
+                               manhattan_pdf, stage1_summaries,
                                remeta_validation, out) {
   summary <- read_tsv(summary_path)
   skipped <- identical(summary$skipped[[1]], "True")
@@ -1202,11 +1200,22 @@ make_phase2_report <- function(config, trait, build, stats, summary_path, group_
     "No Stage 1 comparison summaries were available."
   }
 
-  stats_summary <- list(n_variants = 0, valid_p = 0, lambda_gc = NA_real_, genomewide = 0, suggestive = 0, rows = data.frame(), p = numeric())
-  if (!skipped) stats_summary <- summarize_native_stats(stats)
-  lambda <- if (is.finite(stats_summary$lambda_gc)) sprintf("%.6f", stats_summary$lambda_gc) else "NA"
+  stats_metrics <- read_tsv(stats_metrics_path)
+  required_metrics <- c(
+    "total_variants", "valid_p_value_variants", "lambda_gc",
+    "genomewide_significant_variants", "suggestive_variants",
+    "qq_eligible_variants", "qq_points_plotted", "manhattan_eligible_variants",
+    "manhattan_points_plotted", "large_plot_threshold", "plot_thinning_applied"
+  )
+  missing_metrics <- setdiff(required_metrics, stats_metrics$metric)
+  if (length(missing_metrics)) {
+    die("association metrics are missing key(s): ", paste(missing_metrics, collapse = ", "))
+  }
+  hits <- read_tsv(top_hits_path)
+  lambda_value <- suppressWarnings(as.numeric(metric_value(stats_metrics, "lambda_gc")))
+  lambda <- if (is.finite(lambda_value)) sprintf("%.6f", lambda_value) else "NA"
   top_lines <- if (skipped) c("Trait skipped before regenie.", paste0("Reason: ", summary$skip_reason[[1]])) else {
-    top_hit_lines(stats_summary$rows, stats_summary$p)
+    top_hit_lines(hits)
   }
   qq_link <- report_relative_path(qq, out)
   manhattan_link <- report_relative_path(manhattan, out)
@@ -1219,6 +1228,22 @@ make_phase2_report <- function(config, trait, build, stats, summary_path, group_
     paste0("- Manhattan PNG: `", manhattan, "`"),
     paste0("- Manhattan PDF: `", manhattan_pdf, "`")
   )
+  if (truthy(metric_value(stats_metrics, "plot_thinning_applied", "False"))) {
+    threshold <- suppressWarnings(as.numeric(metric_value(stats_metrics, "large_plot_threshold")))
+    threshold_label <- if (is.finite(threshold)) format(threshold, scientific = FALSE, trim = TRUE) else "Inf"
+    plot_lines <- c(
+      plot_lines,
+      paste0(
+        "- Large PAN plot fallback: QQ displayed ", metric_value(stats_metrics, "qq_points_plotted"),
+        " of ", metric_value(stats_metrics, "qq_eligible_variants"),
+        " ordered P-value points (every second rank plus all P <= 1e-5); Manhattan displayed ",
+        metric_value(stats_metrics, "manhattan_points_plotted"), " of ",
+        metric_value(stats_metrics, "manhattan_eligible_variants"),
+        " eligible variants (the most significant 50%) because the ", threshold_label,
+        "-variant threshold was exceeded. Association metrics and top hits use all valid variants."
+      )
+    )
+  }
 
   union <- read_tsv(union_summary)
   pan <- read_tsv(pan_summary)
@@ -1263,10 +1288,11 @@ make_phase2_report <- function(config, trait, build, stats, summary_path, group_
     "## Association Results", "",
     paste0("- Native regenie output: `", stats, "`"),
     paste0("- Skipped: ", summary$skipped[[1]]),
-    paste0("- Valid P-value variants: ", stats_summary$valid_p),
+    paste0("- Native regenie variant rows: ", metric_value(stats_metrics, "total_variants")),
+    paste0("- Valid P-value variants: ", metric_value(stats_metrics, "valid_p_value_variants")),
     paste0("- Lambda GC: ", lambda),
-    paste0("- Genome-wide significant variants (P <= 5e-8): ", stats_summary$genomewide),
-    paste0("- Suggestive variants (P <= 1e-5): ", stats_summary$suggestive), "",
+    paste0("- Genome-wide significant variants (P <= 5e-8): ", metric_value(stats_metrics, "genomewide_significant_variants")),
+    paste0("- Suggestive variants (P <= 1e-5): ", metric_value(stats_metrics, "suggestive_variants")), "",
     "## Top Hits", "",
     top_lines, "",
     "## Plots", "",
@@ -1330,10 +1356,10 @@ if (subtask == "write-groups") {
   require_args(args, c("trait", "group-summary", "raw-prefix", "out-stats", "out-summary"))
   stage_trait_output(config, args$trait, args[["group-summary"]], args[["raw-prefix"]], args[["out-stats"]], args[["out-summary"]])
 } else if (subtask == "make-report") {
-  require_args(args, c("trait", "build", "stats", "summary", "group-summary", "union-summary", "pan-summary", "ancestry-summary", "qq", "manhattan", "manhattan-pdf", "out"))
-  make_phase2_report(config, args$trait, args$build, args$stats, args$summary, args[["group-summary"]],
-    args[["union-summary"]], args[["pan-summary"]], args[["ancestry-summary"]], args$qq,
-    args$manhattan, args[["manhattan-pdf"]], args[["stage1-summary"]],
+  require_args(args, c("trait", "build", "stats", "stats-metrics", "top-hits", "summary", "group-summary", "union-summary", "pan-summary", "ancestry-summary", "qq", "manhattan", "manhattan-pdf", "out"))
+  make_phase2_report(config, args$trait, args$build, args$stats, args[["stats-metrics"]], args[["top-hits"]],
+    args$summary, args[["group-summary"]], args[["union-summary"]], args[["pan-summary"]],
+    args[["ancestry-summary"]], args$qq, args$manhattan, args[["manhattan-pdf"]], args[["stage1-summary"]],
     args[["remeta-validation"]], args$out)
 } else if (subtask == "check-options") {
   if (!blank(args[["options-file"]] %||% "")) {

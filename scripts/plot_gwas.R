@@ -14,7 +14,13 @@ if (!nzchar(Sys.getenv("XDG_CACHE_HOME"))) Sys.setenv(XDG_CACHE_HOME = font_cach
 
 
 # Parse input summary stats and output image paths.
-args <- parse_args(defaults = list("config" = "", "manhattan-pdf" = ""))
+args <- parse_args(defaults = list(
+  "config" = "",
+  "manhattan-pdf" = "",
+  "metrics-out" = "",
+  "top-hits-out" = "",
+  "large-plot-threshold" = "Inf"
+))
 require_args(args, c("stats", "qq", "manhattan"))
 
 analysis_name <- ""
@@ -24,46 +30,82 @@ if (nzchar(args$config)) {
 }
 
 
-# Keep only valid P values for plotting. Native regenie files can include
-# metadata lines and LOG10P instead of a literal P column.
-read_stats <- function(path) {
-  lines <- readLines(path, warn = FALSE)
-  lines <- lines[!grepl("^##", lines)]
-  if (!length(lines) || !any(nzchar(trimws(lines)))) die("GWAS stats file is empty: ", path)
-  header <- lines[nzchar(trimws(lines))][[1]]
-  sep <- if (grepl("\t", header, fixed = TRUE)) "\t" else ""
-  rows <- read.table(
-    text = paste(lines, collapse = "\n"),
-    sep = sep,
-    header = TRUE,
-    check.names = FALSE,
-    stringsAsFactors = FALSE,
-    quote = "",
-    comment.char = "",
-    na.strings = character()
-  )
-  if (!"p" %in% names(rows)) {
-    if ("P" %in% names(rows)) rows$p <- rows$P
-    else if ("Pval" %in% names(rows)) rows$p <- rows$Pval
-    else if ("LOG10P" %in% names(rows)) rows$p <- as.character(10 ^ -suppressWarnings(as.numeric(rows$LOG10P)))
-  }
-  if (!"chrom" %in% names(rows) && "CHROM" %in% names(rows)) rows$chrom <- rows$CHROM
-  if (!"chrom" %in% names(rows) && "Chr" %in% names(rows)) rows$chrom <- rows$Chr
-  if (!"pos" %in% names(rows) && "GENPOS" %in% names(rows)) rows$pos <- rows$GENPOS
-  if (!"pos" %in% names(rows) && "Pos" %in% names(rows)) rows$pos <- rows$Pos
-  if (!"variant_id" %in% names(rows) && "ID" %in% names(rows)) rows$variant_id <- rows$ID
-  if (!"variant_id" %in% names(rows) && "Name" %in% names(rows)) rows$variant_id <- rows$Name
-  if (!"effect_allele" %in% names(rows) && "Alt" %in% names(rows)) rows$effect_allele <- rows$Alt
-  if (!"a1_freq" %in% names(rows) && "AAF" %in% names(rows)) rows$a1_freq <- rows$AAF
-  if (!"beta_or_log_or" %in% names(rows) && "Effect" %in% names(rows)) rows$beta_or_log_or <- rows$Effect
-  rows
+# Native regenie files can contain leading metadata and dozens of columns. Read
+# only the fields required for summaries and plots, directly from disk.
+first_column <- function(columns, aliases) {
+  hit <- aliases[aliases %in% columns]
+  if (length(hit)) hit[[1]] else ""
 }
 
-stats <- read_stats(args$stats)
-if (!"p" %in% names(stats)) die("GWAS stats file is missing p or LOG10P column")
-stats_for_title <- stats
-stats$p_num <- suppressWarnings(as.numeric(stats$p))
-stats <- stats[is.finite(stats$p_num) & stats$p_num > 0 & stats$p_num <= 1, , drop = FALSE]
+stats_header <- function(path) {
+  if (!file.exists(path) || file.info(path)$size == 0) die("GWAS stats file is empty: ", path)
+  con <- file(path, open = "rt")
+  on.exit(close(con), add = TRUE)
+  skipped <- 0L
+  repeat {
+    line <- readLines(con, n = 1L, warn = FALSE)
+    if (!length(line)) die("GWAS stats file has no header: ", path)
+    if (!nzchar(trimws(line)) || startsWith(line, "##")) {
+      skipped <- skipped + 1L
+      next
+    }
+    sep <- if (grepl("\t", line, fixed = TRUE)) "\t" else ""
+    columns <- strsplit(trimws(line), if (nzchar(sep)) "\t" else "[[:space:]]+")[[1]]
+    return(list(columns = columns, skipped = skipped, sep = sep))
+  }
+}
+
+read_stats <- function(path, include_top_hits = FALSE) {
+  if (!requireNamespace("data.table", quietly = TRUE)) die("R package 'data.table' is required")
+  header <- stats_header(path)
+  sources <- list(
+    p = first_column(header$columns, c("p", "P", "Pval", "LOG10P", "log10p")),
+    chrom = first_column(header$columns, c("chrom", "CHROM", "#CHROM", "Chr")),
+    pos = first_column(header$columns, c("pos", "GENPOS", "POS", "Pos")),
+    variant_id = first_column(header$columns, c("variant_id", "ID", "Name")),
+    trait = first_column(header$columns, c("trait", "Trait")),
+    ancestry = first_column(header$columns, c("ancestry", "Ancestry")),
+    build = first_column(header$columns, c("build", "Build")),
+    effect = if (include_top_hits) first_column(header$columns, c("beta_or_log_or", "BETA", "Effect")) else "",
+    se = if (include_top_hits) first_column(header$columns, c("SE", "se")) else ""
+  )
+  if (!nzchar(sources$p)) die("GWAS stats file is missing p or LOG10P column")
+  selected <- unique(unname(unlist(sources, use.names = FALSE)))
+  selected <- selected[nzchar(selected)]
+  fread_args <- list(
+    input = path,
+    skip = header$skipped,
+    select = selected,
+    header = TRUE,
+    data.table = FALSE,
+    showProgress = FALSE,
+    na.strings = c("NA", "NaN", ".")
+  )
+  if (nzchar(header$sep)) fread_args$sep <- header$sep
+  rows <- tryCatch(
+    do.call(data.table::fread, fread_args),
+    error = function(err) die("could not read GWAS stats file ", path, ": ", conditionMessage(err))
+  )
+
+  raw_p <- suppressWarnings(as.numeric(rows[[sources$p]]))
+  out <- data.frame(
+    p_num = if (sources$p %in% c("LOG10P", "log10p")) 10 ^ -raw_p else raw_p,
+    stringsAsFactors = FALSE
+  )
+  for (name in setdiff(names(sources), "p")) {
+    source <- sources[[name]]
+    if (nzchar(source)) out[[name]] <- rows[[source]]
+  }
+  out
+}
+
+large_plot_threshold <- suppressWarnings(as.numeric(args[["large-plot-threshold"]]))
+if (length(large_plot_threshold) != 1L || is.na(large_plot_threshold) || large_plot_threshold <= 0) {
+  die("large-plot-threshold must be a positive number or Inf")
+}
+
+stats <- read_stats(args$stats, include_top_hits = nzchar(args[["top-hits-out"]]))
+total_variants <- nrow(stats)
 
 genomic_lambda <- function(p) {
   p <- p[is.finite(p) & p > 0 & p <= 1]
@@ -82,7 +124,8 @@ plot_title <- function(df, analysis_name = "") {
   pieces <- character()
   for (column in c("trait", "ancestry", "build")) {
     if (column %in% names(df)) {
-      value <- unique(as.character(df[[column]][nzchar(as.character(df[[column]]))]))
+      value <- as.character(df[[column]])
+      value <- unique(value[nzchar(value)])
       value <- value[!is.na(value) & value != "NA"]
       if (length(value) == 1) pieces <- c(pieces, value)
     }
@@ -92,9 +135,43 @@ plot_title <- function(df, analysis_name = "") {
 }
 
 
+top_hits <- function(df, max_rows = 10L) {
+  columns <- c("chrom", "pos", "variant_id", "effect", "se")
+  if (!nrow(df)) {
+    return(data.frame(chrom = character(), pos = character(), variant_id = character(),
+      effect = character(), se = character(), p = numeric(), stringsAsFactors = FALSE))
+  }
+  ord <- order(df$p_num, na.last = NA)
+  ord <- ord[seq_len(min(length(ord), max_rows))]
+  values <- lapply(columns, function(column) {
+    if (column %in% names(df)) as.character(df[[column]][ord]) else rep("NA", length(ord))
+  })
+  names(values) <- columns
+  values$p <- df$p_num[ord]
+  as.data.frame(values, stringsAsFactors = FALSE)
+}
+
+
+gwas_title <- plot_title(stats, analysis_name)
+valid <- is.finite(stats$p_num) & stats$p_num > 0 & stats$p_num <= 1
+stats <- stats[valid, , drop = FALSE]
+valid_p_values <- nrow(stats)
+hit_rows <- top_hits(stats)
+stats <- stats[intersect(c("p_num", "chrom", "pos", "variant_id"), names(stats))]
+
+
 # Draw the QQ plot, preserving an empty image for empty results.
 lambda_gc <- genomic_lambda(stats$p_num)
-gwas_title <- plot_title(stats_for_title, analysis_name)
+sorted_p <- sort(stats$p_num)
+qq_indices <- seq_along(sorted_p)
+qq_thinned <- length(sorted_p) > large_plot_threshold
+if (qq_thinned) {
+  qq_indices <- sort(unique(c(seq.int(1L, length(sorted_p), by = 2L), which(sorted_p <= 1e-5), length(sorted_p))))
+}
+ppoints_a <- if (length(sorted_p) <= 10L) 3 / 8 else 1 / 2
+expected_p <- (qq_indices - ppoints_a) / (length(sorted_p) + 1 - 2 * ppoints_a)
+observed <- -log10(sorted_p[qq_indices])
+expected <- -log10(expected_p)
 ensure_parent(args$qq)
 png(args$qq, width = 1200, height = 1200, res = 150)
 par(mar = c(5, 5, 3.5, 1))
@@ -102,8 +179,6 @@ if (!nrow(stats)) {
   plot.new()
   title(paste0(gwas_title, "\nQQ plot (lambda GC = ", format_lambda(lambda_gc), ")"))
 } else {
-  observed <- -log10(sort(stats$p_num))
-  expected <- -log10(ppoints(length(observed)))
   limit <- max(c(expected, observed), na.rm = TRUE)
   plot(expected, observed, pch = 16, cex = 0.45, col = "#2f5d8c",
        xlab = "Expected -log10(P)", ylab = "Observed -log10(P)",
@@ -181,12 +256,20 @@ draw_empty_manhattan <- function(message) {
   text(0.5, 0.5, message, col = "#4D4D4D", cex = 0.95)
 }
 
-prepare_manhattan <- function(df) {
-  if (!all(c("chrom", "pos") %in% names(df))) return(NULL)
+prepare_manhattan <- function(df, threshold = Inf) {
+  empty <- function() list(df = NULL, eligible_variants = 0L, thinned = FALSE)
+  if (!all(c("chrom", "pos") %in% names(df))) return(empty())
   df$pos_num <- suppressWarnings(as.numeric(df$pos))
   df$chrom_label <- clean_label(df$chrom)
   df <- df[is.finite(df$pos_num) & !is.na(df$chrom_label), , drop = FALSE]
-  if (!nrow(df)) return(NULL)
+  eligible_variants <- nrow(df)
+  if (!eligible_variants) return(empty())
+  thinned <- eligible_variants > threshold
+  if (thinned) {
+    keep <- order(df$p_num, seq_len(eligible_variants), na.last = NA)
+    keep <- keep[seq_len(ceiling(eligible_variants / 2))]
+    df <- df[keep, , drop = FALSE]
+  }
   df$neg_log10_p <- -log10(df$p_num)
   df <- df[order(chrom_key(df$chrom_label), df$pos_num, df$p_num), , drop = FALSE]
   rownames(df) <- seq_len(nrow(df))
@@ -212,17 +295,25 @@ prepare_manhattan <- function(df) {
     }
   }
 
-  list(df = df, chrom_order = chrom_order, axis_at = axis_at, boundaries = boundaries)
+  list(
+    df = df,
+    chrom_order = chrom_order,
+    axis_at = axis_at,
+    boundaries = boundaries,
+    eligible_variants = eligible_variants,
+    thinned = thinned
+  )
 }
 
 draw_manhattan <- function(plot_data) {
-  if (is.null(plot_data)) {
+  if (is.null(plot_data$df)) {
     draw_empty_manhattan("No variants with valid chromosome, position, and P value")
     return(invisible(NULL))
   }
 
   df <- plot_data$df
-  title <- plot_title(df, analysis_name)
+  if (!"variant_id" %in% names(df)) df$variant_id <- ""
+  title <- gwas_title
   genomewide <- -log10(5e-8)
   suggestive <- -log10(1e-5)
   label_idx <- lead_hit_labels(df)
@@ -275,12 +366,52 @@ render_manhattan <- function(path, format, plot_data) {
   draw_manhattan(plot_data)
 }
 
-manhattan_data <- prepare_manhattan(stats)
+manhattan_data <- prepare_manhattan(stats, large_plot_threshold)
 render_manhattan(args$manhattan, "png", manhattan_data)
 if (nzchar(args[["manhattan-pdf"]])) {
   render_manhattan(args[["manhattan-pdf"]], "pdf", manhattan_data)
 }
 
+
+metrics <- data.frame(
+  metric = c(
+    "total_variants",
+    "valid_p_value_variants",
+    "lambda_gc",
+    "genomewide_significant_variants",
+    "suggestive_variants",
+    "qq_eligible_variants",
+    "qq_points_plotted",
+    "manhattan_eligible_variants",
+    "manhattan_points_plotted",
+    "large_plot_threshold",
+    "plot_thinning_applied"
+  ),
+  value = c(
+    total_variants,
+    valid_p_values,
+    if (is.finite(lambda_gc)) sprintf("%.15g", lambda_gc) else "NA",
+    sum(stats$p_num <= 5e-8),
+    sum(stats$p_num <= 1e-5),
+    length(sorted_p),
+    length(qq_indices),
+    manhattan_data$eligible_variants,
+    if (is.null(manhattan_data$df)) 0L else nrow(manhattan_data$df),
+    if (is.finite(large_plot_threshold)) format(large_plot_threshold, scientific = FALSE, trim = TRUE) else "Inf",
+    if (qq_thinned || manhattan_data$thinned) "True" else "False"
+  ),
+  stringsAsFactors = FALSE
+)
+if (nzchar(args[["metrics-out"]])) write_tsv(metrics, args[["metrics-out"]])
+if (nzchar(args[["top-hits-out"]])) write_tsv(hit_rows, args[["top-hits-out"]])
+
+if (qq_thinned || manhattan_data$thinned) {
+  cat(
+    "Applied large-plot fallback:", length(qq_indices), "of", length(sorted_p), "QQ points and",
+    if (is.null(manhattan_data$df)) 0L else nrow(manhattan_data$df), "of",
+    manhattan_data$eligible_variants, "Manhattan points plotted; exact summaries use all valid variants.\n"
+  )
+}
 
 # Report generated plot paths for logs.
 cat("Wrote GWAS plots:", args$qq, args$manhattan, args[["manhattan-pdf"]], "\n")

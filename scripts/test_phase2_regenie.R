@@ -358,9 +358,29 @@ ancestry <- file.path(tmp, "ancestry.tsv")
 stage1_summary <- file.path(tmp, "stage1_summary.tsv")
 remeta_validation <- file.path(tmp, "remeta_validation.tsv")
 report <- file.path(tmp, "report.md")
+stats_metrics <- file.path(tmp, "association_metrics.tsv")
+top_hits <- file.path(tmp, "top_hits.tsv")
 write_lines(c("metric\tvalue", "phase2_pan_samples\t4"), pan_summary)
 write_lines(c("FID\tIID\tphase2_ancestry", "F1\tI1\tEUR", "F2\tI2\tUNKNOWN"), ancestry)
 write_lines(c("metric\tvalue", "lambda_gc\t1.020000", "valid_p_value_variants\t100"), stage1_summary)
+write_lines(c(
+  "metric\tvalue",
+  "total_variants\t12",
+  "valid_p_value_variants\t12",
+  "lambda_gc\t1.010000",
+  "genomewide_significant_variants\t1",
+  "suggestive_variants\t2",
+  "qq_eligible_variants\t12",
+  "qq_points_plotted\t7",
+  "manhattan_eligible_variants\t12",
+  "manhattan_points_plotted\t6",
+  "large_plot_threshold\t10",
+  "plot_thinning_applied\tTrue"
+), stats_metrics)
+write_lines(c(
+  "chrom\tpos\tvariant_id\teffect\tse\tp",
+  "1\t100\trs1\t1.1\tNA\t0.01"
+), top_hits)
 write_lines(c(
   "key\tvalue",
   "status\tvalidated",
@@ -379,7 +399,8 @@ write_lines(c(
 ), remeta_validation)
 run_phase2(c(
   "make-report", "--config", config, "--trait", "bt2", "--build", "GRCh38",
-  "--stats", native_stats, "--summary", native_summary, "--group-summary", group_summary,
+  "--stats", native_stats, "--stats-metrics", stats_metrics, "--top-hits", top_hits,
+  "--summary", native_summary, "--group-summary", group_summary,
   "--union-summary", union_summary, "--pan-summary", pan_summary, "--ancestry-summary", ancestry,
   "--qq", "qq.png", "--manhattan", "mh.png", "--manhattan-pdf", "mh.pdf",
   "--stage1-summary", stage1_summary, "--remeta-validation", remeta_validation, "--out", report
@@ -394,6 +415,12 @@ if (!any(grepl("QC-passing target-region variants represented in LD indexes | 98
 }
 if (!any(grepl("Conditional buffer variants: not included", text, fixed = TRUE))) {
   stop("Phase 2 report missing ReMeta buffer policy")
+}
+if (!any(grepl("Large PAN plot fallback", text, fixed = TRUE))) {
+  stop("Phase 2 report missing large-plot fallback disclosure")
+}
+if (!any(grepl("Association metrics and top hits use all valid variants", text, fixed = TRUE))) {
+  stop("Phase 2 report does not distinguish exact summaries from thinned plots")
 }
 pan_sections <- c(
   "## Model Overview",

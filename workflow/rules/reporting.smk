@@ -140,6 +140,8 @@ rule plot_phase2_regenie:
         qq=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.qq.png",
         manhattan=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.manhattan.png",
         manhattan_pdf=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.manhattan.pdf",
+        metrics="results/gwas/{trait}/PAN/{trait}.PAN.{build}.association_metrics.tsv",
+        top_hits="results/gwas/{trait}/PAN/{trait}.PAN.{build}.top_hits.tsv",
     log:
         "results/logs/reporting/plot_phase2_regenie.{trait}.{build}.log",
     conda:
@@ -152,6 +154,9 @@ rule plot_phase2_regenie:
           --qq {output.qq} \
           --manhattan {output.manhattan} \
           --manhattan-pdf {output.manhattan_pdf} \
+          --metrics-out {output.metrics} \
+          --top-hits-out {output.top_hits} \
+          --large-plot-threshold 10000000 \
           > {log} 2>&1
         """
 
@@ -160,6 +165,8 @@ rule make_phase2_regenie_report:
     input:
         config=RUN_CONFIG,
         stats="results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie",
+        stats_metrics="results/gwas/{trait}/PAN/{trait}.PAN.{build}.association_metrics.tsv",
+        top_hits="results/gwas/{trait}/PAN/{trait}.PAN.{build}.top_hits.tsv",
         summary="results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv",
         group_summary=lambda wildcards: f"{PHASE2_DIR}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.trait_summary.tsv",
         union_summary=lambda wildcards: f"{PHASE2_DIR}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.stage1_union_summary.tsv",
@@ -193,6 +200,8 @@ rule make_phase2_regenie_report:
           --trait {wildcards.trait} \
           --build {wildcards.build} \
           --stats {input.stats} \
+          --stats-metrics {input.stats_metrics} \
+          --top-hits {input.top_hits} \
           --summary {input.summary} \
           --group-summary {input.group_summary} \
           --union-summary {input.union_summary} \

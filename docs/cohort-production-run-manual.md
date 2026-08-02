@@ -760,7 +760,20 @@ and log under `results/logs/`.
 
 **Likely cause:** Harmonized GWAS stats are empty or missing required columns.
 For Phase 2 `PAN` outputs, the plotting script reads regenie native or HTP
-columns directly.
+columns directly. It selects only the association fields needed for plotting
+and writes exact full-file summaries alongside the native output:
+
+```text
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.association_metrics.tsv
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.top_hits.tsv
+```
+
+PAN plots include every eligible variant through 10 million points. Above that
+threshold, the QQ plot retains every second ordered rank plus all `P <= 1e-5`
+points, and the Manhattan plots retain the most significant 50% of variants.
+Lambda GC, significance counts, and top hits always use every valid variant;
+the exact plotted and eligible counts are recorded in the metrics file and the
+final report.
 
 **Fix:** Inspect the harmonized stats and filter summary:
 
