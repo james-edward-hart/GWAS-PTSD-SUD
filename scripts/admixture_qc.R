@@ -102,33 +102,6 @@ read_genotype_sample_ids <- function(block, label) {
 }
 
 
-sample_key_variants <- function(fid, iid) {
-  unique(paste(c(fid, iid, "0"), iid, sep = "\t"))
-}
-
-
-sample_key_map <- function(ids, label) {
-  variants <- mapply(sample_key_variants, ids$FID, ids$IID, SIMPLIFY = FALSE)
-  out <- data.frame(
-    key = unlist(variants, use.names = FALSE),
-    row = rep(seq_len(nrow(ids)), lengths(variants)),
-    stringsAsFactors = FALSE
-  )
-  conflict <- names(which(tapply(out$row, out$key, function(x) length(unique(x)) > 1)))
-  if (length(conflict)) die(label, " has ambiguous sample IDs under FID/IID alias matching: ",
-    paste(head(gsub("\t", " ", conflict), 5), collapse = ", "))
-  out[!duplicated(out$key), , drop = FALSE]
-}
-
-
-match_sample_row <- function(fid, iid, key_map) {
-  idx <- match(sample_key_variants(fid, iid), key_map$key)
-  idx <- idx[!is.na(idx)]
-  if (!length(idx)) return(NA_integer_)
-  key_map$row[[idx[[1]]]]
-}
-
-
 admixture_plink_keep_args <- function(path, out_prefix, reference_ids) {
   label <- "ADMIXTURE active POP-MaD keep"
   ids <- read_id_file(path, label)

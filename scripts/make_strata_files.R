@@ -25,39 +25,11 @@ dir.create(args$outdir, recursive = TRUE, showWarnings = FALSE)
 
 
 # Restrict assignments to manifest samples and configured ancestries.
-sample_key_variants <- function(fid, iid) {
-  unique(paste(c(fid, iid, "0"), iid, sep = "\t"))
-}
-
-sample_key_map <- function(ids, label) {
-  variants <- mapply(sample_key_variants, ids$FID, ids$IID, SIMPLIFY = FALSE)
-  out <- data.frame(
-    key = unlist(variants, use.names = FALSE),
-    row = rep(seq_len(nrow(ids)), lengths(variants)),
-    stringsAsFactors = FALSE
-  )
-  conflict <- names(which(tapply(out$row, out$key, function(x) length(unique(x)) > 1)))
-  if (length(conflict)) {
-    die(label, " has ambiguous sample IDs under FID/IID alias matching: ",
-      paste(head(gsub("\t", " ", conflict), 5), collapse = ", "))
-  }
-  out[!duplicated(out$key), , drop = FALSE]
-}
-
-match_sample_row <- function(fid, iid, key_map) {
-  idx <- match(sample_key_variants(fid, iid), key_map$key)
-  idx <- idx[!is.na(idx)]
-  if (!length(idx)) return(NA_integer_)
-  key_map$row[[idx[[1]]]]
-}
-
 require_columns(samples, c("FID", "IID"), "sample manifest")
 require_columns(ancestry, c("FID", "IID", "ancestry"), "POP-MaD assignments")
 sample_key <- paste(samples$FID, samples$IID, sep = "\t")
 sample_map <- sample_key_map(samples[c("FID", "IID")], "sample manifest")
-ancestry_sample_idx <- vapply(seq_len(nrow(ancestry)), function(i) {
-  match_sample_row(ancestry$FID[[i]], ancestry$IID[[i]], sample_map)
-}, integer(1))
+ancestry_sample_idx <- match_sample_rows(ancestry[c("FID", "IID")], sample_map)
 valid <- !is.na(ancestry_sample_idx) & ancestry$ancestry %in% labels
 matched_sample_idx <- ancestry_sample_idx[valid]
 if (any(duplicated(matched_sample_idx))) {

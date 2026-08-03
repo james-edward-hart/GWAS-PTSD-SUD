@@ -424,30 +424,10 @@ regenie_p_values <- function(rows) {
 }
 
 
-genomic_lambda <- function(p) {
-  p <- p[is.finite(p) & p > 0 & p <= 1]
-  if (!length(p)) return(NA_real_)
-  chi <- suppressWarnings(qchisq(p, df = 1, lower.tail = FALSE))
-  chi <- chi[is.finite(chi)]
-  if (!length(chi)) return(NA_real_)
-  median(chi, na.rm = TRUE) / qchisq(0.5, df = 1, lower.tail = FALSE)
-}
-
-
 metric_value <- function(df, key, default = "NA") {
   if (!nrow(df) || !"metric" %in% names(df) || !"value" %in% names(df)) return(default)
   hit <- df$value[df$metric == key]
   if (length(hit)) hit[[1]] else default
-}
-
-
-report_relative_path <- function(path, out_path) {
-  path <- gsub("\\\\", "/", path)
-  out_path <- gsub("\\\\", "/", out_path)
-  if (startsWith(path, "results/") && startsWith(out_path, "results/reports/")) {
-    return(file.path("..", "..", sub("^results/", "", path)))
-  }
-  path
 }
 
 
