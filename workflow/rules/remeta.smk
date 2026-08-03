@@ -161,19 +161,45 @@ rule stage_remeta_regenie_trait:
         """
 
 
+rule write_remeta_ld_extracts:
+    input:
+        pvar=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.target.pvar",
+    output:
+        extracts=[
+            f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/ld_extracts/chr{chrom}.target_variants.txt"
+            for chrom in range(1, 23)
+        ],
+    log:
+        "results/logs/remeta/write_ld_extracts.{group}.{build}.log",
+    conda:
+        "../../envs/gwas.yaml",
+    params:
+        target=lambda wildcards, input: str(input.pvar)[:-5],
+    shell:
+        """
+        # One PVAR pass creates exact chromosome partitions for all LD jobs.
+        Rscript scripts/remeta_cohort.R write-ld-extracts \
+          --target-prefix {params.target:q} \
+          --extract-out {output.extracts:q} \
+          > {log:q} 2>&1
+        """
+
+
 rule compute_remeta_marginal_ld:
     input:
         tool=REMETA_TOOL,
         pgen=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.target.pgen",
         pvar=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.target.pvar",
         psam=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.target.psam",
+        extract=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/ld_extracts/chr{{chrom}}.target_variants.txt",
         genes=lambda wildcards: remeta_resource_file(wildcards.build, "gene_list.tsv"),
     output:
         gene_ld=f"{REMETA_DIR}/export/{{build}}/ld/{{group}}/chr{{chrom}}.remeta.gene.ld",
         buffer_ld=f"{REMETA_DIR}/export/{{build}}/ld/{{group}}/chr{{chrom}}.remeta.buffer.ld",
         index=f"{REMETA_DIR}/export/{{build}}/ld/{{group}}/chr{{chrom}}.remeta.ld.idx.gz",
     log:
-        "results/logs/remeta/compute_ld.{group}.{build}.chr{chrom}.log",
+        console="results/logs/remeta/compute_ld.{group}.{build}.chr{chrom}.log",
+        remeta="results/logs/remeta/compute_ld.{group}.{build}.chr{chrom}.remeta.log",
     threads:
         config["runtime"].get("threads_remeta_ld", 4)
     resources:
@@ -186,6 +212,8 @@ rule compute_remeta_marginal_ld:
     params:
         target=lambda wildcards, input: str(input.pgen)[:-5],
         out=lambda wildcards, output: str(output.gene_ld)[:-len(".remeta.gene.ld")],
+        internal_log=lambda wildcards, output:
+            str(output.gene_ld)[:-len(".remeta.gene.ld")] + ".compute_ref_ld.log",
         remeta=lambda wildcards: config.get("tools", {}).get("remeta", "remeta"),
         target_r2=lambda wildcards: config.get("remeta", {}).get("target_r2", 0.0001),
         dosage=lambda wildcards: "--use-dosages"
@@ -195,6 +223,7 @@ rule compute_remeta_marginal_ld:
         """
         {params.remeta:q} compute-ref-ld \
           --target-pfile {params.target:q} \
+          --target-extract {input.extract:q} \
           --gene-list {input.genes:q} \
           --chr {wildcards.chrom:q} \
           --out {params.out:q} \
@@ -202,7 +231,11 @@ rule compute_remeta_marginal_ld:
           --skip-buffer \
           --threads {threads} \
           {params.dosage} \
-          > {log:q} 2>&1
+          > {log.console:q} 2>&1
+
+        # ReMeta derives this path from --out; keep native logs out of the
+        # checksummed export tree so only declared handoff artifacts remain.
+        mv {params.internal_log:q} {log.remeta:q}
         """
 
 

@@ -10,12 +10,19 @@ import subprocess
 import tempfile
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+repo = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(repo))
 from workflow.snake_helpers import (
     phase2_trait_groups,
     phase2_trait_regenie_outputs,
     remeta_manifest_inputs,
 )
+
+
+# Keep the chromosome guard and native-log routing in the actual LD command.
+remeta_rules = (repo / "workflow/rules/remeta.smk").read_text()
+assert "--target-extract {input.extract:q}" in remeta_rules
+assert "mv {params.internal_log:q} {log.remeta:q}" in remeta_rules
 
 
 def write(path, text):
@@ -138,8 +145,6 @@ with tempfile.TemporaryDirectory(prefix="phase2-dag-") as tmpdir:
     # reevaluation and dynamic ReMeta expansion in addition to the helper mocks.
     snakemake = shutil.which("snakemake")
     if snakemake:
-        repo = Path(__file__).resolve().parents[1]
-
         def run_checkpoint_case(name, status_rows, expected_active):
             case = root / name
             (case / "fixture").mkdir(parents=True)

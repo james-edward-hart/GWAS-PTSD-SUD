@@ -21,8 +21,11 @@ args <- parse_args(
   defaults = list(threads = "1", artifact = character(), "target-summary" = character(),
     "trait-summary" = character(), validation = character(), tool = character(),
     htp = character(), index = character(), ld = character(), "sample-ids" = "",
-    "ordinary-sample-ids" = "", "group-status" = ""),
-  repeated = c("artifact", "target-summary", "trait-summary", "validation", "tool", "htp", "index", "ld"),
+    "ordinary-sample-ids" = "", "group-status" = "", "extract-out" = character()),
+  repeated = c(
+    "artifact", "target-summary", "trait-summary", "validation", "tool", "htp", "index", "ld",
+    "extract-out"
+  ),
   raw = raw[-1]
 )
 
@@ -114,6 +117,36 @@ validate_cpra_pvar <- function(prefix_or_path) {
   duplicate <- unique(expected[duplicated(expected)])
   if (length(duplicate)) die("ReMeta target PVAR contains duplicate CPRA IDs: ", paste(head(duplicate, 5), collapse = ", "))
   rows
+}
+
+
+# ReMeta 0.11.2 can cross a multichromosome PVAR boundary for a terminal
+# gene. Exact chromosome extracts constrain its reader without copying PGENs.
+write_ld_extracts <- function(target_prefix, outputs) {
+  expected_chroms <- as.character(seq_len(22))
+  matches <- regmatches(outputs, regexec(
+    "(^|[/\\\\])chr([0-9]+)\\.target_variants\\.txt$", outputs
+  ))
+  output_chroms <- vapply(
+    matches, function(x) if (length(x) == 3L) x[[3]] else "", character(1)
+  )
+  if (length(outputs) != 22L || any(!nzchar(output_chroms)) || anyDuplicated(output_chroms) > 0L ||
+      !setequal(output_chroms, expected_chroms)) {
+    die("ReMeta LD extracts must provide one chr1-chr22 target-variant output")
+  }
+
+  variants <- validate_cpra_pvar(target_prefix)
+  counts <- table(factor(variants$CHROM_CLEAN, levels = expected_chroms))
+  empty <- expected_chroms[counts == 0L]
+  if (length(empty)) {
+    die("ReMeta target PVAR has no variants on chromosome(s): ", paste(empty, collapse = ", "))
+  }
+
+  for (chrom in expected_chroms) {
+    path <- outputs[[match(chrom, output_chroms)]]
+    ensure_parent(path)
+    writeLines(variants$ID[variants$CHROM_CLEAN == chrom], path, useBytes = TRUE)
+  }
 }
 
 
@@ -886,6 +919,7 @@ write_manifest <- function(config, config_path, build, gene_list, provenance, gr
     genome_build = build,
     analysis_scope = "marginal_gene_tests_only",
     conditional_buffer_included = "false",
+    ld_target_partitioning = "chromosome_specific_extract",
     data_source = config$remeta$data_source,
     genotype_mode = config$remeta$genotype_mode,
     input_variants_normalized = as.character(truthy(config$remeta$input_variants_normalized %||% FALSE)),
@@ -1032,6 +1066,9 @@ if (subtask == "prepare-target") {
   require_args(args, c("config", "pfile-prefix", "keep", "regions", "out-prefix", "summary-out", "threads"))
   prepare_target(load_config(args$config), args[["pfile-prefix"]], args$keep, args$regions,
     args[["out-prefix"]], args[["summary-out"]], args$threads)
+} else if (subtask == "write-ld-extracts") {
+  require_args(args, c("target-prefix", "extract-out"))
+  write_ld_extracts(args[["target-prefix"]], args[["extract-out"]])
 } else if (subtask == "write-step2-command") {
   require_args(args, c("config", "trait", "group-summary", "pfile-prefix", "keep", "pheno", "covar", "pred-list",
     "trait-list", "covar-list", "out-prefix", "done", "script-out", "threads"))

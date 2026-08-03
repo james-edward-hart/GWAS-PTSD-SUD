@@ -38,6 +38,9 @@ output is one p-value per gene/mask/test combination.
 - ReMeta is always called with `--skip-buffer`. The LD files therefore contain
   marginal within-gene target LD only: no flanking variants and no conditional
   analysis payload.
+- Every chromosome job receives an exact target-ID extract generated from the
+  trait-specific PVAR. This prevents a terminal gene from acquiring the first
+  variant on the next chromosome at a multichromosome reader boundary.
 - WES runs erase dosages and calculate LD from hardcalls. Imputed runs retain
   dosages and use ReMeta `--use-dosages`.
 - WES call-level quality control (for example PASS, depth, genotype quality,
@@ -100,7 +103,8 @@ For each active Phase 2 singleton trait group, the branch:
    keep file and the bundled target intervals.
 2. Applies source-specific variant QC and writes stable CPRA IDs.
 3. Runs rare-variant regenie Step 2 with the existing group Step 1 predictions.
-4. Runs ReMeta independently on chromosomes 1-22 with `--skip-buffer`.
+4. Partitions target IDs by chromosome, then runs ReMeta independently on
+   chromosomes 1-22 with `--target-extract` and `--skip-buffer`.
 5. Verifies ordinary/rare regenie sample IDs, target PSAM identity, CPRA
    consistency, all 22 three-file LD sets, HTP identity and counts,
    HTP-to-PVAR/LD membership, and gene/index consistency.
@@ -116,6 +120,12 @@ The group keep contains complete covariates and a valid phenotype for exactly
 one trait. A status checkpoint schedules REGENIE and ReMeta only for active
 traits. Skipped traits remain documented in reports and the manifest but never
 receive fake target, HTP, LD, or validation artifacts.
+
+All 22 target-ID partitions must be nonempty and together reproduce the target
+PVAR exactly. A cohort with no retained target variant on an autosome fails
+explicitly instead of emitting a synthetic LD set. ReMeta's native
+`compute_ref_ld` logs are moved to `results/logs/remeta/`; the export tree is
+reserved for declared, checksummed handoff artifacts.
 
 The 22 LD jobs per active trait are chromosome-parallel, so sufficient cluster
 capacity makes their wall time approximate the slowest chromosome rather than
@@ -138,6 +148,10 @@ results/remeta/export/{build}/ld/{group}/chr1.remeta.ld.idx.gz
 ...
 results/remeta/export/{analysis_name}.{build}.remeta_manifest.tsv
 ```
+
+The chromosome partitions are reusable work products at
+`results/remeta/work/{build}/groups/{group}/ld_extracts/`. They are not part of
+the central handoff.
 
 Group names are stable type-and-trait IDs such as `bt__co_ptsd_aud`. The
 `.remeta.buffer.ld` file is part of ReMeta's required three-file format but

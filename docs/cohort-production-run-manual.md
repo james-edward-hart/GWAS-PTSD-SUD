@@ -815,6 +815,25 @@ results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv
 Do not diagnose this as a plotting issue until the summary statistics file is
 confirmed non-empty.
 
+### ReMeta LD Validation Reports A Wrong Chromosome
+
+**Symptom:** Group validation reports that a gene index contains a variant
+under the wrong chromosome, often for the final gene on an autosome.
+
+**Likely cause:** Older LD outputs were produced from a multichromosome PVAR
+without an exact chromosome target extract.
+
+**Fix:** Resume the workflow normally. It writes one target-ID partition per
+autosome and reruns each affected `compute-ref-ld` job with `--target-extract`.
+Do not edit the LD index or weaken validation. ReMeta's native logs belong at:
+
+```text
+results/logs/remeta/compute_ld.{group}.{build}.chr{chrom}.remeta.log
+```
+
+Only the three declared LD components per chromosome may remain under
+`results/remeta/export/{build}/ld/{group}/`.
+
 ### Report Shows High Lambda Or Heavy Variant Loss
 
 **Symptom:** The final report shows high lambda GC, few valid P values, many

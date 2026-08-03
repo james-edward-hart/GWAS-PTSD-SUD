@@ -178,6 +178,41 @@ invisible(write_lines(c(
   "1\t100\t1:100:A:G\tA\tG",
   "1\t120\t1:120:C:T\tC\tT"
 ), "target.pvar"))
+
+# Terminal genes must never see the first variant on the next chromosome.
+# The LD reader therefore receives an exact, nonempty target-ID partition.
+partition_target <- file.path(tmp, "partition_target")
+partition_rows <- c(
+  "#CHROM\tPOS\tID\tREF\tALT",
+  "1\t100\t1:100:A:G\tA\tG",
+  "1\t200\t1:200:C:T\tC\tT",
+  vapply(2:22, function(chrom) {
+    paste(chrom, 100, paste(chrom, 100, "A", "G", sep = ":"), "A", "G", sep = "\t")
+  }, character(1))
+)
+invisible(write_lines(partition_rows, "partition_target.pvar"))
+extracts <- file.path(tmp, "extracts", paste0("chr", 22:1, ".target_variants.txt"))
+output <- run_task(c(
+  "write-ld-extracts", "--target-prefix", partition_target, "--extract-out", extracts
+))
+stopifnot(is.null(attr(output, "status")), all(file.exists(extracts)))
+stopifnot(identical(readLines(file.path(tmp, "extracts/chr1.target_variants.txt")),
+  c("1:100:A:G", "1:200:C:T")))
+stopifnot(identical(readLines(file.path(tmp, "extracts/chr22.target_variants.txt")), "22:100:A:G"))
+
+# An empty autosome is not silently represented by fabricated LD artifacts.
+incomplete_target <- file.path(tmp, "incomplete_partition_target")
+invisible(write_lines(partition_rows[!grepl("^22\\t", partition_rows)],
+  "incomplete_partition_target.pvar"))
+incomplete_extracts <- file.path(tmp, "incomplete_extracts",
+  paste0("chr", 1:22, ".target_variants.txt"))
+incomplete <- suppressWarnings(run_task(c(
+  "write-ld-extracts", "--target-prefix", incomplete_target,
+  "--extract-out", incomplete_extracts
+)))
+stopifnot(!is.null(attr(incomplete, "status")), attr(incomplete, "status") != 0,
+  !any(file.exists(incomplete_extracts)))
+
 invisible(write_lines(c("F1\tI1", "F2\tI2"), "keep.txt"))
 keep_sha <- sha256_file(file.path(tmp, "keep.txt"))
 ordinary_ids <- write_lines(c("F2\tI2", "F1\tI1"), "ordinary.regenie.ids")
@@ -628,6 +663,8 @@ manifest_rows <- read.delim(manifest, stringsAsFactors = FALSE)
 stopifnot(manifest_rows$value[manifest_rows$key == "analysis_scope"] == "marginal_gene_tests_only")
 stopifnot(manifest_rows$value[manifest_rows$key == "conditional_buffer_included"] == "false")
 stopifnot(manifest_rows$value[manifest_rows$key == "manifest_schema"] == "remeta_cohort_export_v2")
+stopifnot(manifest_rows$value[manifest_rows$key == "ld_target_partitioning"] ==
+  "chromosome_specific_extract")
 stopifnot(manifest_rows$value[manifest_rows$key == "trait:TRAIT1:ld_group"] == "bt__TRAIT1")
 stopifnot(manifest_rows$value[manifest_rows$key == "trait:TRAIT1:ld_prefix"] ==
   "results/remeta/export/GRCh38/ld/bt__TRAIT1/chr{1-22}")
@@ -646,6 +683,21 @@ stale_manifest <- suppressWarnings(run_task(c(
 )))
 stopifnot(!is.null(attr(stale_manifest, "status")), attr(stale_manifest, "status") != 0)
 unlink(stale_export)
+
+# ReMeta creates this native log beside --out; it is runtime provenance, not
+# a central handoff artifact, and must never survive in the export directory.
+native_log <- write_lines(
+  "native log", "export/GRCh38/ld/bt__TRAIT1/chr1.compute_ref_ld.log"
+)
+native_log_manifest <- suppressWarnings(run_task(c(
+  "write-manifest", "--config", config, "--build", "GRCh38",
+  "--gene-list", gene_list, "--provenance", provenance, "--group-status", status,
+  "--target-summary", manifest_target, "--trait-summary", group_summary,
+  "--validation", manifest_validation, "--tool", tool, "--artifact", manifest_htp, manifest_ld,
+  "--out", file.path(tmp, "native_log_manifest.tsv")
+)))
+stopifnot(!is.null(attr(native_log_manifest, "status")), attr(native_log_manifest, "status") != 0)
+unlink(native_log)
 
 skipped_status <- write_lines(c(
   "group\ttrait\ttrait_type\tusable_n\tcases\tcontrols\tmodel_sample_count\tmodel_cases\tmodel_controls\tkeep_count\tmodel_keep_sha256\tskipped\tskip_reason\tremeta_eligible",
