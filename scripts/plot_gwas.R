@@ -107,15 +107,6 @@ if (length(large_plot_threshold) != 1L || is.na(large_plot_threshold) || large_p
 stats <- read_stats(args$stats, include_top_hits = nzchar(args[["top-hits-out"]]))
 total_variants <- nrow(stats)
 
-genomic_lambda <- function(p) {
-  p <- p[is.finite(p) & p > 0 & p <= 1]
-  if (!length(p)) return(NA_real_)
-  chi <- suppressWarnings(qchisq(p, df = 1, lower.tail = FALSE))
-  chi <- chi[is.finite(chi)]
-  if (!length(chi)) return(NA_real_)
-  median(chi, na.rm = TRUE) / qchisq(0.5, df = 1, lower.tail = FALSE)
-}
-
 format_lambda <- function(value) {
   if (is.finite(value)) sprintf("%.3f", value) else "NA"
 }

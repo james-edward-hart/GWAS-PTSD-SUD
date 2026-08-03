@@ -67,16 +67,6 @@ extract_log_pair <- function(lines, patterns) {
   c("NA", "NA")
 }
 
-genomic_lambda <- function(p) {
-  p <- p[is.finite(p) & p > 0 & p <= 1]
-  if (!length(p)) return(NA_real_)
-  chi <- suppressWarnings(qchisq(p, df = 1, lower.tail = FALSE))
-  chi <- chi[is.finite(chi)]
-  if (!length(chi)) return(NA_real_)
-  median(chi, na.rm = TRUE) / qchisq(0.5, df = 1, lower.tail = FALSE)
-}
-
-
 config <- load_config(args$config)
 genotype_counts <- genotype_record_counts(config$genotypes)
 keep <- read_tsv(args$keep)
