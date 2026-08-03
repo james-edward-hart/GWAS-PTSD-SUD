@@ -69,16 +69,18 @@ rule write_remeta_regenie_step2_command:
         pgen=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.target.pgen",
         pvar=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.target.pvar",
         psam=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.target.psam",
+        keep=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.keep.txt",
         pred="results/gwas/PAN/regenie/groups/{group}/{group}.step1_pred.list",
+        loco="results/gwas/PAN/regenie/groups/{group}/{group}.step1_1.loco",
         pheno=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.pheno.tsv",
         covar=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.covar.tsv",
         traits=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.analysis_traits.txt",
         covars=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.covariates.txt",
         summary=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.trait_summary.tsv",
     output:
-        command=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.rare.step2.command.sh",
+        command=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.rare_{{trait}}.step2.command.sh",
     log:
-        "results/logs/remeta/write_regenie_step2.{group}.{build}.log",
+        "results/logs/remeta/write_regenie_step2.{group}.{build}.{trait}.log",
     threads:
         config["runtime"].get("threads_regenie_step2", config["runtime"]["threads_gwas"])
     resources:
@@ -89,13 +91,15 @@ rule write_remeta_regenie_step2_command:
     params:
         pfile_prefix=lambda wildcards, input: str(input.pgen)[:-5],
         out_prefix=lambda wildcards: f"{REMETA_DIR}/work/{wildcards.build}/groups/{wildcards.group}/{wildcards.group}.rare",
-        done=lambda wildcards: f"{REMETA_DIR}/work/{wildcards.build}/groups/{wildcards.group}/{wildcards.group}.rare.step2.done",
+        done=lambda wildcards: f"{REMETA_DIR}/work/{wildcards.build}/groups/{wildcards.group}/{wildcards.group}.rare_{wildcards.trait}.step2.done",
     shell:
         """
         Rscript scripts/remeta_cohort.R write-step2-command \
           --config {input.config:q} \
+          --trait {wildcards.trait:q} \
           --group-summary {input.summary:q} \
           --pfile-prefix {params.pfile_prefix:q} \
+          --keep {input.keep:q} \
           --pheno {input.pheno:q} \
           --covar {input.covar:q} \
           --pred-list {input.pred:q} \
@@ -111,12 +115,14 @@ rule write_remeta_regenie_step2_command:
 
 rule run_remeta_regenie_step2:
     input:
-        command=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.rare.step2.command.sh",
+        command=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.rare_{{trait}}.step2.command.sh",
         tool=PHASE2_REGENIE_TOOL,
     output:
-        done=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.rare.step2.done",
+        stats=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.rare_{{trait}}.regenie.gz",
+        ids=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.rare_{{trait}}.regenie.ids",
+        done=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.rare_{{trait}}.step2.done",
     log:
-        "results/logs/remeta/regenie_step2.{group}.{build}.log",
+        "results/logs/remeta/regenie_step2.{group}.{build}.{trait}.log",
     threads:
         config["runtime"].get("threads_regenie_step2", config["runtime"]["threads_gwas"])
     resources:
@@ -132,7 +138,9 @@ rule run_remeta_regenie_step2:
 
 rule stage_remeta_regenie_trait:
     input:
-        done=lambda wildcards: f"{REMETA_DIR}/work/{wildcards.build}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.rare.step2.done",
+        stats=lambda wildcards: f"{REMETA_DIR}/work/{wildcards.build}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.rare_{wildcards.trait}.regenie.gz",
+        ids=lambda wildcards: f"{REMETA_DIR}/work/{wildcards.build}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.rare_{wildcards.trait}.regenie.ids",
+        keep=lambda wildcards: f"{PHASE2_DIR}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.keep.txt",
         summary=lambda wildcards: f"{PHASE2_DIR}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.trait_summary.tsv",
     output:
         htp=f"{REMETA_DIR}/export/{{build}}/htp/{{trait}}.PAN.regenie.gz",
@@ -140,14 +148,14 @@ rule stage_remeta_regenie_trait:
         "results/logs/remeta/stage_trait.{trait}.{build}.log",
     conda:
         "../../envs/gwas.yaml",
-    params:
-        raw_prefix=lambda wildcards: f"{REMETA_DIR}/work/{wildcards.build}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.rare",
     shell:
         """
         Rscript scripts/remeta_cohort.R stage-trait \
           --trait {wildcards.trait:q} \
           --group-summary {input.summary:q} \
-          --raw-prefix {params.raw_prefix:q} \
+          --raw-stats {input.stats:q} \
+          --sample-ids {input.ids:q} \
+          --keep {input.keep:q} \
           --out {output.htp:q} \
           > {log:q} 2>&1
         """
@@ -171,6 +179,8 @@ rule compute_remeta_marginal_ld:
     resources:
         mem_mb=config["runtime"].get("mem_mb_remeta_ld", 16000),
         runtime=config["runtime"].get("time_min_remeta_ld", 240),
+        # Global profile capacity limits simultaneous readers of the shared PGEN.
+        remeta_ld_jobs=1,
     conda:
         "../../envs/remeta.yaml",
     params:
@@ -202,13 +212,20 @@ rule validate_remeta_group:
         pvar=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.target.pvar",
         psam=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.target.psam",
         keep=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.keep.txt",
+        ordinary_ids=lambda wildcards: f"results/gwas/PAN/regenie/groups/{wildcards.group}/{wildcards.group}.{wildcards.build}_{phase2_group_trait(wildcards)}.regenie.ids",
+        rare_ids=lambda wildcards: f"{REMETA_DIR}/work/{wildcards.build}/groups/{wildcards.group}/{wildcards.group}.rare_{phase2_group_trait(wildcards)}.regenie.ids",
+        summary=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.trait_summary.tsv",
         genes=lambda wildcards: remeta_resource_file(wildcards.build, "gene_list.tsv"),
         htp=remeta_group_htp_inputs,
-        index=remeta_group_index_inputs,
+        ld=remeta_group_ld_inputs,
     output:
         ok=f"{REMETA_DIR}/work/{{build}}/groups/{{group}}/{{group}}.validation.ok",
     log:
         "results/logs/remeta/validate_group.{group}.{build}.log",
+    resources:
+        # Validation scans every BGZF LD component and can approach LD-job cost.
+        mem_mb=config["runtime"].get("mem_mb_remeta_ld", 16000),
+        runtime=config["runtime"].get("time_min_remeta_ld", 240),
     conda:
         "../../envs/gwas.yaml",
     params:
@@ -218,9 +235,12 @@ rule validate_remeta_group:
         Rscript scripts/remeta_cohort.R validate-group \
           --target-prefix {params.target:q} \
           --keep {input.keep:q} \
+          --ordinary-sample-ids {input.ordinary_ids:q} \
+          --sample-ids {input.rare_ids:q} \
+          --group-summary {input.summary:q} \
           --gene-list {input.genes:q} \
           --htp {input.htp:q} \
-          --index {input.index:q} \
+          --ld {input.ld:q} \
           --out {output.ok:q} \
           > {log:q} 2>&1
         """
@@ -232,6 +252,7 @@ rule write_remeta_cohort_manifest:
         build="results/qc/genome_build/genome_build.txt",
         genes=lambda wildcards: remeta_resource_file(wildcards.build, "gene_list.tsv"),
         provenance=lambda wildcards: remeta_resource_file(wildcards.build, "provenance.tsv"),
+        status=phase2_status_file,
         target_summary=remeta_target_summaries,
         trait_summary=remeta_trait_summaries,
         validation=remeta_validations,
@@ -243,6 +264,12 @@ rule write_remeta_cohort_manifest:
         "results/logs/remeta/write_manifest.{build}.log",
     conda:
         "../../envs/gwas.yaml",
+    params:
+        target_summary_args=lambda wildcards, input: optional_path_args("--target-summary", input.target_summary),
+        trait_summary_args=lambda wildcards, input: optional_path_args("--trait-summary", input.trait_summary),
+        validation_args=lambda wildcards, input: optional_path_args("--validation", input.validation),
+        tool_args=lambda wildcards, input: optional_path_args("--tool", input.tools),
+        artifact_args=lambda wildcards, input: optional_path_args("--artifact", input.artifacts),
     shell:
         """
         Rscript scripts/remeta_cohort.R write-manifest \
@@ -250,11 +277,12 @@ rule write_remeta_cohort_manifest:
           --build {wildcards.build:q} \
           --gene-list {input.genes:q} \
           --provenance {input.provenance:q} \
-          --target-summary {input.target_summary:q} \
-          --trait-summary {input.trait_summary:q} \
-          --validation {input.validation:q} \
-          --tool {input.tools:q} \
-          --artifact {input.artifacts:q} \
+          --group-status {input.status:q} \
+          {params.target_summary_args} \
+          {params.trait_summary_args} \
+          {params.validation_args} \
+          {params.tool_args} \
+          {params.artifact_args} \
           --out {output.manifest:q} \
           > {log:q} 2>&1
         """

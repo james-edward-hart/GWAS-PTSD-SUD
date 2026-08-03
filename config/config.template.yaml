@@ -290,7 +290,7 @@ remeta:
   target_r2: 0.0001
 
 
-# Report warnings only; these thresholds do not stop the workflow.
+# Stage 1 report warnings; Phase 2 traits below these thresholds are skipped.
 warnings:
   min_n: 500
   min_cases: 50

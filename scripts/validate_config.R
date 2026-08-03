@@ -98,7 +98,7 @@ validate_regenie_option_passthrough <- function(value, label) {
     "--bt", "--qt", "--out", "--bsize", "--lowmem", "--lowmem-prefix", "--threads",
     "--firth", "--approx", "--pThresh", "--minMAC", "--minINFO", "--apply-rint",
     "--gz", "--htp", "--no-split", "--chr", "--chrList", "--range", "--cc12", "--force-qt",
-    "--strict", "--force-impute"
+    "--strict", "--force-impute", "--write-samples", "--print-pheno", "--minCaseCount"
   )
   parts <- strsplit(value, "\\s+")[[1]]
   for (part in parts) {
@@ -181,10 +181,29 @@ if (pc_count < 1 || pc_count > 20) die("popmad.pcs must be between 1 and 20")
 require_columns(samples, c("FID", "IID", "age", "age2", "sex"), "sample manifest")
 require_unique_ids(samples, "sample manifest")
 require_columns(traits, c("trait_id", "phenotype_column", "case_value", "control_value", "missing_values"), "trait registry")
+raw_trait_ids <- as.character(traits$trait_id)
+trait_ids <- trimws(raw_trait_ids)
+if (!length(trait_ids)) die("trait registry contains no traits")
+if (any(raw_trait_ids != trait_ids)) die("trait registry contains trait_id values with surrounding whitespace")
+if (any(!nzchar(trait_ids))) die("trait registry contains a blank trait_id")
+if (anyDuplicated(trait_ids)) die("trait registry contains duplicate trait_id values")
+if (any(!grepl("^[A-Za-z0-9][A-Za-z0-9._-]*$", trait_ids))) {
+  die("trait_id values must start with a letter or number and contain only letters, numbers, dots, underscores, and hyphens")
+}
 
 
 # Validate Phase 2 regenie settings and mixed binary/quantitative trait detection.
 if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
+  for (field in c("min_n", "min_cases", "min_controls")) {
+    value <- suppressWarnings(as.numeric(config$warnings[[field]] %||% 0))
+    if (length(value) != 1L || !is.finite(value) || value < 0 || value != floor(value)) {
+      die("warnings.", field, " must be a nonnegative integer because it is a Phase 2 execution threshold")
+    }
+  }
+  if (as.integer(config$warnings$min_cases %||% 0) < 1L ||
+      as.integer(config$warnings$min_controls %||% 0) < 1L) {
+    die("warnings.min_cases and warnings.min_controls must be at least 1 for Phase 2 binary models")
+  }
   pcs <- as.integer(config$phase2_regenie$global_pcs %||% 10)
   if (is.na(pcs) || pcs < 1 || pcs > 50) die("phase2_regenie.global_pcs must be an integer between 1 and 50")
   htp_cohort_name <- trimws(as.character(config$phase2_regenie$htp_cohort_name %||% ""))
@@ -216,16 +235,6 @@ if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
   phase2_extra_covars <- as.character(unlist(config$phase2_regenie$extra_covariates %||% character(), use.names = FALSE))
   configured_phase2_covars <- unique(c(phase2_default_covars, phase2_extra_covars))
   configured_phase2_covars <- configured_phase2_covars[nzchar(configured_phase2_covars)]
-  for (covar in configured_phase2_covars) {
-    if (startsWith(covar, "PC")) {
-      pc_idx <- suppressWarnings(as.integer(sub("^PC", "", covar)))
-      if (is.na(pc_idx) || pc_idx < 1 || pc_idx > pcs) {
-        die("Phase 2 PC covariate '", covar, "' is outside phase2_regenie.global_pcs=", pcs)
-      }
-    } else if (!covar %in% names(samples)) {
-      die("Phase 2 covariate '", covar, "' is absent from sample manifest")
-    }
-  }
 
   for (branch in c("global_pca", "step1")) {
     settings <- config$phase2_regenie[[branch]]
@@ -260,14 +269,36 @@ if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
 
   for (i in seq_len(nrow(traits))) {
     trait <- traits[i, , drop = FALSE]
-    case_blank <- blank(trait$case_value[[1]])
-    control_blank <- blank(trait$control_value[[1]])
+    trait_covars <- if ("covariates" %in% names(trait)) split_csv(trait$covariates[[1]]) else character()
+    for (covar in unique(c(configured_phase2_covars, trait_covars))) {
+      if (startsWith(covar, "PC")) {
+        pc_idx <- suppressWarnings(as.integer(sub("^PC", "", covar)))
+        if (is.na(pc_idx) || pc_idx < 1 || pc_idx > pcs) {
+          die("Phase 2 PC covariate '", covar, "' is outside phase2_regenie.global_pcs=", pcs)
+        }
+      } else if (!covar %in% names(samples)) {
+        die("Phase 2 covariate '", covar, "' is absent from sample manifest")
+      }
+    }
+    case_value <- if (blank(trait$case_value[[1]])) "" else trimws(as.character(trait$case_value[[1]]))
+    control_value <- if (blank(trait$control_value[[1]])) "" else trimws(as.character(trait$control_value[[1]]))
+    case_blank <- !nzchar(case_value)
+    control_blank <- !nzchar(control_value)
     if (!case_blank && !control_blank) {
+      if (identical(case_value, control_value)) {
+        die("Phase 2 binary trait case_value and control_value must differ: ", trait$trait_id[[1]])
+      }
+      values <- trimws(as.character(samples[[trait$phenotype_column[[1]]]]))
+      missing <- c(split_csv(trait$missing_values[[1]]), "", "NA", "-9", ".")
+      unexpected <- setdiff(unique(values[!values %in% missing]), c(case_value, control_value))
+      if (length(unexpected)) {
+        die("Phase 2 binary trait contains values outside case/control/missing codes: ", trait$trait_id[[1]])
+      }
       next
     } else if (xor(case_blank, control_blank)) {
       die("Phase 2 trait autodetection requires both case_value and control_value, or both blank: ", trait$trait_id[[1]])
     }
-    values <- samples[[trait$phenotype_column[[1]]]]
+    values <- trimws(as.character(samples[[trait$phenotype_column[[1]]]]))
     values <- values[!values %in% c(split_csv(trait$missing_values[[1]]), "", "NA", "-9", ".")]
     if (!length(values)) die("Phase 2 quantitative trait has no nonmissing values: ", trait$trait_id[[1]])
     numeric_values <- suppressWarnings(as.numeric(values))

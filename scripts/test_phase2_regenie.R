@@ -147,17 +147,18 @@ traits <- file.path(tmp, "traits.tsv")
 config <- file.path(tmp, "config.yaml")
 
 write_lines(c(
-  "FID\tIID\tage\tage2\tsex\tbatch\tbt1\tbt2\tqt1",
-  "F1\tI1\t40\t1600\t1\t1\t1\t0\t1.2",
-  "F2\tI2\t42\t1764\t2\t1\t0\t1\t2.4",
-  "F3\tI3\t50\t2500\t1\t2\t1\t0\tNA",
-  "F4\tI4\t52\t2704\t2\t2\t0\t1\t4.8"
+  "FID\tIID\tage\tage2\tsex\tbatch\tbt1\tbt2\tbt3\tqt1",
+  "F1\tI1\t40\t1600\t1\t1\t1\t0\t1\t1.2",
+  "F2\tI2\t42\t1764\t2\t1\t0\t1\t0\t2.4",
+  "F3\tI3\t50\t2500\t1\t2\t1\t0\t.\tNA",
+  "F4\tI4\t52\t2704\t2\t2\t0\t1\t0\t4.8"
 ), samples)
 
 write_lines(c(
   "trait_id\tphenotype_column\tcase_value\tcontrol_value\tmissing_values\tcovariates",
   "bt1\tbt1\t1\t0\tNA\t",
   "bt2\tbt2\t1\t0\tNA\tbatch",
+  "bt3\tbt3\t1\t0\tNA\t",
   "qt1\tqt1\t\t\tNA\t"
 ), traits)
 
@@ -212,9 +213,24 @@ write_lines(c(
 groups <- file.path(tmp, "groups.tsv")
 run_phase2(c("write-groups", "--config", config, "--out", groups))
 group_rows <- read_tsv(groups)
-if (nrow(group_rows) != 3) stop("expected three Phase 2 groups")
+if (nrow(group_rows) != 4) stop("expected one Phase 2 group per trait")
 if (!setequal(group_rows$trait_type, c("bt", "qt"))) stop("expected binary and quantitative groups")
-if (!any(group_rows$traits == "bt2" & grepl("batch", group_rows$covariates))) stop("trait-specific covariate did not split group")
+if (any(grepl(",", group_rows$traits, fixed = TRUE))) stop("Phase 2 groups are not singleton")
+expected_groups <- c(bt1 = "bt__bt1", bt2 = "bt__bt2", bt3 = "bt__bt3", qt1 = "qt__qt1")
+observed_groups <- setNames(group_rows$group, group_rows$traits)
+if (!identical(observed_groups[names(expected_groups)], expected_groups)) stop("Phase 2 group IDs are not stable trait-derived IDs")
+if (!any(group_rows$traits == "bt2" & grepl("batch", group_rows$covariates))) stop("trait-specific covariate was not retained")
+
+whitespace_traits <- file.path(tmp, "whitespace_traits.tsv")
+whitespace_config <- file.path(tmp, "whitespace_config.yaml")
+write_lines(c(readLines(traits)[[1]], " bt1\tbt1\t1\t0\tNA\t"), whitespace_traits)
+whitespace_config_lines <- readLines(config)
+whitespace_config_lines[grepl("^  trait_registry:", whitespace_config_lines)] <-
+  paste0("  trait_registry: ", whitespace_traits)
+write_lines(whitespace_config_lines, whitespace_config)
+invisible(run_phase2(c(
+  "write-groups", "--config", whitespace_config, "--out", file.path(tmp, "whitespace_groups.tsv")
+), expect_success = FALSE))
 
 stats1 <- file.path(tmp, "stage1a.tsv")
 stats2 <- file.path(tmp, "stage1b.tsv")
@@ -261,10 +277,11 @@ alias_traits <- file.path(tmp, "alias.traits.txt")
 alias_covars <- file.path(tmp, "alias.covars.txt")
 alias_plink_keep <- file.path(tmp, "alias.plink.keep.txt")
 bt1_group <- group_rows$group[group_rows$traits == "bt1"][[1]]
+bt3_group <- group_rows$group[group_rows$traits == "bt3"][[1]]
 write_lines(c("FID\tIID", "I1\tI1", "I2\tI2"), alias_keep)
 write_lines(c("FID\tIID\tPC1\tPC2", "I1\tI1\t0.11\t0.21", "I2\tI2\t0.12\t0.22"), alias_pcs)
 run_phase2(c(
-  "build-group-inputs", "--config", config, "--group", bt1_group,
+  "build-group-inputs", "--config", config, "--group", bt3_group,
   "--keep", alias_keep, "--pcs", alias_pcs,
   "--pheno-out", alias_pheno, "--covar-out", alias_covar,
   "--summary-out", alias_summary, "--trait-list-out", alias_traits,
@@ -273,6 +290,63 @@ run_phase2(c(
 alias_covar_rows <- read_tsv(alias_covar)
 if (!identical(as.character(alias_covar_rows$age), c("40", "42"))) stop("Phase 2 group input builder did not match IID-only keep IDs to the manifest")
 if (!identical(as.character(alias_covar_rows$PC1), c("0.11", "0.12"))) stop("Phase 2 group input builder did not match IID-only PC IDs")
+alias_summary_rows <- read_tsv(alias_summary)
+if (alias_summary_rows$model_sample_count != 2L || alias_summary_rows$usable_n != 2L) {
+  stop("active singleton summary does not report the exact model keep")
+}
+
+status_skip_keep <- file.path(tmp, "status_skip.keep.tsv")
+status_skip_pcs <- file.path(tmp, "status_skip.pcs.tsv")
+status_skip_summary <- file.path(tmp, "status_skip.summary.tsv")
+status_skip_traits <- file.path(tmp, "status_skip.traits.txt")
+status_skip_model_keep <- file.path(tmp, "status_skip.model.keep.txt")
+status_traits_registry <- file.path(tmp, "status_traits.tsv")
+status_config <- file.path(tmp, "status_config.yaml")
+write_lines(c(
+  readLines(traits)[[1]],
+  readLines(traits)[[4]],
+  readLines(traits)[[2]]
+), status_traits_registry)
+status_config_lines <- readLines(config)
+status_config_lines[grepl("^  trait_registry:", status_config_lines)] <-
+  paste0("  trait_registry: ", status_traits_registry)
+write_lines(status_config_lines, status_config)
+write_lines(c("FID\tIID", "I1\tI1"), status_skip_keep)
+write_lines(c("FID\tIID\tPC1\tPC2", "I1\tI1\t0.11\t0.21"), status_skip_pcs)
+run_phase2(c(
+  "build-group-inputs", "--config", config, "--group", bt1_group,
+  "--keep", status_skip_keep, "--pcs", status_skip_pcs,
+  "--pheno-out", file.path(tmp, "status_skip.pheno.tsv"),
+  "--covar-out", file.path(tmp, "status_skip.covar.tsv"),
+  "--summary-out", status_skip_summary, "--trait-list-out", status_skip_traits,
+  "--covar-list-out", file.path(tmp, "status_skip.covars.txt"),
+  "--keep-plink-out", status_skip_model_keep
+))
+status_out <- file.path(tmp, "trait_group_status.tsv")
+run_phase2(c(
+  "select-active-groups", "--config", status_config,
+  "--status-summary", alias_summary, status_skip_summary,
+  "--status-trait-list", alias_traits, status_skip_traits,
+  "--status-keep", alias_plink_keep, status_skip_model_keep,
+  "--out", status_out
+))
+status_rows <- read_tsv(status_out)
+if (!identical(status_rows$remeta_eligible, c("True", "False"))) stop("active-group selection did not separate active and skipped models")
+if (!identical(status_rows$keep_count, status_rows$model_sample_count)) stop("status keep and model counts differ")
+if (any(!nzchar(status_rows$model_keep_sha256))) stop("status table omitted a model keep checksum")
+if (file.info(status_skip_model_keep)$size != 0) stop("skipped singleton group wrote a nonempty model keep")
+
+inconsistent_summary <- file.path(tmp, "inconsistent.summary.tsv")
+inconsistent_rows <- read_tsv(alias_summary)
+inconsistent_rows$usable_n <- inconsistent_rows$usable_n - 1L
+write_tsv(inconsistent_rows, inconsistent_summary)
+invisible(run_phase2(c(
+  "select-active-groups", "--config", status_config,
+  "--status-summary", inconsistent_summary, status_skip_summary,
+  "--status-trait-list", alias_traits, status_skip_traits,
+  "--status-keep", alias_plink_keep, status_skip_model_keep,
+  "--out", file.path(tmp, "inconsistent_status.tsv")
+), expect_success = FALSE))
 
 partial_keep <- file.path(tmp, "partial.keep.tsv")
 partial_pcs <- file.path(tmp, "partial_pcs.tsv")
@@ -323,21 +397,44 @@ if (!identical(readLines(qt_plink_keep), c("I1\tI1", "I2\tI2", "I4\tI4"))) {
   stop("Phase 2 regenie Step 1 keep file was not limited to phenotype-complete samples")
 }
 
-group_summary <- file.path(tmp, "group_summary.tsv")
+default_missing_keep <- file.path(tmp, "default_missing.keep.txt")
+run_phase2(c(
+  "build-group-inputs", "--config", config, "--group", bt3_group,
+  "--keep", qt_keep, "--pcs", qt_pcs,
+  "--pheno-out", file.path(tmp, "default_missing.pheno.tsv"),
+  "--covar-out", file.path(tmp, "default_missing.covar.tsv"),
+  "--summary-out", file.path(tmp, "default_missing.summary.tsv"),
+  "--trait-list-out", file.path(tmp, "default_missing.traits.txt"),
+  "--covar-list-out", file.path(tmp, "default_missing.covars.txt"),
+  "--keep-plink-out", default_missing_keep
+))
+if (!identical(readLines(default_missing_keep), c("I1\tI1", "I2\tI2", "I4\tI4"))) {
+  stop("binary default missing code was not excluded consistently")
+}
+
+skipped_group_summary <- file.path(tmp, "skipped_group_summary.tsv")
 write_lines(c(
-  "group\ttrait\ttrait_type\tcovariates\tphase2_pan_samples\tcomplete_covariate_samples\tusable_n\tcases\tcontrols\tskipped\tskip_reason",
-  "bt_g1\tbt1\tbt\tage,age2,sex,PC1,PC2\t4\t4\t1\t1\t0\tTrue\tbelow_phase2_thresholds:n=1;cases=1;controls=0",
-  "bt_g1\tbt2\tbt\tage,age2,sex,PC1,PC2,batch\t4\t4\t4\t2\t2\tFalse\t"
-), group_summary)
+  "group\ttrait\ttrait_type\tcovariates\tphase2_pan_samples\tcomplete_covariate_samples\tusable_n\tcases\tcontrols\tmodel_sample_count\tmodel_cases\tmodel_controls\tmodel_keep_sha256\tskipped\tskip_reason",
+  "bt__bt1\tbt1\tbt\tage,age2,sex,PC1,PC2\t4\t4\t1\t1\t0\t0\t\t\t\tTrue\tbelow_phase2_thresholds:n=1<min_n=2;controls=0<min_controls=1"
+), skipped_group_summary)
 
 skipped_stats <- file.path(tmp, "bt1.regenie")
 skipped_summary <- file.path(tmp, "bt1.summary.tsv")
 run_phase2(c(
   "stage-trait-output", "--config", config, "--trait", "bt1",
-  "--group-summary", group_summary, "--raw-prefix", file.path(tmp, "raw"),
+  "--group-summary", skipped_group_summary, "--raw-prefix", file.path(tmp, "raw"),
   "--out-stats", skipped_stats, "--out-summary", skipped_summary
 ))
 if (!any(grepl("^## skipped:", readLines(skipped_stats)))) stop("skipped placeholder missing")
+
+stale_raw_prefix <- file.path(tmp, "stale", "bt__bt1.GRCh38")
+write_lines("stale", paste0(stale_raw_prefix, "_bt1.regenie"))
+invisible(run_phase2(c(
+  "stage-trait-output", "--config", config, "--trait", "bt1",
+  "--group-summary", skipped_group_summary, "--raw-prefix", stale_raw_prefix,
+  "--out-stats", file.path(tmp, "stale_skipped.regenie"),
+  "--out-summary", file.path(tmp, "stale_skipped.summary.tsv")
+), expect_success = FALSE))
 
 raw <- paste0(file.path(tmp, "raw"), "_bt2.regenie")
 write_lines(c(
@@ -346,9 +443,19 @@ write_lines(c(
 ), raw)
 native_stats <- file.path(tmp, "bt2.regenie")
 native_summary <- file.path(tmp, "bt2.summary.tsv")
+native_keep <- file.path(tmp, "bt2.keep.txt")
+native_ids <- file.path(tmp, "raw_bt2.regenie.ids")
+write_lines(c("F1\tI1", "F2\tI2", "F3\tI3", "F4\tI4"), native_keep)
+write_lines(c("F4\tI4", "F2\tI2", "F1\tI1", "F3\tI3"), native_ids)
+group_summary <- file.path(tmp, "group_summary.tsv")
+write_lines(c(
+  "group\ttrait\ttrait_type\tcovariates\tphase2_pan_samples\tcomplete_covariate_samples\tusable_n\tcases\tcontrols\tmodel_sample_count\tmodel_cases\tmodel_controls\tmodel_keep_sha256\tskipped\tskip_reason",
+  paste(c("bt__bt2", "bt2", "bt", "age,age2,sex,PC1,PC2,batch", "4", "4", "4", "2", "2", "4", "2", "2", sha256_file(native_keep), "False", ""), collapse = "\t")
+), group_summary)
 run_phase2(c(
   "stage-trait-output", "--config", config, "--trait", "bt2",
   "--group-summary", group_summary, "--raw-prefix", file.path(tmp, "raw"),
+  "--sample-ids", native_ids, "--model-keep", native_keep,
   "--out-stats", native_stats, "--out-summary", native_summary
 ))
 if (!identical(readLines(raw), readLines(native_stats))) stop("native regenie output was not preserved")
@@ -384,6 +491,9 @@ write_lines(c(
 write_lines(c(
   "key\tvalue",
   "status\tvalidated",
+  "sample_count\t4",
+  "ordinary_regenie_sample_count\t4",
+  "rare_regenie_sample_count\t4",
   "target_variant_count\t100",
   "unique_ld_target_variant_count\t98",
   "target_variants_not_indexed\t2",
@@ -408,6 +518,11 @@ run_phase2(c(
 text <- readLines(report)
 if (!any(grepl("Stage 1 Lambda Comparison", text, fixed = TRUE))) stop("Phase 2 report missing Stage 1 comparison")
 if (!any(grepl("Step 2 pooled MAF minimum: 0.01", text, fixed = TRUE))) stop("Phase 2 report missing pooled MAF threshold")
+if (!any(grepl("Trait-specific group: bt__bt2", text, fixed = TRUE))) stop("Phase 2 report missing singleton group")
+if (!any(grepl("Final REGENIE model samples: 4", text, fixed = TRUE))) stop("Phase 2 report missing final model count")
+if (!any(grepl("REGENIE sample-ID validation: matched exact model keep", text, fixed = TRUE))) {
+  stop("Phase 2 report missing exact sample-ID validation")
+}
 if (!any(grepl("![QQ plot](qq.png)", text, fixed = TRUE))) stop("Phase 2 report missing embedded QQ plot")
 if (!any(grepl("![Manhattan plot](mh.png)", text, fixed = TRUE))) stop("Phase 2 report missing embedded Manhattan plot")
 if (!any(grepl("QC-passing target-region variants represented in LD indexes | 98 | 100 | 98.00%", text, fixed = TRUE))) {
@@ -422,6 +537,41 @@ if (!any(grepl("Large PAN plot fallback", text, fixed = TRUE))) {
 if (!any(grepl("Association metrics and top hits use all valid variants", text, fixed = TRUE))) {
   stop("Phase 2 report does not distinguish exact summaries from thinned plots")
 }
+
+skipped_report <- file.path(tmp, "skipped_report.md")
+skipped_metrics <- file.path(tmp, "skipped_association_metrics.tsv")
+skipped_top_hits <- file.path(tmp, "skipped_top_hits.tsv")
+write_lines(c(
+  "metric\tvalue",
+  "total_variants\t0",
+  "valid_p_value_variants\t0",
+  "lambda_gc\tNA",
+  "genomewide_significant_variants\t0",
+  "suggestive_variants\t0",
+  "qq_eligible_variants\t0",
+  "qq_points_plotted\t0",
+  "manhattan_eligible_variants\t0",
+  "manhattan_points_plotted\t0",
+  "large_plot_threshold\t10000000",
+  "plot_thinning_applied\tFalse"
+), skipped_metrics)
+write_lines("chrom\tpos\tvariant_id\teffect\tse\tp", skipped_top_hits)
+run_phase2(c(
+  "make-report", "--config", config, "--trait", "bt1", "--build", "GRCh38",
+  "--stats", skipped_stats, "--stats-metrics", skipped_metrics, "--top-hits", skipped_top_hits,
+  "--summary", skipped_summary, "--group-summary", skipped_group_summary,
+  "--union-summary", union_summary, "--pan-summary", pan_summary, "--ancestry-summary", ancestry,
+  "--qq", "skipped_qq.png", "--manhattan", "skipped_mh.png", "--manhattan-pdf", "skipped_mh.pdf",
+  "--stage1-summary", stage1_summary, "--out", skipped_report
+))
+skipped_text <- readLines(skipped_report)
+if (!any(grepl("Skip reason: below_phase2_thresholds:n=1<min_n=2;controls=0<min_controls=1", skipped_text, fixed = TRUE))) {
+  stop("skipped Phase 2 report missing its precise threshold reason")
+}
+if (!any(grepl("ReMeta export skipped", skipped_text, fixed = TRUE))) {
+  stop("skipped Phase 2 report missing ReMeta skip disclosure")
+}
+if (any(grepl("rs1", skipped_text, fixed = TRUE))) stop("skipped report reused active-trait top hits")
 pan_sections <- c(
   "## Model Overview",
   "## PAN Sample Set",
@@ -472,9 +622,8 @@ write_lines(c(
   "  echo 'missing --out' >&2",
   "  exit 2",
   "fi",
-  "printf 'PGEN\\n' > \"$out.pgen\"",
-  "printf '#CHROM\\tPOS\\tID\\tREF\\tALT\\n1\\t100\\trs1\\tA\\tG\\n' > \"$out.pvar\"",
-  "printf '#IID\\nI1\\nI2\\n' > \"$out.psam\""
+  "case \"$args\" in *' --write-snplist '* ) ;; * ) echo 'missing --write-snplist' >&2; exit 23 ;; esac",
+  "printf 'rs1\\n' > \"$out.snplist\""
 ), fake_plink2)
 Sys.chmod(fake_plink2, "0755")
 plink_config <- file.path(tmp, "config_fake_plink.yaml")
@@ -485,12 +634,54 @@ assoc_extract <- file.path(tmp, "assoc_extract.txt")
 assoc_prefix <- file.path(tmp, "assoc_norm")
 write_lines("rs1", assoc_extract)
 run_phase2(c(
-  "prepare-assoc-genotypes", "--config", plink_config, "--pfile-prefix", file.path(tmp, "input"),
-  "--extract", assoc_extract, "--out-prefix", assoc_prefix, "--threads", "1"
+  "prepare-assoc-variants", "--config", plink_config, "--pfile-prefix", file.path(tmp, "input"),
+  "--extract", assoc_extract, "--out-prefix", assoc_prefix,
+  "--summary-out", paste0(assoc_prefix, ".summary.tsv"), "--threads", "1"
 ))
-assoc_psam <- read_tsv(paste0(assoc_prefix, ".psam"))
-if (!identical(names(assoc_psam)[1:2], c("#FID", "IID"))) stop("regenie PSAM normalization did not write #FID/IID header")
-if (!identical(assoc_psam[["#FID"]], assoc_psam$IID)) stop("regenie PSAM normalization did not fill missing FID from IID")
+if (!identical(readLines(paste0(assoc_prefix, ".snplist")), "rs1")) stop("pooled association variant filtering failed")
+assoc_summary <- read_tsv(paste0(assoc_prefix, ".summary.tsv"))
+if (assoc_summary$value[assoc_summary$metric == "pooled_filter_pass_variants"] != "1") stop("association filter summary has wrong pass count")
+
+fake_pan_plink2 <- file.path(tmp, "fake_pan_plink2.sh")
+write_lines(c(
+  "#!/bin/sh",
+  "out=''",
+  "while [ \"$#\" -gt 0 ]; do",
+  "  if [ \"$1\" = \"--out\" ]; then shift; out=\"$1\"; fi",
+  "  shift",
+  "done",
+  "printf 'PGEN\\n' > \"$out.pgen\"",
+  "printf '#CHROM\\tPOS\\tID\\tREF\\tALT\\n1\\t100\\trs1\\tA\\tG\\n' > \"$out.pvar\"",
+  "printf '#IID\\tSEX\\nI1\\t1\\nI2\\t2\\n' > \"$out.psam\""
+), fake_pan_plink2)
+Sys.chmod(fake_pan_plink2, "0755")
+pan_config <- file.path(tmp, "config_fake_pan.yaml")
+pan_input <- file.path(tmp, "pan_input")
+pan_config_lines <- readLines(config)
+pan_config_lines <- sub("plink2: plink2", paste0("plink2: '", fake_pan_plink2, "'"), pan_config_lines, fixed = TRUE)
+pan_config_lines <- sub("  prefix: dummy", paste0("  prefix: '", pan_input, "'"), pan_config_lines, fixed = TRUE)
+write_lines(pan_config_lines, pan_config)
+write_lines("PGEN", paste0(pan_input, ".pgen"))
+write_lines(c("#CHROM\tPOS\tID\tREF\tALT", "1\t100\trs1\tA\tG"), paste0(pan_input, ".pvar"))
+write_lines(c("#FID\tIID", "F1\tI1", "F2\tI2"), paste0(pan_input, ".psam"))
+pan_prefix <- file.path(tmp, "pan")
+pan_sex_keep <- file.path(tmp, "pan_sex.keep.txt")
+pan_assignments <- file.path(tmp, "pan_assignments.tsv")
+pan_excluded <- file.path(tmp, "pan_excluded.tsv")
+write_lines(c("F1\tI1", "F2\tI2"), pan_sex_keep)
+write_lines("FID\tIID", pan_assignments)
+write_lines("FID\tIID", pan_excluded)
+run_phase2(c(
+  "prepare-pan-genotypes", "--config", pan_config,
+  "--sex-keep", pan_sex_keep, "--assignments", pan_assignments, "--excluded", pan_excluded,
+  "--out-prefix", pan_prefix, "--keep-out", file.path(tmp, "pan.keep.tsv"),
+  "--ancestry-out", file.path(tmp, "pan.ancestry.tsv"),
+  "--summary-out", file.path(tmp, "pan.summary.tsv"), "--threads", "1"
+))
+pan_psam <- read_tsv(paste0(pan_prefix, ".psam"))
+if (!identical(names(pan_psam)[1:2], c("#FID", "IID")) || !identical(pan_psam[[1]], pan_psam$IID)) {
+  stop("shared PAN PSAM was not normalized to two REGENIE ID columns")
+}
 
 fake_marker_plink2 <- file.path(tmp, "fake_marker_plink2.sh")
 write_lines(c(
@@ -765,20 +956,15 @@ empty_filter_config <- file.path(tmp, "config_empty_filter_plink.yaml")
 empty_filter_lines <- readLines(config)
 empty_filter_lines <- sub("plink2: plink2", paste0("plink2: '", fake_fail_plink2, "'"), empty_filter_lines, fixed = TRUE)
 write_lines(empty_filter_lines, empty_filter_config)
-run_phase2(c(
+invisible(run_phase2(c(
   "filter-step1-variants", "--config", empty_filter_config, "--pfile-prefix", file.path(tmp, "step1_qc"),
   "--extract", filter_extract, "--keep", filter_keep, "--trait-list", filter_empty_traits,
   "--out", empty_filter_out, "--summary-out", empty_filter_summary, "--excluded-out", empty_filter_excluded,
   "--threads", "1"
-))
-if (!file.exists(empty_filter_out) || file.info(empty_filter_out)$size != 0) {
-  stop("empty Step 1 trait list did not produce an empty filtered variant list")
+), expect_success = FALSE))
+if (any(file.exists(c(empty_filter_out, empty_filter_summary, empty_filter_excluded)))) {
+  stop("empty Step 1 trait list created fake variant-QC artifacts")
 }
-empty_summary_rows <- read_tsv(empty_filter_summary)
-if (!identical(as.integer(empty_summary_rows$raw_plink_pass_snp_count), 0L)) stop("empty Step 1 hardcall-count summary has wrong raw count")
-if (!identical(as.integer(empty_summary_rows$hardcall_filter_pass_snp_count), 0L)) stop("empty Step 1 hardcall-count summary has wrong pass count")
-empty_excluded_rows <- read_tsv(empty_filter_excluded)
-if (nrow(empty_excluded_rows) != 0) stop("empty Step 1 hardcall-count excluded table should have no rows")
 
 trait_list <- file.path(tmp, "bt1.traits.txt")
 write_lines("bt1", trait_list)
@@ -795,11 +981,15 @@ step1_text <- paste(readLines(step1_script), collapse = "\n")
 if (!grepl("'--step' '1'", step1_text, fixed = TRUE)) stop("Step 1 command script missing --step 1")
 if (!grepl("'--lowmem'", step1_text, fixed = TRUE)) stop("Step 1 command script missing --lowmem")
 if (!grepl("'--extract' '", step1_text, fixed = TRUE)) stop("Step 1 command script missing --extract")
+if (!grepl("'--minCaseCount' '1'", step1_text, fixed = TRUE)) stop("Step 1 command script did not match the case threshold")
+if (!grepl("step1_1.loco", step1_text, fixed = TRUE)) stop("Step 1 command script does not verify its prediction payload")
 if (!grepl("'[^']*fake regenie.sh'", step1_text)) stop("Step 1 command script did not shell-quote the regenie tool path")
 
 step2_script <- file.path(tmp, "step2_command.sh")
 run_phase2(c(
-  "write-step2-command", "--config", cmd_config, "--group", bt_group, "--pfile-prefix", file.path(tmp, "assoc_data"),
+  "write-step2-command", "--config", cmd_config, "--group", bt_group, "--trait", "bt1",
+  "--pfile-prefix", file.path(tmp, "assoc_data"), "--extract", file.path(tmp, "assoc.snplist"),
+  "--keep", file.path(tmp, "keep_ids.txt"),
   "--pheno", file.path(tmp, "pheno.tsv"), "--covar", file.path(tmp, "covar.tsv"),
   "--pred-list", file.path(tmp, "pred.list"), "--trait-list", trait_list,
   "--out-prefix", file.path(tmp, "step2"), "--done", file.path(tmp, "step2.done"),
@@ -808,36 +998,31 @@ run_phase2(c(
 step2_text <- paste(readLines(step2_script), collapse = "\n")
 if (!grepl("'--htp' 'Phase_2_Test_Cohort'", step2_text, fixed = TRUE)) stop("Step 2 command script missing the expected --htp cohort label")
 if (!grepl("'--minMAC' '1'", step2_text, fixed = TRUE)) stop("Step 2 command script missing --minMAC 1")
+if (!grepl("'--write-samples'", step2_text, fixed = TRUE)) stop("Step 2 command script missing --write-samples")
+if (!grepl("'--minCaseCount' '1'", step2_text, fixed = TRUE)) stop("Step 2 command script did not match the case threshold")
+if (!grepl("'--keep' '", step2_text, fixed = TRUE)) stop("Step 2 command script missing the exact model keep")
+if (!grepl("'--extract' '", step2_text, fixed = TRUE)) stop("Step 2 command script missing the filtered variant list")
 if (!grepl("'[^']*fake regenie.sh'", step2_text)) stop("Step 2 command script did not shell-quote the regenie tool path")
 
 empty_traits <- file.path(tmp, "empty.traits.txt")
 write_lines(character(), empty_traits)
-noop_step1 <- file.path(tmp, "noop_step1.sh")
-noop_pred <- file.path(tmp, "noop_pred.list")
 run_phase2(c(
   "write-step1-command", "--config", cmd_config, "--group", bt_group, "--pfile-prefix", file.path(tmp, "step1"),
   "--extract", file.path(tmp, "extract.txt"), "--pheno", file.path(tmp, "pheno.tsv"),
   "--covar", file.path(tmp, "covar.tsv"), "--keep", file.path(tmp, "keep.txt"),
-  "--trait-list", empty_traits, "--pred-list", noop_pred,
-  "--out-prefix", file.path(tmp, "noop_step1"), "--script-out", noop_step1, "--threads", "2"
-))
-status <- system2("bash", noop_step1, stdout = TRUE, stderr = TRUE)
-if (!identical(as.integer(attr(status, "status") %||% 0L), 0L)) stop("Step 1 no-op script failed")
-if (!file.exists(noop_pred) || file.info(noop_pred)$size != 0) stop("Step 1 no-op script did not create an empty prediction list")
-if (!identical(readLines(file.path(tmp, "noop_step1.done")), "skipped_no_traits")) stop("Step 1 no-op script did not write skip sentinel")
+  "--trait-list", empty_traits, "--pred-list", file.path(tmp, "noop_pred.list"),
+  "--out-prefix", file.path(tmp, "noop_step1"), "--script-out", file.path(tmp, "noop_step1.sh"), "--threads", "2"
+), expect_success = FALSE)
 
-noop_step2 <- file.path(tmp, "noop_step2.sh")
-noop_done <- file.path(tmp, "noop_step2.done")
 run_phase2(c(
-  "write-step2-command", "--config", cmd_config, "--group", bt_group, "--pfile-prefix", file.path(tmp, "assoc"),
+  "write-step2-command", "--config", cmd_config, "--group", bt_group, "--trait", "bt1",
+  "--pfile-prefix", file.path(tmp, "assoc"), "--extract", file.path(tmp, "assoc.snplist"),
+  "--keep", file.path(tmp, "keep.txt"),
   "--pheno", file.path(tmp, "pheno.tsv"), "--covar", file.path(tmp, "covar.tsv"),
   "--pred-list", file.path(tmp, "pred.list"), "--trait-list", empty_traits,
-  "--out-prefix", file.path(tmp, "noop_step2"), "--done", noop_done,
-  "--script-out", noop_step2, "--threads", "2"
-))
-status <- system2("bash", noop_step2, stdout = TRUE, stderr = TRUE)
-if (!identical(as.integer(attr(status, "status") %||% 0L), 0L)) stop("Step 2 no-op script failed")
-if (!identical(readLines(noop_done), "skipped_no_traits")) stop("Step 2 no-op script did not write skip sentinel")
+  "--out-prefix", file.path(tmp, "noop_step2"), "--done", file.path(tmp, "noop_step2.done"),
+  "--script-out", file.path(tmp, "noop_step2.sh"), "--threads", "2"
+), expect_success = FALSE)
 
 python <- Sys.which("python3")
 if (!nzchar(python)) python <- Sys.which("python")

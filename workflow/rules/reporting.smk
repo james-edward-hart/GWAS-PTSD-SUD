@@ -176,11 +176,7 @@ rule make_phase2_regenie_report:
         manhattan=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.manhattan.png",
         manhattan_pdf=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.manhattan.pdf",
         stage1_summary=phase2_trait_stage1_summaries,
-        remeta_validation=lambda wildcards: [
-            f"{REMETA_DIR}/work/{wildcards.build}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.validation.ok"
-        ]
-        if remeta_enabled_for_config(config)
-        else [],
+        remeta_validation=remeta_validation_for_trait,
     output:
         report=f"results/reports/{{trait}}/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.report.md",
     log:

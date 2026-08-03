@@ -22,7 +22,9 @@ Rscript scripts/test_reference_package.R
 Rscript scripts/test_infer_genome_build.R
 Rscript scripts/test_genotype_input_sanitizer.R
 Rscript scripts/test_sex_check.R
+Rscript scripts/test_phase2_regenie.R
 Rscript scripts/test_remeta_cohort.R
+python scripts/test_phase2_dag_helpers.py
 python scripts/test_remeta_resources.py
 ```
 

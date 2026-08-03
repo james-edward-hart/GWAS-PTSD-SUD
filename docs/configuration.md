@@ -523,7 +523,7 @@ reuse `ancestry_reference.exclusion_regions` for long-range LD/problem-region
 exclusions.
 
 For regenie Step 1, aim for roughly 200K-500K SNPs after marker filters,
-long-range LD exclusions, LD pruning, and the final group-specific hardcall-count
+long-range LD exclusions, LD pruning, and the final trait-specific hardcall-count
 QC. If a cohort lands well outside that range, adjust
 `phase2_regenie.step1.ld_prune.window`, `step`, and/or `r2` in the config before
 rerunning Step 1 marker preparation.
@@ -534,7 +534,8 @@ count report, variants with zero hardcall genotype variance, and variants below
 the effective Step 1 hardcall MAC threshold are excluded from the Regenie Step 1
 marker list. Step 1 marker PGEN creation fills hardcalls from dosage and erases
 dosage values so regenie receives the same hardcall representation that was
-screened; Step 2 association genotypes are unchanged.
+screened. Step 2 applies the pooled filters to a small trait-specific variant
+list, then reads the shared PAN PGEN with that list and the exact model keep.
 
 For mixed imputed and directly genotyped inputs, Step 1 marker preparation also
 checks the source PVAR for numeric `R2`/`INFO`-style imputation-quality metadata
@@ -551,9 +552,11 @@ Phase 2 trait type is detected from the trait registry:
 - both blank plus numeric nonmissing phenotype values means quantitative;
 - any other combination fails validation.
 
-Compatible traits are batched together by detected trait type and covariate
-list. Low or unusable Phase 2 traits are skipped with a placeholder PAN report
-instead of failing the whole workflow.
+Every trait receives a stable singleton group named from its detected type and
+trait ID, for example `bt__co_ptsd_aud`. Its phenotype and covariate completeness
+therefore cannot change another trait's sample set. Traits below the configured
+`warnings` thresholds are skipped with a placeholder PAN report instead of
+failing the whole workflow.
 
 ### `remeta`
 
@@ -573,21 +576,23 @@ manifest. It does not run central gene tests or produce gene p-values locally.
 | `info_min` | Imputed only | MaCH R2/INFO floor for imputed dosages. |
 | `target_r2` | Recommended | ReMeta target-LD sparsity threshold. Template uses ReMeta's `0.0001` default. |
 
-The branch accepts PGEN input only. The same group-specific target PGEN is read
-by rare-variant regenie Step 2 and ReMeta, and sample identity is validated.
+The branch accepts PGEN input only. Each active trait gets a target PGEN built
+from its exact model keep. Ordinary regenie, rare-variant regenie, the target
+PSAM, and ReMeta LD are required to contain identical samples.
 Only marginal within-gene LD is exported; there is no flanking buffer or
 conditional-analysis payload. See [Cohort ReMeta Export](remeta-cohort-export.md)
 for the scientific contract and output layout.
 
 ### `warnings`
 
-These thresholds are report-only warnings; they do not stop the workflow.
+These thresholds remain report warnings for Stage 1. When Phase 2 is enabled,
+they also determine whether a trait-specific REGENIE model is executed.
 
 | Parameter | Required | Description |
 | --- | --- | --- |
-| `min_n` | Optional | Warn when an analyzed trait/ancestry sample count is below this value. |
-| `min_cases` | Optional | Warn when case count is below this value. |
-| `min_controls` | Optional | Warn when control count is below this value. |
+| `min_n` | Optional | Warn below this sample count; a Phase 2 trait below it is skipped. |
+| `min_cases` | Optional | Warn below this case count; a binary Phase 2 trait below it is skipped, and the value is passed to REGENIE as `--minCaseCount`. Must be at least 1. |
+| `min_controls` | Optional | Warn below this control count; a binary Phase 2 trait below it is skipped. Must be at least 1. |
 
 The workflow fails trait/ancestry cells with zero cases or zero controls.
 

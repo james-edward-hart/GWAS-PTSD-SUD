@@ -12,8 +12,10 @@ if (!length(raw)) die("missing Phase 2 regenie subtask")
 subtask <- raw[[1]]
 args <- parse_args(
   defaults = list(threads = "1", keep = "", "stage1-summary" = character(),
-    "stage1-stats" = character(), "remeta-validation" = ""),
-  repeated = c("stage1-summary", "stage1-stats"),
+    "stage1-stats" = character(), "remeta-validation" = "", "status-summary" = character(),
+    "status-trait-list" = character(), "status-keep" = character(), "sample-ids" = "",
+    "model-keep" = ""),
+  repeated = c("stage1-summary", "stage1-stats", "status-summary", "status-trait-list", "status-keep"),
   raw = raw[-1]
 )
 
@@ -185,8 +187,10 @@ phase2_step2_maf_args <- function(config) {
 
 
 trait_type <- function(samples, trait_row) {
-  case_blank <- blank(trait_row$case_value)
-  control_blank <- blank(trait_row$control_value)
+  case_value <- if (blank(trait_row$case_value)) "" else trimws(as.character(trait_row$case_value))
+  control_value <- if (blank(trait_row$control_value)) "" else trimws(as.character(trait_row$control_value))
+  case_blank <- !nzchar(case_value)
+  control_blank <- !nzchar(control_value)
   if (!case_blank && !control_blank) return("bt")
   if (xor(case_blank, control_blank)) {
     die("trait ", trait_row$trait_id, " has only one of case_value/control_value set")
@@ -194,7 +198,7 @@ trait_type <- function(samples, trait_row) {
   phenotype_column <- trait_row$phenotype_column
   require_columns(samples, phenotype_column, "sample manifest")
   missing <- split_csv(trait_row$missing_values %||% "")
-  values <- samples[[phenotype_column]]
+  values <- trimws(as.character(samples[[phenotype_column]]))
   values <- values[!values %in% c(missing, "", "NA", "-9", ".")]
   if (!length(values)) die("quantitative trait ", trait_row$trait_id, " has no nonmissing values")
   numeric_values <- suppressWarnings(as.numeric(values))
@@ -210,27 +214,29 @@ phase2_groups <- function(config) {
   if (!phase2_enabled(config)) return(list())
   samples <- read_tsv(config$inputs$sample_manifest)
   traits <- read_tsv(config$inputs$trait_registry)
+  if (!nrow(traits)) die("trait registry contains no traits")
+  raw_ids <- as.character(traits$trait_id)
+  ids <- trimws(raw_ids)
+  if (any(raw_ids != ids)) die("trait registry contains trait_id values with surrounding whitespace")
+  if (any(!nzchar(ids))) die("trait registry contains a blank trait_id")
+  if (anyDuplicated(ids)) die("trait registry contains duplicate trait_id values")
+  if (any(!grepl("^[A-Za-z0-9][A-Za-z0-9._-]*$", ids))) {
+    die("trait_id values must start with a letter or number and contain only letters, numbers, dots, underscores, and hyphens")
+  }
   groups <- list()
-  keys <- character()
-  type_counts <- list(bt = 0L, qt = 0L)
 
   for (i in seq_len(nrow(traits))) {
     row <- traits[i, , drop = FALSE]
-    id <- row$trait_id[[1]]
-    if (!nzchar(id)) next
+    id <- ids[[i]]
     type <- trait_type(samples, row)
     covars <- phase2_covariates_for_trait(config, row)
-    key <- paste(type, paste(covars, collapse = "\r"), sep = "\t")
-    idx <- match(key, keys)
-    if (is.na(idx)) {
-      type_counts[[type]] <- type_counts[[type]] + 1L
-      group <- paste0(type, "_g", type_counts[[type]])
-      keys <- c(keys, key)
-      groups[[length(groups) + 1L]] <- list(group = group, trait_type = type, covariates = covars, traits = character())
-      idx <- length(groups)
-    }
-    groups[[idx]]$traits <- c(groups[[idx]]$traits, id)
+    # A stable singleton identity prevents one phenotype's missingness from changing another model.
+    groups[[length(groups) + 1L]] <- list(
+      group = paste0(type, "__", id), trait_type = type, covariates = covars, traits = id
+    )
   }
+  group_ids <- vapply(groups, `[[`, character(1), "group")
+  if (anyDuplicated(group_ids)) die("Phase 2 singleton group IDs are not unique")
   groups
 }
 
@@ -376,7 +382,7 @@ blocked_regenie_flags <- c(
   "--bt", "--qt", "--out", "--bsize", "--lowmem", "--lowmem-prefix", "--threads",
   "--firth", "--approx", "--pThresh", "--minMAC", "--minINFO", "--apply-rint",
   "--gz", "--htp", "--no-split", "--chr", "--chrList", "--range", "--cc12", "--force-qt",
-  "--strict", "--force-impute"
+  "--strict", "--force-impute", "--write-samples", "--print-pheno", "--minCaseCount"
 )
 
 
@@ -463,6 +469,8 @@ prepare_pan_genotypes <- function(config, sex_keep, assignments_path, excluded_p
     "--out", out_prefix
   ))
 
+  # REGENIE v4.1.2 requires two PSAM ID columns when --write-samples is used.
+  ensure_regenie_psam_has_fid(out_prefix)
   final <- read_psam_ids(out_prefix)
   write_tsv(final, keep_out)
 
@@ -588,6 +596,7 @@ build_group_inputs <- function(config, group, keep_path, pcs_path, pheno_out, co
   keep <- read_id_file(keep_path, "Phase 2 PAN keep file")
   pcs <- read_tsv(pcs_path)
   info <- group_info(config, group)
+  if (length(info$traits) != 1L) die("Phase 2 group must contain exactly one trait: ", group)
   covars <- info$covariates
 
   sample_idx <- match_sample_rows(keep, sample_key_map(samples[c("FID", "IID")], "sample manifest"))
@@ -615,75 +624,158 @@ build_group_inputs <- function(config, group, keep_path, pcs_path, pheno_out, co
     covar_complete <- covar_complete & is.finite(value)
   }
 
-  pheno <- data.frame(FID = keep$FID, IID = keep$IID, stringsAsFactors = FALSE)
-  summary_rows <- data.frame()
-  analysis_traits <- character()
-  for (trait_id in info$traits) {
-    trait <- traits[traits$trait_id == trait_id, , drop = FALSE]
-    if (!nrow(trait)) die("unknown trait in Phase 2 group ", group, ": ", trait_id)
-    value <- samples[[trait$phenotype_column]]
-    missing <- split_csv(trait$missing_values %||% "")
-    if (identical(info$trait_type, "bt")) {
-      encoded <- ifelse(value == trait$case_value[[1]], "1",
-        ifelse(value == trait$control_value[[1]], "0",
-          ifelse(value %in% missing, "NA", NA_character_)
-        )
-      )
-      if (any(is.na(encoded))) die("unexpected binary phenotype value for Phase 2 trait ", trait_id)
-      usable <- encoded != "NA" & covar_complete
-      cases <- sum(encoded[usable] == "1")
-      controls <- sum(encoded[usable] == "0")
-      n <- cases + controls
-      skip <- n < as.integer(config$warnings$min_n %||% 0) ||
-        cases < as.integer(config$warnings$min_cases %||% 0) ||
-        controls < as.integer(config$warnings$min_controls %||% 0)
-      reason <- if (skip) paste0("below_phase2_thresholds:n=", n, ";cases=", cases, ";controls=", controls) else ""
-    } else {
-      encoded <- ifelse(value %in% c(missing, "", "NA", "-9", "."), "NA", value)
-      numeric_value <- suppressWarnings(as.numeric(encoded))
-      bad <- encoded != "NA" & (is.na(numeric_value) | !is.finite(numeric_value))
-      if (any(bad)) die("nonnumeric quantitative phenotype value for Phase 2 trait ", trait_id)
-      usable <- encoded != "NA" & covar_complete
-      cases <- NA_integer_
-      controls <- NA_integer_
-      n <- sum(usable)
-      skip <- n < as.integer(config$warnings$min_n %||% 0)
-      reason <- if (skip) paste0("below_phase2_thresholds:n=", n) else ""
-    }
-    if (!skip) {
-      pheno[[trait_id]] <- encoded
-      analysis_traits <- c(analysis_traits, trait_id)
-    }
-    summary_rows <- rbind(summary_rows, data.frame(
-      group = group,
-      trait = trait_id,
-      trait_type = info$trait_type,
-      covariates = paste(covars, collapse = ","),
-      phase2_pan_samples = nrow(keep),
-      complete_covariate_samples = sum(covar_complete),
-      usable_n = n,
-      cases = cases,
-      controls = controls,
-      skipped = ifelse(skip, "True", "False"),
-      skip_reason = reason,
-      stringsAsFactors = FALSE
-    ))
+  trait_id <- info$traits[[1]]
+  trait <- traits[traits$trait_id == trait_id, , drop = FALSE]
+  if (nrow(trait) != 1L) die("unknown or duplicated trait in Phase 2 group ", group, ": ", trait_id)
+  value <- trimws(as.character(samples[[trait$phenotype_column]]))
+  missing <- unique(c(split_csv(trait$missing_values %||% ""), "", "NA", "-9", "."))
+  if (identical(info$trait_type, "bt")) {
+    case_value <- trimws(as.character(trait$case_value[[1]]))
+    control_value <- trimws(as.character(trait$control_value[[1]]))
+    encoded <- ifelse(value == case_value, "1",
+      ifelse(value == control_value, "0", ifelse(value %in% missing, "NA", NA_character_)))
+    if (any(is.na(encoded))) die("unexpected binary phenotype value for Phase 2 trait ", trait_id)
+    usable <- encoded != "NA" & covar_complete
+    cases <- sum(encoded[usable] == "1")
+    controls <- sum(encoded[usable] == "0")
+    usable_n <- cases + controls
+    min_n <- as.integer(config$warnings$min_n %||% 0)
+    min_cases <- as.integer(config$warnings$min_cases %||% 0)
+    min_controls <- as.integer(config$warnings$min_controls %||% 0)
+    failures <- c(
+      if (usable_n < min_n) paste0("n=", usable_n, "<min_n=", min_n),
+      if (cases < min_cases) paste0("cases=", cases, "<min_cases=", min_cases),
+      if (controls < min_controls) paste0("controls=", controls, "<min_controls=", min_controls)
+    )
+    skip <- length(failures) > 0L
+    reason <- if (skip) paste0("below_phase2_thresholds:", paste(failures, collapse = ";")) else ""
+  } else {
+    encoded <- ifelse(value %in% c(missing, "", "NA", "-9", "."), "NA", value)
+    numeric_value <- suppressWarnings(as.numeric(encoded))
+    bad <- encoded != "NA" & (is.na(numeric_value) | !is.finite(numeric_value))
+    if (any(bad)) die("nonnumeric quantitative phenotype value for Phase 2 trait ", trait_id)
+    usable <- encoded != "NA" & covar_complete
+    cases <- NA_integer_
+    controls <- NA_integer_
+    usable_n <- sum(usable)
+    min_n <- as.integer(config$warnings$min_n %||% 0)
+    skip <- usable_n < min_n
+    reason <- if (skip) paste0("below_phase2_thresholds:n=", usable_n, "<min_n=", min_n) else ""
   }
+
+  analysis_traits <- if (skip) character() else trait_id
+  pheno <- data.frame(FID = keep$FID, IID = keep$IID, stringsAsFactors = FALSE)
+  if (!skip) pheno[[trait_id]] <- encoded
+  model_mask <- if (skip) rep(FALSE, nrow(keep)) else usable
+  write_plink_id_file(keep[model_mask, , drop = FALSE], keep_plink_out)
+  model_n <- sum(model_mask)
+  model_cases <- if (skip || !identical(info$trait_type, "bt")) NA_integer_ else cases
+  model_controls <- if (skip || !identical(info$trait_type, "bt")) NA_integer_ else controls
+  summary_rows <- data.frame(
+    group = group,
+    trait = trait_id,
+    trait_type = info$trait_type,
+    covariates = paste(covars, collapse = ","),
+    phase2_pan_samples = nrow(keep),
+    complete_covariate_samples = sum(covar_complete),
+    usable_n = usable_n,
+    cases = cases,
+    controls = controls,
+    model_sample_count = model_n,
+    model_cases = model_cases,
+    model_controls = model_controls,
+    model_keep_sha256 = sha256_file(keep_plink_out),
+    skipped = ifelse(skip, "True", "False"),
+    skip_reason = reason,
+    stringsAsFactors = FALSE
+  )
 
   write_tsv(pheno, pheno_out)
   write_tsv(covar, covar_out)
   write_tsv(summary_rows, summary_out)
   writeLines(analysis_traits, trait_list_out)
   writeLines(paste(covars, collapse = ","), covar_list_out)
-  step1_complete <- covar_complete
-  if (length(analysis_traits)) {
-    for (trait_id in analysis_traits) {
-      step1_complete <- step1_complete & pheno[[trait_id]] != "NA"
-    }
-  } else {
-    step1_complete <- rep(FALSE, nrow(keep))
+}
+
+
+select_active_groups <- function(config, summaries, trait_lists, keeps, out) {
+  if (!length(summaries) || length(summaries) != length(trait_lists) || length(summaries) != length(keeps)) {
+    die("Phase 2 active-group selection requires matching summary, trait-list, and keep inputs")
   }
-  write_plink_id_file(keep[step1_complete, , drop = FALSE], keep_plink_out)
+  expected <- phase2_groups(config)
+  expected_traits <- setNames(vapply(expected, function(row) row$traits[[1]], character(1)),
+    vapply(expected, function(row) row$group, character(1)))
+  if (length(summaries) != length(expected_traits)) {
+    die("Phase 2 active-group inputs do not cover every configured singleton group")
+  }
+  rows <- data.frame()
+  for (i in seq_along(summaries)) {
+    summary <- read_tsv(summaries[[i]])
+    if (nrow(summary) != 1L) die("Phase 2 singleton summary must contain exactly one row: ", summaries[[i]])
+    require_columns(summary, c(
+      "group", "trait", "trait_type", "usable_n", "cases", "controls", "model_sample_count",
+      "model_cases", "model_controls", "model_keep_sha256", "skipped", "skip_reason"
+    ), summaries[[i]])
+    if (!as.character(summary$skipped[[1]]) %in% c("True", "False")) {
+      die("Phase 2 summary has an invalid skipped value: ", summaries[[i]])
+    }
+    skip_reason <- as.character(summary$skip_reason[[1]])
+    if (is.na(skip_reason)) skip_reason <- ""
+    group <- summary$group[[1]]
+    trait <- summary$trait[[1]]
+    if (!group %in% names(expected_traits) || !identical(trait, unname(expected_traits[[group]]))) {
+      die("Phase 2 summary does not match its configured singleton group: ", summaries[[i]])
+    }
+    analysis_traits <- readLines(trait_lists[[i]], warn = FALSE)
+    analysis_traits <- analysis_traits[nzchar(analysis_traits)]
+    keep_n <- if (!file.exists(keeps[[i]]) || file.info(keeps[[i]])$size == 0) 0L else
+      nrow(read_id_file(keeps[[i]], "Phase 2 model keep"))
+    skipped <- identical(summary$skipped[[1]], "True")
+    if (skipped != nzchar(skip_reason)) {
+      die("Phase 2 summary skip status and reason disagree: ", summaries[[i]])
+    }
+    if (skipped && (length(analysis_traits) || keep_n != 0L)) {
+      die("skipped Phase 2 group must have no analysis trait or model samples: ", summary$group[[1]])
+    }
+    if (!skipped && (!identical(analysis_traits, summary$trait[[1]]) || keep_n < 1L)) {
+      die("active Phase 2 group must have exactly its singleton trait and a nonempty keep: ", summary$group[[1]])
+    }
+    if (keep_n != as.integer(summary$model_sample_count[[1]])) {
+      die("Phase 2 model keep count does not match its summary: ", summary$group[[1]])
+    }
+    usable_n <- suppressWarnings(as.integer(summary$usable_n[[1]]))
+    if (!skipped && (is.na(usable_n) || usable_n != keep_n)) {
+      die("active Phase 2 usable N must equal its exact model keep count: ", group)
+    }
+    if (!skipped && identical(summary$trait_type[[1]], "bt")) {
+      cases <- suppressWarnings(as.integer(summary$cases[[1]]))
+      controls <- suppressWarnings(as.integer(summary$controls[[1]]))
+      if (any(is.na(c(cases, controls))) || cases + controls != keep_n ||
+          cases != as.integer(summary$model_cases[[1]]) ||
+          controls != as.integer(summary$model_controls[[1]])) {
+        die("active binary Phase 2 case/control counts do not match its exact model keep: ", group)
+      }
+    }
+    if (!identical(sha256_file(keeps[[i]]), summary$model_keep_sha256[[1]])) {
+      die("Phase 2 model keep checksum does not match its summary: ", summary$group[[1]])
+    }
+    rows <- rbind(rows, data.frame(
+      group = group, trait = trait, trait_type = summary$trait_type[[1]],
+      usable_n = summary$usable_n[[1]], cases = summary$cases[[1]], controls = summary$controls[[1]],
+      model_sample_count = keep_n, model_cases = summary$model_cases[[1]],
+      model_controls = summary$model_controls[[1]], keep_count = keep_n,
+      model_keep_sha256 = summary$model_keep_sha256[[1]],
+      skipped = summary$skipped[[1]], skip_reason = skip_reason,
+      remeta_eligible = ifelse(skipped, "False", "True"), stringsAsFactors = FALSE
+    ))
+  }
+  if (anyDuplicated(rows$group) || anyDuplicated(rows$trait)) {
+    die("Phase 2 active-group status contains duplicate groups or traits")
+  }
+  if (!setequal(rows$group, names(expected_traits))) {
+    die("Phase 2 active-group status does not cover the configured singleton groups")
+  }
+  write_tsv(rows, out)
 }
 
 
@@ -708,17 +800,31 @@ stage1_pass_union <- function(paths, out, summary_out) {
 }
 
 
-prepare_assoc_genotypes <- function(config, pfile_prefix, extract, out_prefix, threads) {
+prepare_assoc_variants <- function(config, pfile_prefix, extract, out_prefix, summary_out, threads) {
   run_command(plink_tool(config), c(
     "--pfile", pfile_prefix,
     "--extract", extract,
     "--geno", as.character(config$qc$geno_missing_max %||% 0.05),
     phase2_step2_maf_args(config),
-    "--make-pgen", "--sort-vars",
+    # Step 2 can use the shared PAN PGEN; only the filtered trait-specific IDs differ.
+    "--write-snplist",
     "--threads", threads,
     "--out", out_prefix
   ))
-  ensure_regenie_psam_has_fid(out_prefix)
+  variants <- paste0(out_prefix, ".snplist")
+  if (!file.exists(variants) || file.info(variants)$size == 0) {
+    die("Phase 2 pooled association filters retained no variants: ", variants)
+  }
+  ids <- readLines(variants, warn = FALSE)
+  ids <- ids[nzchar(ids)]
+  if (!length(ids) || anyDuplicated(ids)) die("Phase 2 association variant list is empty or duplicated: ", variants)
+  write_tsv(data.frame(
+    metric = c("stage1_union_variants", "pooled_filter_pass_variants", "geno_missing_max", "maf_min"),
+    value = c(
+      length(readLines(extract, warn = FALSE)), length(ids), config$qc$geno_missing_max %||% 0.05,
+      ifelse(is.na(phase2_step2_maf_min(config)), "not_applied", phase2_step2_maf_min(config))
+    ), stringsAsFactors = FALSE
+  ), summary_out)
 }
 
 
@@ -839,17 +945,11 @@ filter_step1_variants <- function(config, pfile_prefix, extract, keep, trait_lis
                                   summary_out = "", excluded_out = "") {
   traits <- readLines(trait_list, warn = FALSE)
   traits <- traits[nzchar(traits)]
+  if (length(traits) != 1L) die("Phase 2 Step 1 variant filtering requires exactly one trait")
   reports <- step1_filter_report_paths(out, summary_out, excluded_out)
   ensure_parent(out)
   hardcall_mac_min <- phase2_step1_hardcall_mac_min(config)
   hardcall_variance_min <- 0
-  if (!length(traits)) {
-    writeLines(character(), out)
-    write_step1_filter_summary(reports$summary, 0L, 0L, 0L, hardcall_mac_min, hardcall_variance_min)
-    empty_step1_excluded_table(reports$excluded)
-    cat("No analysis traits; wrote empty Step 1 variant outputs and skipped PLINK hardcall-count QC\n")
-    return(invisible(TRUE))
-  }
 
   model_sample_count <- nrow(read_id_file(keep, "Phase 2 regenie Step 1 keep file"))
   tmp_prefix <- paste0(sub("\\.snplist$", "", out), ".variant_qc")
@@ -937,6 +1037,9 @@ regenie_step1_args <- function(config, group, pfile_prefix, extract, pheno, cova
   info <- group_info(config, group)
   traits <- readLines(trait_list, warn = FALSE)
   traits <- traits[nzchar(traits)]
+  if (length(traits) != 1L || !identical(traits, info$traits)) {
+    die("Phase 2 Step 1 requires exactly the singleton group's trait: ", group)
+  }
   covars <- info$covariates
   command <- c(
     "--step", "1",
@@ -955,6 +1058,9 @@ regenie_step1_args <- function(config, group, pfile_prefix, extract, pheno, cova
   )
   if (identical(info$trait_type, "qt") && truthy(config$phase2_regenie$apply_rint %||% FALSE)) {
     command <- c(command, "--apply-rint")
+  } else if (identical(info$trait_type, "bt")) {
+    # Match REGENIE's phenotype-retention gate to the pipeline's configured execution threshold.
+    command <- c(command, "--minCaseCount", as.character(config$warnings$min_cases %||% 10))
   }
   list(
     traits = traits,
@@ -967,24 +1073,16 @@ write_regenie_step1_command <- function(config, group, pfile_prefix, extract, ph
                                         pred_list, out_prefix, script_out, threads) {
   command <- regenie_step1_args(config, group, pfile_prefix, extract, pheno, covar, keep, trait_list, out_prefix, threads)
   done <- paste0(out_prefix, ".done")
-  if (!length(command$traits)) {
-    write_bash_script(script_out, c(
-      "#!/usr/bin/env bash",
-      "set -euo pipefail",
-      mkdir_parent_line(pred_list),
-      paste(": >", shell_quote(pred_list)),
-      printf_line("skipped_no_traits", done)
-    ))
-    return(invisible(TRUE))
-  }
-
   observed <- paste0(out_prefix, "_pred.list")
+  prediction <- paste0(out_prefix, "_1.loco")
   lines <- c(
     "#!/usr/bin/env bash",
     "set -euo pipefail",
     mkdir_parent_line(out_prefix),
     shell_command_line(regenie_tool(config), command$args),
-    paste("test -s", shell_quote(observed))
+    paste("test -s", shell_quote(observed)),
+    # Singleton Step 1 always emits one prediction payload; the list alone is not sufficient for restart safety.
+    paste("test -s", shell_quote(prediction))
   )
   if (!identical(observed, pred_list)) {
     lines <- c(lines, paste("cp -f", shell_quote(observed), shell_quote(pred_list)))
@@ -994,14 +1092,20 @@ write_regenie_step1_command <- function(config, group, pfile_prefix, extract, ph
 }
 
 
-regenie_step2_args <- function(config, group, pfile_prefix, pheno, covar, pred_list, trait_list, out_prefix, threads) {
+regenie_step2_args <- function(config, group, expected_trait, pfile_prefix, extract, keep, pheno, covar,
+                               pred_list, trait_list, out_prefix, threads) {
   info <- group_info(config, group)
   traits <- readLines(trait_list, warn = FALSE)
   traits <- traits[nzchar(traits)]
+  if (length(traits) != 1L || !identical(traits, expected_trait) || !identical(traits, info$traits)) {
+    die("Phase 2 Step 2 requires exactly the requested singleton trait: ", expected_trait)
+  }
   covars <- info$covariates
   command <- c(
     "--step", "2",
     "--pgen", pfile_prefix,
+    "--extract", extract,
+    "--keep", keep,
     "--phenoFile", pheno,
     "--phenoColList", paste(traits, collapse = ","),
     "--covarFile", covar,
@@ -1011,13 +1115,18 @@ regenie_step2_args <- function(config, group, pfile_prefix, pheno, covar, pred_l
     regenie_type_args(info$trait_type),
     "--bsize", as.character(config$phase2_regenie$step2_bsize %||% 400),
     "--minMAC", as.character(config$phase2_regenie$min_mac %||% 1),
+    "--write-samples",
     "--threads", threads
   )
   if (truthy(config$qc$use_mach_r2_filter %||% FALSE)) {
     command <- c(command, "--minINFO", as.character(qc_info_min(config)))
   }
   if (identical(info$trait_type, "bt")) {
-    command <- c(command, "--firth", "--approx", "--pThresh", as.character(config$phase2_regenie$p_thresh %||% 0.01))
+    command <- c(
+      command,
+      "--minCaseCount", as.character(config$warnings$min_cases %||% 10),
+      "--firth", "--approx", "--pThresh", as.character(config$phase2_regenie$p_thresh %||% 0.01)
+    )
   } else if (truthy(config$phase2_regenie$apply_rint %||% FALSE)) {
     command <- c(command, "--apply-rint")
   }
@@ -1028,47 +1137,70 @@ regenie_step2_args <- function(config, group, pfile_prefix, pheno, covar, pred_l
 }
 
 
-write_regenie_step2_command <- function(config, group, pfile_prefix, pheno, covar, pred_list, trait_list,
-                                        out_prefix, done, script_out, threads) {
-  command <- regenie_step2_args(config, group, pfile_prefix, pheno, covar, pred_list, trait_list, out_prefix, threads)
-  if (!length(command$traits)) {
-    write_bash_script(script_out, c(
-      "#!/usr/bin/env bash",
-      "set -euo pipefail",
-      mkdir_parent_line(done),
-      printf_line("skipped_no_traits", done)
-    ))
-    return(invisible(TRUE))
-  }
-
+write_regenie_step2_command <- function(config, group, expected_trait, pfile_prefix, extract, keep, pheno, covar,
+                                        pred_list, trait_list, out_prefix, done, script_out, threads) {
+  command <- regenie_step2_args(config, group, expected_trait, pfile_prefix, extract, keep, pheno, covar,
+    pred_list, trait_list, out_prefix, threads)
   expected_stats <- paste0(out_prefix, "_", command$traits, ".regenie")
+  expected_ids <- paste0(expected_stats, ".ids")
   lines <- c(
     "#!/usr/bin/env bash",
     "set -euo pipefail",
     mkdir_parent_line(out_prefix),
     shell_command_line(regenie_tool(config), command$args),
-    paste("test -s", shell_quote(expected_stats))
+    paste("test -s", shell_quote(expected_stats)),
+    paste("test -s", shell_quote(expected_ids))
   )
   lines <- c(lines, printf_line("ok", done))
   write_bash_script(script_out, lines)
 }
 
 
-stage_trait_output <- function(config, trait, group_summary, raw_prefix, out_stats, out_summary) {
+assert_same_id_files <- function(observed_path, expected_path, label) {
+  observed <- read_id_file(observed_path, paste(label, "observed IDs"))
+  expected <- read_id_file(expected_path, paste(label, "expected IDs"))
+  require_unique_ids(observed, paste(label, "observed IDs"))
+  require_unique_ids(expected, paste(label, "expected IDs"))
+  observed_key <- sort(paste(observed$FID, observed$IID, sep = "\t"))
+  expected_key <- sort(paste(expected$FID, expected$IID, sep = "\t"))
+  if (!identical(observed_key, expected_key)) die(label, " sample IDs do not match the exact model keep")
+  length(observed_key)
+}
+
+
+stage_trait_output <- function(config, trait, group_summary, raw_prefix, sample_ids, model_keep, out_stats, out_summary) {
   summary <- read_tsv(group_summary)
   row <- summary[summary$trait == trait, , drop = FALSE]
   if (!nrow(row)) die("trait ", trait, " is absent from Phase 2 group summary")
   skipped <- identical(row$skipped[[1]], "True")
   raw <- paste0(raw_prefix, "_", trait, ".regenie")
   if (skipped) {
+    group_dir <- dirname(raw_prefix)
+    step1_prefix <- file.path(group_dir, paste0(row$group[[1]], ".step1"))
+    stale <- c(
+      raw, paste0(raw, ".ids"), paste0(raw_prefix, "_", trait, ".step2.done"),
+      paste0(step1_prefix, "_pred.list"), paste0(step1_prefix, "_1.loco"), paste0(step1_prefix, ".done")
+    )
+    stale <- stale[file.exists(stale)]
+    if (length(stale)) {
+      die("skipped trait has stale native REGENIE artifacts; archive its obsolete group tree first: ",
+        paste(stale, collapse = ", "))
+    }
     ensure_parent(out_stats)
     writeLines(c(paste0("## skipped: ", row$skip_reason[[1]]), paste(regenie_htp_columns, collapse = "\t")), out_stats)
   } else {
     if (!file.exists(raw)) die("expected native regenie output not found: ", raw)
+    if (blank(sample_ids) || blank(model_keep)) die("active Phase 2 trait is missing REGENIE sample-ID validation inputs")
+    observed_n <- assert_same_id_files(sample_ids, model_keep, "ordinary REGENIE Step 2")
+    if (observed_n != as.integer(row$model_sample_count[[1]])) {
+      die("ordinary REGENIE sample count does not match the Phase 2 summary")
+    }
     ensure_parent(out_stats)
-    file.copy(raw, out_stats, overwrite = TRUE)
+    if (!file.copy(raw, out_stats, overwrite = TRUE)) die("could not stage native REGENIE output: ", out_stats)
   }
   row$native_regenie <- ifelse(skipped, "", out_stats)
+  row$regenie_sample_ids <- ifelse(skipped, "", sample_ids)
+  row$regenie_sample_ids_sha256 <- ifelse(skipped, "", sha256_file(sample_ids))
   write_tsv(row, out_summary)
 }
 
@@ -1110,14 +1242,23 @@ coverage_percent_label <- function(value) {
 }
 
 
-remeta_ld_coverage_lines <- function(config, validation_path) {
+remeta_ld_coverage_lines <- function(config, validation_path, skipped, skip_reason, model_sample_count) {
   if (!truthy(config$remeta$enabled %||% FALSE)) return(character())
+  if (skipped) {
+    if (!blank(validation_path)) die("skipped Phase 2 trait unexpectedly has a ReMeta validation artifact")
+    return(c(
+      "## ReMeta LD Target Coverage", "",
+      "ReMeta export skipped because no Phase 2 model was run for this trait.", "",
+      paste0("- Phase 2 skip reason: ", skip_reason)
+    ))
+  }
   if (blank(validation_path) || !file.exists(validation_path)) {
     die("ReMeta is enabled but its group validation summary is unavailable: ", validation_path)
   }
   coverage <- read_tsv(validation_path)
   require_columns(coverage, c("key", "value"), validation_path)
   required <- c(
+    "sample_count", "ordinary_regenie_sample_count", "rare_regenie_sample_count",
     "target_variant_count", "unique_ld_target_variant_count", "target_variants_not_indexed",
     "target_variant_ld_coverage_pct", "reference_gene_count", "indexed_gene_count",
     "genes_without_indexed_variants", "indexed_gene_coverage_pct", "ld_gene_variant_assignments",
@@ -1128,6 +1269,10 @@ remeta_ld_coverage_lines <- function(config, validation_path) {
   if (length(missing)) {
     die("ReMeta group validation summary lacks LD coverage metric(s): ", paste(missing, collapse = ", "))
   }
+  observed_samples <- suppressWarnings(as.integer(key_value(coverage, "sample_count")))
+  if (is.na(observed_samples) || observed_samples != as.integer(model_sample_count)) {
+    die("ReMeta validation sample count does not match the final Phase 2 model sample count")
+  }
 
   c(
     "## ReMeta LD Target Coverage", "",
@@ -1136,6 +1281,9 @@ remeta_ld_coverage_lines <- function(config, validation_path) {
       "target PGEN. A target variant can be assigned to more than one overlapping gene, so unique ",
       "variants and gene-variant assignments are reported separately."
     ), "",
+    paste0("- Validated model samples: ", observed_samples),
+    paste0("- Ordinary REGENIE samples: ", key_value(coverage, "ordinary_regenie_sample_count")),
+    paste0("- Rare-variant REGENIE samples: ", key_value(coverage, "rare_regenie_sample_count")), "",
     "| Coverage metric | Observed | Denominator | Coverage |",
     "| --- | ---: | ---: | ---: |",
     paste0(
@@ -1253,13 +1401,16 @@ make_phase2_report <- function(config, trait, build, stats, stats_metrics_path, 
   union_n <- union$variants[union$file == "UNION"][[1]]
   step2_maf_min <- phase2_step2_maf_min(config)
   step2_maf_label <- if (is.na(step2_maf_min)) "not_applied" else as.character(step2_maf_min)
-  remeta_lines <- remeta_ld_coverage_lines(config, remeta_validation)
+  remeta_lines <- remeta_ld_coverage_lines(
+    config, remeta_validation, skipped, summary$skip_reason[[1]], summary$model_sample_count[[1]]
+  )
   remeta_block <- if (length(remeta_lines)) c(remeta_lines, "") else character()
 
   lines <- c(
     paste0("# Phase 2 PAN Regenie Report: ", config$project$analysis_name, " / ", trait), "",
     "## Model Overview", "",
     paste0("- Engine: regenie"),
+    paste0("- Trait-specific group: ", summary$group[[1]]),
     paste0("- Trait type: ", summary$trait_type[[1]]),
     paste0("- Genome build: ", build),
     paste0("- Covariates: ", summary$covariates[[1]]), "",
@@ -1268,9 +1419,12 @@ make_phase2_report <- function(config, trait, build, stats, stats_metrics_path, 
     paste0("- POP-MaD assigned samples in PAN set: ", assigned),
     paste0("- POP-MaD UNKNOWN samples in PAN set: ", unknown),
     paste0("- Complete covariate samples: ", summary$complete_covariate_samples[[1]]),
-    paste0("- Usable trait samples: ", summary$usable_n[[1]]),
-    paste0("- Cases: ", summary$cases[[1]]),
-    paste0("- Controls: ", summary$controls[[1]]), "",
+    paste0("- Candidate trait samples after phenotype/covariate completeness: ", summary$usable_n[[1]]),
+    paste0("- Candidate cases: ", summary$cases[[1]]),
+    paste0("- Candidate controls: ", summary$controls[[1]]),
+    paste0("- Final REGENIE model samples: ", summary$model_sample_count[[1]]),
+    paste0("- Final model cases: ", summary$model_cases[[1]]),
+    paste0("- Final model controls: ", summary$model_controls[[1]]), "",
     "## Variant Sources and QC", "",
     paste0("- Stage 1 union-pass variants: ", union_n),
     paste0("- Pooled missingness threshold: ", config$qc$geno_missing_max %||% 0.05),
@@ -1287,7 +1441,10 @@ make_phase2_report <- function(config, trait, build, stats, stats_metrics_path, 
     paste0("- Quantitative RINT: ", ifelse(truthy(config$phase2_regenie$apply_rint %||% FALSE), "True", "False")), "",
     "## Association Results", "",
     paste0("- Native regenie output: `", stats, "`"),
+    paste0("- REGENIE sample-ID file: ", ifelse(skipped, "not generated", paste0("`", summary$regenie_sample_ids[[1]], "`"))),
+    paste0("- REGENIE sample-ID validation: ", ifelse(skipped, "not applicable", "matched exact model keep")),
     paste0("- Skipped: ", summary$skipped[[1]]),
+    paste0("- Skip reason: ", ifelse(skipped, summary$skip_reason[[1]], "not_applicable")),
     paste0("- Native regenie variant rows: ", metric_value(stats_metrics, "total_variants")),
     paste0("- Valid P-value variants: ", metric_value(stats_metrics, "valid_p_value_variants")),
     paste0("- Lambda GC: ", lambda),
@@ -1334,12 +1491,15 @@ if (subtask == "write-groups") {
   require_args(args, c("group", "keep", "pcs", "pheno-out", "covar-out", "summary-out", "trait-list-out", "covar-list-out", "keep-plink-out"))
   build_group_inputs(config, args$group, args$keep, args$pcs, args[["pheno-out"]], args[["covar-out"]],
     args[["summary-out"]], args[["trait-list-out"]], args[["covar-list-out"]], args[["keep-plink-out"]])
+} else if (subtask == "select-active-groups") {
+  require_args(args, c("status-summary", "status-trait-list", "status-keep", "out"))
+  select_active_groups(config, args[["status-summary"]], args[["status-trait-list"]], args[["status-keep"]], args$out)
 } else if (subtask == "stage1-pass-union") {
   require_args(args, c("stage1-stats", "out", "summary-out"))
   stage1_pass_union(args[["stage1-stats"]], args$out, args[["summary-out"]])
-} else if (subtask == "prepare-assoc-genotypes") {
-  require_args(args, c("pfile-prefix", "extract", "out-prefix"))
-  prepare_assoc_genotypes(config, args[["pfile-prefix"]], args$extract, args[["out-prefix"]], threads)
+} else if (subtask == "prepare-assoc-variants") {
+  require_args(args, c("pfile-prefix", "extract", "out-prefix", "summary-out"))
+  prepare_assoc_variants(config, args[["pfile-prefix"]], args$extract, args[["out-prefix"]], args[["summary-out"]], threads)
 } else if (subtask == "filter-step1-variants") {
   require_args(args, c("pfile-prefix", "extract", "keep", "trait-list", "out"))
   filter_step1_variants(config, args[["pfile-prefix"]], args$extract, args$keep, args[["trait-list"]], args$out,
@@ -1349,12 +1509,14 @@ if (subtask == "write-groups") {
   write_regenie_step1_command(config, args$group, args[["pfile-prefix"]], args$extract, args$pheno, args$covar,
     args$keep, args[["trait-list"]], args[["pred-list"]], args[["out-prefix"]], args[["script-out"]], threads)
 } else if (subtask == "write-step2-command") {
-  require_args(args, c("group", "pfile-prefix", "pheno", "covar", "pred-list", "trait-list", "out-prefix", "done", "script-out"))
-  write_regenie_step2_command(config, args$group, args[["pfile-prefix"]], args$pheno, args$covar,
-    args[["pred-list"]], args[["trait-list"]], args[["out-prefix"]], args$done, args[["script-out"]], threads)
+  require_args(args, c("group", "trait", "pfile-prefix", "extract", "keep", "pheno", "covar", "pred-list", "trait-list", "out-prefix", "done", "script-out"))
+  write_regenie_step2_command(config, args$group, args$trait, args[["pfile-prefix"]], args$extract, args$keep,
+    args$pheno, args$covar, args[["pred-list"]], args[["trait-list"]], args[["out-prefix"]], args$done,
+    args[["script-out"]], threads)
 } else if (subtask == "stage-trait-output") {
   require_args(args, c("trait", "group-summary", "raw-prefix", "out-stats", "out-summary"))
-  stage_trait_output(config, args$trait, args[["group-summary"]], args[["raw-prefix"]], args[["out-stats"]], args[["out-summary"]])
+  stage_trait_output(config, args$trait, args[["group-summary"]], args[["raw-prefix"]], args[["sample-ids"]],
+    args[["model-keep"]], args[["out-stats"]], args[["out-summary"]])
 } else if (subtask == "make-report") {
   require_args(args, c("trait", "build", "stats", "stats-metrics", "top-hits", "summary", "group-summary", "union-summary", "pan-summary", "ancestry-summary", "qq", "manhattan", "manhattan-pdf", "out"))
   make_phase2_report(config, args$trait, args$build, args$stats, args[["stats-metrics"]], args[["top-hits"]],

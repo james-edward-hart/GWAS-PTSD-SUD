@@ -20,9 +20,9 @@ output is one p-value per gene/mask/test combination.
 
 - Eligible data are WES hardcalls or imputed dosages. Basic array and WGS
   inputs are rejected by configuration validation.
-- The target PGEN is subset to the exact Phase 2 group keep file. Both regenie
-  Step 2 and ReMeta read this same PGEN; sample identity is checked again after
-  construction and after LD calculation.
+- Every active trait has its own target PGEN and LD prefix, subset to that
+  trait's exact Phase 2 model keep. Ordinary regenie IDs, rare-variant regenie
+  IDs, the keep, and the target PSAM must be identical.
 - Variant IDs are rewritten as build-specific `CHR:POS:REF:ALT`. Enabling the
   branch requires an explicit attestation that the source variants were split,
   left-normalized, and aligned to the inferred reference build before entering
@@ -49,6 +49,11 @@ output is one p-value per gene/mask/test combination.
 ReMeta models each cohort's observed LD; it does not itself correct ancestry
 differences across cohorts. The central model and cohort inclusion strategy
 remain responsible for ancestry heterogeneity.
+
+ReMeta can reuse one cohort-wide LD matrix across traits. This pipeline instead
+uses exact-trait samples as a deliberate, stricter provenance policy. That
+policy increases computation and can make LD estimates noisier for small trait
+samples; the manifest makes the choice and sample set explicit.
 
 ## Configuration
 
@@ -89,16 +94,16 @@ FASTA. A standard upstream implementation is `bcftools norm -f BUILD.fa -m
 
 ## What Runs
 
-For each Phase 2 phenotype/covariate group, the branch:
+For each active Phase 2 singleton trait group, the branch:
 
-1. Intersects the PAN genotypes with the group's phenotype/covariate-complete
+1. Intersects the PAN genotypes with the trait's phenotype/covariate-complete
    keep file and the bundled target intervals.
 2. Applies source-specific variant QC and writes stable CPRA IDs.
 3. Runs rare-variant regenie Step 2 with the existing group Step 1 predictions.
 4. Runs ReMeta independently on chromosomes 1-22 with `--skip-buffer`.
-5. Verifies sample identity, CPRA consistency, HTP-to-PVAR and HTP-to-LD
-   membership, LD-index-to-PVAR membership, gene-list membership, and
-   gene/variant coverage of the generated LD indexes.
+5. Verifies ordinary/rare regenie sample IDs, target PSAM identity, CPRA
+   consistency, all 22 three-file LD sets, HTP identity and counts,
+   HTP-to-PVAR/LD membership, and gene/index consistency.
 6. Writes the export manifest with SHA-256 hashes and byte counts.
 
 When ReMeta is enabled, each final Phase 2 PAN report includes a **ReMeta LD
@@ -107,18 +112,21 @@ It reports target genes with indexed variants, unique QC-passing target-region
 variants represented in the LD indexes, gene-variant assignments within their
 declared gene spans, uncovered counts, and the no-buffer policy.
 
-The group keep file is the intersection of nonmissing covariates and nonmissing
-phenotypes across all active traits in that group. This allows one LD matrix to
-be scientifically matched to every HTP file in the group. A group with no
-active traits fails explicitly instead of emitting a fake LD file.
+The group keep contains complete covariates and a valid phenotype for exactly
+one trait. A status checkpoint schedules REGENIE and ReMeta only for active
+traits. Skipped traits remain documented in reports and the manifest but never
+receive fake target, HTP, LD, or validation artifacts.
 
-The 22 LD jobs are chromosome-parallel, so sufficient cluster capacity makes
-their wall time approximate the slowest chromosome rather than their sum.
+The 22 LD jobs per active trait are chromosome-parallel, so sufficient cluster
+capacity makes their wall time approximate the slowest chromosome rather than
+their sum.
 Runtime scales mainly with group sample count and retained coding/splice
-variants. The template requests 4 threads, 16 GB, and 4 hours per chromosome;
+variants. The template requests 4 threads, 32 GB, and 4 hours per chromosome;
 benchmark chromosome 1 in the first cohort and tune the SLURM profile from its
-observed peak memory and elapsed time. Rare regenie Step 2 is a separate added
-job per phenotype/covariate group.
+observed peak memory and elapsed time. The bundled SLURM profile caps the custom
+`remeta_ld_jobs` resource at 8, while every LD rule consumes one slot. Override
+that capacity only after benchmarking the shared filesystem; this prevents an
+88-job I/O burst when four traits are active.
 
 ## Export Layout
 
@@ -131,14 +139,16 @@ results/remeta/export/{build}/ld/{group}/chr1.remeta.ld.idx.gz
 results/remeta/export/{analysis_name}.{build}.remeta_manifest.tsv
 ```
 
-The `.remeta.buffer.ld` file is part of ReMeta's required three-file format but
+Group names are stable type-and-trait IDs such as `bt__co_ptsd_aud`. The
+`.remeta.buffer.ld` file is part of ReMeta's required three-file format but
 contains no conditional buffer payload because `--skip-buffer` was used.
 
 Share the HTP files, all three LD files for every chromosome/group, and the
 manifest. The central analyst should reject an export if hashes, build,
 normalization attestation, genotype mode, resource identity, or sample-group
 metadata do not agree with the analysis specification. The manifest records
-each trait's matching LD group, trait type, skip state, and sample metadata, so
+each trait's matching LD group, trait type, active/skip state, exact sample
+metadata, and hashes, so
 no separate cohort config is needed to pair an HTP file with its LD prefix.
 
 ## Central Handoff Boundary

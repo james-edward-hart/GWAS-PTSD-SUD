@@ -81,8 +81,8 @@ build-matched, fingerprinted reference package.
   ancestry-stratified PLINK2 `--glm`, plotting, reporting, and manifest
   generation.
 - Runs pooled pan-ancestry regenie GWAS as Phase 2 when enabled, using cohort
-  global PCs, native regenie outputs, `PAN` plots/reports, and Stage 1
-  ancestry-specific QC comparisons.
+  global PCs, one exact-sample model per trait, native regenie outputs, `PAN`
+  plots/reports, and Stage 1 ancestry-specific QC comparisons.
 - Optionally exports sample-matched rare-variant regenie HTP statistics and
   marginal within-gene ReMeta LD for central gene-level meta-analysis.
 
@@ -148,6 +148,9 @@ results/remeta/export/{build}/htp/{trait}.PAN.regenie.gz
 results/remeta/export/{build}/ld/{group}/chr{chrom}.remeta.gene.ld
 results/remeta/export/{analysis_name}.{build}.remeta_manifest.tsv
 ```
+
+Phase 2 and ReMeta `{group}` values are stable singleton IDs such as
+`bt__co_ptsd_aud`; skipped traits have reports but no HTP or LD artifacts.
 
 `{analysis_name}` is the filename-safe version of `project.analysis_name`.
 Ancestry preparation also writes

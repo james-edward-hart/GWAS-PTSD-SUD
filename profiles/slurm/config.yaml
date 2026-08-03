@@ -9,6 +9,11 @@ restart-times: 1
 max-jobs-per-second: 5
 max-status-checks-per-second: 5
 
+# Each marginal-LD job consumes one slot. Override this value for a filesystem
+# that has been benchmarked for more or less concurrent ReMeta I/O.
+resources:
+  remeta_ld_jobs: 8
+
 # Site-specific options; fill these in before production submission.
 # Set QOS here only if your cluster requires or recommends one.
 # slurm-qos: "normal"
@@ -71,7 +76,7 @@ set-resources:
   write_phase2_regenie_step1_command:
     mem_mb: 32000
     runtime: 480
-  prepare_phase2_regenie_assoc_genotypes:
+  prepare_phase2_regenie_assoc_variants:
     mem_mb: 32000
     runtime: 480
   run_phase2_regenie_step1:

@@ -1,6 +1,7 @@
 # Helper functions used by Snakemake while expanding the Stage 1 DAG.
 
 import csv
+import math
 import os
 import re
 
@@ -28,9 +29,20 @@ def trait_ids(config):
     rows = read_tsv(path)
     if not rows or "trait_id" not in rows[0]:
         workflow_error(f"trait registry is missing required column 'trait_id': {path}")
-    ids = [row["trait_id"] for row in rows if row.get("trait_id", "")]
-    if not ids:
+    ids = [str(row.get("trait_id", "")) for row in rows]
+    if any(trait_id != trait_id.strip() for trait_id in ids):
+        workflow_error(f"trait registry contains trait_id values with surrounding whitespace: {path}")
+    if not ids or any(not trait_id for trait_id in ids):
         workflow_error(f"trait registry contains no non-empty trait_id values: {path}")
+    duplicates = sorted({trait_id for trait_id in ids if ids.count(trait_id) > 1})
+    if duplicates:
+        workflow_error(f"trait registry contains duplicate trait_id values: {', '.join(duplicates)}")
+    unsafe = [trait_id for trait_id in ids if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", trait_id)]
+    if unsafe:
+        workflow_error(
+            "trait_id values must start with a letter or number and contain only letters, "
+            f"numbers, dots, underscores, and hyphens: {', '.join(unsafe)}"
+        )
     return ids
 
 
@@ -113,11 +125,15 @@ def phase2_trait_type(samples, trait_row):
         workflow_error(f"quantitative trait {trait_row.get('trait_id', '<unknown>')} has no nonmissing values")
     for value in values:
         try:
-            float(value)
+            numeric = float(value)
         except ValueError:
             workflow_error(
                 f"trait {trait_row.get('trait_id', '<unknown>')} has blank case/control values "
                 f"but nonnumeric phenotype value '{value}'"
+            )
+        if not math.isfinite(numeric):
+            workflow_error(
+                f"trait {trait_row.get('trait_id', '<unknown>')} has non-finite phenotype value '{value}'"
             )
     return "qt"
 
@@ -129,34 +145,27 @@ def phase2_trait_groups(config):
     sample_path = config.get("inputs", {}).get("sample_manifest", "")
     traits = read_tsv(trait_path)
     samples = read_tsv(sample_path)
-    grouped = {}
-    order = []
+    expected_ids = trait_ids(config)
+    rows = []
     for trait in traits:
-        trait_id = trait.get("trait_id", "")
-        if not trait_id:
-            continue
+        trait_id = str(trait.get("trait_id", ""))
         trait_type = phase2_trait_type(samples, trait)
         covars = phase2_covariates_for_trait(config, trait)
-        key = (trait_type, tuple(covars))
-        if key not in grouped:
-            grouped[key] = []
-            order.append(key)
-        grouped[key].append(trait_id)
-
-    type_counts = {}
-    rows = []
-    for key in order:
-        trait_type, covars = key
-        type_counts[trait_type] = type_counts.get(trait_type, 0) + 1
-        group_id = f"{trait_type}_g{type_counts[trait_type]}"
+        # Group identity is trait-derived so registry ordering cannot change a model's sample set.
+        group_id = f"{trait_type}__{trait_id}"
         rows.append(
             {
                 "group": group_id,
                 "trait_type": trait_type,
                 "covariates": list(covars),
-                "traits": grouped[key],
+                "traits": [trait_id],
             }
         )
+    if [row["traits"][0] for row in rows] != expected_ids:
+        workflow_error("Phase 2 singleton groups do not match the trait registry")
+    group_ids = [row["group"] for row in rows]
+    if len(group_ids) != len(set(group_ids)):
+        workflow_error("Phase 2 singleton group IDs are not unique")
     return rows
 
 
@@ -381,9 +390,55 @@ def phase2_trait_stage1_summaries(checkpoints, wildcards, config):
     ]
 
 
-def phase2_trait_regenie_done(wildcards, config):
+def phase2_status_rows(checkpoints):
+    path = str(checkpoints.select_phase2_active_groups.get().output.status)
+    rows = read_tsv(path)
+    required = {
+        "group", "trait", "trait_type", "usable_n", "model_sample_count",
+        "keep_count", "model_keep_sha256", "skipped", "remeta_eligible",
+    }
+    if not rows or not required.issubset(rows[0]):
+        workflow_error(f"Phase 2 trait-group status table is empty or incomplete: {path}")
+    groups = [row["group"] for row in rows]
+    traits = [row["trait"] for row in rows]
+    if len(groups) != len(set(groups)) or len(traits) != len(set(traits)):
+        workflow_error(f"Phase 2 trait-group status table contains duplicate groups or traits: {path}")
+    if any(
+        row["skipped"] not in {"True", "False"}
+        or row["remeta_eligible"] not in {"True", "False"}
+        or row["skipped"] == row["remeta_eligible"]
+        for row in rows
+    ):
+        workflow_error(f"Phase 2 trait-group status table has inconsistent active/skipped flags: {path}")
+    return rows
+
+
+def phase2_trait_status(checkpoints, trait):
+    matches = [row for row in phase2_status_rows(checkpoints) if row["trait"] == trait]
+    if len(matches) != 1:
+        workflow_error(f"trait is absent or duplicated in the Phase 2 status table: {trait}")
+    return matches[0]
+
+
+def phase2_active_group_rows(checkpoints):
+    return [
+        row for row in phase2_status_rows(checkpoints)
+        if row.get("remeta_eligible") == "True" and row.get("skipped") == "False"
+    ]
+
+
+def phase2_status_file(checkpoints):
+    return str(checkpoints.select_phase2_active_groups.get().output.status)
+
+
+def phase2_trait_regenie_outputs(checkpoints, wildcards, config):
+    status = phase2_trait_status(checkpoints, wildcards.trait)
+    # Empty dynamic input is intentional: skipped traits stage an honest public placeholder only.
+    if status["skipped"] == "True":
+        return []
     group = phase2_trait_group(config, wildcards.trait)
-    return f"results/gwas/PAN/regenie/groups/{group}/{group}.{wildcards.build}.step2.done"
+    prefix = f"results/gwas/PAN/regenie/groups/{group}/{group}.{wildcards.build}_{wildcards.trait}"
+    return [f"{prefix}.regenie", f"{prefix}.regenie.ids", f"{prefix}.step2.done"]
 
 
 def remeta_resource_file(config, build, filename):
@@ -406,13 +461,12 @@ def remeta_targets(checkpoints, wildcards, config):
     return [remeta_export_manifest(config, build)]
 
 
-def remeta_manifest_inputs(config, build):
+def remeta_manifest_inputs(checkpoints, config, build):
     if not remeta_enabled(config):
         return []
-    groups = phase2_group_ids(config)
-    traits = trait_ids(config)
     paths = []
-    for group in groups:
+    for row in phase2_active_group_rows(checkpoints):
+        group = row["group"]
         for chrom in range(1, 23):
             prefix = f"results/remeta/export/{build}/ld/{group}/chr{chrom}"
             paths.extend(
@@ -422,7 +476,7 @@ def remeta_manifest_inputs(config, build):
                     f"{prefix}.remeta.ld.idx.gz",
                 ]
             )
-    for trait in traits:
+    for trait in [row["trait"] for row in phase2_active_group_rows(checkpoints)]:
         paths.append(f"results/remeta/export/{build}/htp/{trait}.PAN.regenie.gz")
     return paths
 
@@ -434,17 +488,24 @@ def remeta_group_htp_inputs(config, group, build):
     ]
 
 
-def remeta_group_index_inputs(group, build):
-    return [
-        f"results/remeta/export/{build}/ld/{group}/chr{chrom}.remeta.ld.idx.gz"
-        for chrom in range(1, 23)
-    ]
+def remeta_group_ld_inputs(group, build):
+    paths = []
+    for chrom in range(1, 23):
+        prefix = f"results/remeta/export/{build}/ld/{group}/chr{chrom}"
+        paths.extend(
+            [
+                f"{prefix}.remeta.gene.ld",
+                f"{prefix}.remeta.buffer.ld",
+                f"{prefix}.remeta.ld.idx.gz",
+            ]
+        )
+    return paths
 
 
-def remeta_target_summaries(config, build):
+def remeta_target_summaries(checkpoints, config, build):
     return [
-        f"results/remeta/work/{build}/groups/{group}/{group}.target.summary.tsv"
-        for group in phase2_group_ids(config)
+        f"results/remeta/work/{build}/groups/{row['group']}/{row['group']}.target.summary.tsv"
+        for row in phase2_active_group_rows(checkpoints)
     ]
 
 
@@ -455,11 +516,21 @@ def remeta_trait_summaries(config):
     ]
 
 
-def remeta_validations(config, build):
+def remeta_validations(checkpoints, config, build):
     return [
-        f"results/remeta/work/{build}/groups/{group}/{group}.validation.ok"
-        for group in phase2_group_ids(config)
+        f"results/remeta/work/{build}/groups/{row['group']}/{row['group']}.validation.ok"
+        for row in phase2_active_group_rows(checkpoints)
     ]
+
+
+def remeta_validation_for_trait(checkpoints, wildcards, config):
+    if not remeta_enabled(config):
+        return []
+    status = phase2_trait_status(checkpoints, wildcards.trait)
+    if status["skipped"] == "True":
+        return []
+    group = phase2_trait_group(config, wildcards.trait)
+    return [f"results/remeta/work/{wildcards.build}/groups/{group}/{group}.validation.ok"]
 
 
 # Keep POP-MaD outputs in the production ancestry directory.

@@ -57,19 +57,45 @@ recorded_tool_rows <- function(path) {
 
 
 # Record final text/image output checksums while leaving raw genotype artifacts as path/count records.
-final_output_rows <- function(results_dir = "results", analysis_name = "") {
+final_output_rows <- function(results_dir = "results", analysis_name = "", trait_ids = character()) {
   if (!dir.exists(results_dir)) return(data.frame(key = character(), value = character()))
   current_analysis <- function(paths) {
     if (!nzchar(analysis_name) || !length(paths)) return(paths)
     paths[startsWith(basename(paths), paste0(analysis_name, "."))]
   }
+  under_roots <- function(paths, roots) {
+    if (!length(paths) || !length(roots)) return(paths)
+    paths[vapply(paths, function(path) {
+      any(startsWith(path, paste0(roots, .Platform$file.sep)))
+    }, logical(1))]
+  }
+  gwas <- list.files(file.path(results_dir, "gwas"), pattern = "\\.(tsv|regenie)$", recursive = TRUE, full.names = TRUE)
+  if (length(trait_ids)) {
+    gwas <- under_roots(gwas, file.path(results_dir, "gwas", trait_ids))
+  }
+  reports <- current_analysis(list.files(file.path(results_dir, "reports"), recursive = TRUE, full.names = TRUE))
+  plots <- current_analysis(list.files(
+    file.path(results_dir, "plots"), pattern = "\\.(png|pdf)$", recursive = TRUE, full.names = TRUE
+  ))
+  if (length(trait_ids)) {
+    reports <- under_roots(reports, file.path(results_dir, "reports", trait_ids))
+    plots <- under_roots(plots, file.path(results_dir, "plots", c(trait_ids, "ancestry")))
+  }
   candidates <- c(
     list.files(file.path(results_dir, "qc"), recursive = TRUE, full.names = TRUE),
-    current_analysis(list.files(file.path(results_dir, "reports"), recursive = TRUE, full.names = TRUE)),
-    list.files(file.path(results_dir, "gwas"), pattern = "\\.(tsv|regenie)$", recursive = TRUE, full.names = TRUE),
-    current_analysis(list.files(file.path(results_dir, "plots"), pattern = "\\.(png|pdf)$", recursive = TRUE, full.names = TRUE))
+    reports,
+    gwas,
+    plots
   )
   candidates <- candidates[file.exists(candidates) & !dir.exists(candidates)]
+  # Native group work products are implementation details; only staged trait outputs are deliverables.
+  internal_roots <- c(
+    file.path(results_dir, "gwas", "PAN", "regenie", "groups"),
+    file.path(results_dir, "qc", "phase2_regenie", "groups")
+  )
+  for (root in internal_roots) {
+    candidates <- candidates[!startsWith(candidates, paste0(root, .Platform$file.sep))]
+  }
   raw_ext <- "\\.(bed|bim|fam|pgen|pvar|psam|eigenvec|eigenval|sscore|acount|log)$"
   raw <- candidates[grepl(raw_ext, candidates)]
   final <- sort(setdiff(candidates, raw))
@@ -202,7 +228,11 @@ rows <- rbind(
   tool_rows("plink1", plink1_tool(config), "--version"),
   tool_rows("admixture", config$tools$admixture %||% "admixture"),
   recorded_tool_rows(args[["regenie-tool"]] %||% ""),
-  final_output_rows("results", analysis_output_name(config))
+  final_output_rows(
+    "results",
+    analysis_output_name(config),
+    as.character(read_tsv(config$inputs$trait_registry)$trait_id)
+  )
 )
 
 

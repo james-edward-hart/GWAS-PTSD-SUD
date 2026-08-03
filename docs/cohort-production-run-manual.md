@@ -448,6 +448,27 @@ mamba run -n gwas-stage1 Rscript scripts/production_preflight.R \
 If rerunning into an existing `results/` directory is intentional, use the
 script's `--allow-existing-results` option.
 
+For the singleton Phase 2 migration, archive the obsolete internal work trees
+before resuming; do not delete completed Stage 1 ancestry GWAS, PAN genotype
+preparation, or global PCA outputs:
+
+```text
+results/qc/phase2_regenie/groups
+results/gwas/PAN/regenie/groups
+results/remeta/work
+results/remeta/export
+```
+
+New groups use stable names such as `bt__co_ptsd_aud`. Run a dry run after the
+archive and allow Snakemake to recompute every active trait's Phase 2 Step 1,
+Step 2, plots/report, and ReMeta target/HTP/LD/validation outputs. Do not use
+`--touch` or metadata cleanup to preserve the scientifically stale shared-group
+models.
+
+Stage 1 ancestry GWAS, PAN preparation, and global PCA are scientifically
+reusable, but the configured code fingerprint may still schedule provenance-
+driven jobs. Review the complete dry run and do not suppress legitimate work.
+
 ### Dry-Run Passes But Real Jobs Fail
 
 **Symptom:** `snakemake -n --profile profiles/slurm` succeeds, but submitted
@@ -774,6 +795,13 @@ points, and the Manhattan plots retain the most significant 50% of variants.
 Lambda GC, significance counts, and top hits always use every valid variant;
 the exact plotted and eligible counts are recorded in the metrics file and the
 final report.
+
+Review `results/qc/phase2_regenie/trait_group_status.tsv` before interpreting
+PAN results. Each row is one trait-specific group; active rows must have a
+nonzero final model count, while skipped rows give the threshold reason. With
+ReMeta enabled, only active rows should have HTP/LD artifacts. Ordinary
+REGENIE IDs, rare-variant REGENIE IDs, the group keep, and target PSAM are
+validated as identical before the report and export manifest complete.
 
 **Fix:** Inspect the harmonized stats and filter summary:
 

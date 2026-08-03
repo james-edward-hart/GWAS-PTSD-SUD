@@ -38,6 +38,9 @@ mamba run -n gwas-stage1 Rscript scripts/test_genotype_input_sanitizer.R
 mamba run -n gwas-stage1 Rscript scripts/test_sex_check.R
 mamba run -n gwas-stage1 Rscript scripts/test_ancestry_reference.R
 mamba run -n gwas-stage1 Rscript scripts/test_admixture_qc.R
+mamba run -n gwas-stage1 Rscript scripts/test_phase2_regenie.R
+mamba run -n gwas-stage1 Rscript scripts/test_remeta_cohort.R
+mamba run -n snakemake python scripts/test_phase2_dag_helpers.py
 ```
 
 Use the production quickstart for real cohort analyses.

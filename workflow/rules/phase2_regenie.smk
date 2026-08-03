@@ -71,6 +71,8 @@ rule prepare_phase2_pan_genotypes:
         runtime=config["runtime"].get("time_min_phase2_pca", config["runtime"]["time_min_gwas"]),
     conda:
         "../../envs/gwas.yaml",
+    params:
+        out_prefix=lambda wildcards, output: str(output.pgen)[:-len(".pgen")],
     shell:
         """
         Rscript scripts/phase2_regenie.R prepare-pan-genotypes \
@@ -78,7 +80,7 @@ rule prepare_phase2_pan_genotypes:
           --sex-keep {input.sex_keep} \
           --assignments {input.assignments} \
           --excluded {input.excluded} \
-          --out-prefix {PHASE2_PAN_PREFIX} \
+          --out-prefix {params.out_prefix} \
           --keep-out {output.keep} \
           --ancestry-out {output.ancestry} \
           --summary-out {output.summary} \
@@ -112,6 +114,8 @@ rule prepare_phase2_global_pca_markers:
         "../../envs/gwas.yaml",
     params:
         pfile_prefix=lambda wildcards, input: str(input.pgen)[:-5],
+        out_prefix=lambda wildcards, output: str(output.pgen)[:-len(".pgen")],
+        prune_prefix=lambda wildcards, output: str(output.prune_in)[:-len(".prune.in")],
     shell:
         """
         Rscript scripts/phase2_regenie.R prepare-marker-set \
@@ -119,8 +123,8 @@ rule prepare_phase2_global_pca_markers:
           --branch global_pca \
           --pfile-prefix {params.pfile_prefix} \
           --keep {input.unrelated} \
-          --out-prefix {PHASE2_GLOBAL_PCA_QC_PREFIX} \
-          --prune-prefix {PHASE2_GLOBAL_PCA_PRUNE_PREFIX} \
+          --out-prefix {params.out_prefix} \
+          --prune-prefix {params.prune_prefix} \
           --prune-in {output.prune_in} \
           --excluded-regions {output.excluded} \
           --threads {threads} \
@@ -152,14 +156,16 @@ rule prepare_phase2_step1_markers:
         "../../envs/gwas.yaml",
     params:
         pfile_prefix=lambda wildcards, input: str(input.pgen)[:-5],
+        out_prefix=lambda wildcards, output: str(output.pgen)[:-len(".pgen")],
+        prune_prefix=lambda wildcards, output: str(output.prune_in)[:-len(".prune.in")],
     shell:
         """
         Rscript scripts/phase2_regenie.R prepare-marker-set \
           --config {input.config} \
           --branch step1 \
           --pfile-prefix {params.pfile_prefix} \
-          --out-prefix {PHASE2_STEP1_QC_PREFIX} \
-          --prune-prefix {PHASE2_STEP1_PRUNE_PREFIX} \
+          --out-prefix {params.out_prefix} \
+          --prune-prefix {params.prune_prefix} \
           --prune-in {output.prune_in} \
           --excluded-regions {output.excluded} \
           --threads {threads} \
@@ -190,13 +196,14 @@ rule fit_phase2_global_pca:
         "../../envs/gwas.yaml",
     params:
         pfile_prefix=lambda wildcards, input: str(input.pgen)[:-5],
+        out_prefix=lambda wildcards, output: str(output.eigenvec)[:-len(".eigenvec")],
     shell:
         """
         Rscript scripts/phase2_regenie.R fit-global-pca \
           --config {input.config} \
           --pfile-prefix {params.pfile_prefix} \
           --variants {input.variants} \
-          --out-prefix {PHASE2_GLOBAL_PCA_PREFIX} \
+          --out-prefix {params.out_prefix} \
           --threads {threads} \
           > {log} 2>&1
         """
@@ -224,6 +231,7 @@ rule score_phase2_global_pcs:
         "../../envs/gwas.yaml",
     params:
         pfile_prefix=lambda wildcards, input: str(input.pgen)[:-5],
+        out_prefix=lambda wildcards, output: str(output.sscore)[:-len(".sscore")],
     shell:
         """
         Rscript scripts/phase2_regenie.R score-global-pcs \
@@ -232,7 +240,7 @@ rule score_phase2_global_pcs:
           --variants {input.variants} \
           --weights {input.weights} \
           --frequencies {input.frequencies} \
-          --out-prefix {PHASE2_GLOBAL_PCA_SCORE_PREFIX} \
+          --out-prefix {params.out_prefix} \
           --threads {threads} \
           > {log} 2>&1
         """
@@ -292,6 +300,41 @@ rule build_phase2_regenie_group_inputs:
         """
 
 
+# Re-evaluate downstream input functions only after phenotype/covariate completeness
+# has established which singleton traits have a scientifically valid model keep.
+checkpoint select_phase2_active_groups:
+    input:
+        config=RUN_CONFIG,
+        summaries=expand(
+            f"{PHASE2_DIR}/groups/{{group}}/{{group}}.trait_summary.tsv",
+            group=PHASE2_GROUPS,
+        ),
+        traits=expand(
+            f"{PHASE2_DIR}/groups/{{group}}/{{group}}.analysis_traits.txt",
+            group=PHASE2_GROUPS,
+        ),
+        keeps=expand(
+            f"{PHASE2_DIR}/groups/{{group}}/{{group}}.keep.txt",
+            group=PHASE2_GROUPS,
+        ),
+    output:
+        status=f"{PHASE2_DIR}/trait_group_status.tsv",
+    log:
+        "results/logs/phase2_regenie/select_active_groups.log",
+    conda:
+        "../../envs/gwas.yaml",
+    shell:
+        """
+        Rscript scripts/phase2_regenie.R select-active-groups \
+          --config {input.config} \
+          --status-summary {input.summaries:q} \
+          --status-trait-list {input.traits:q} \
+          --status-keep {input.keeps:q} \
+          --out {output.status} \
+          > {log} 2>&1
+        """
+
+
 rule build_phase2_stage1_union:
     input:
         config=RUN_CONFIG,
@@ -314,7 +357,7 @@ rule build_phase2_stage1_union:
         """
 
 
-rule prepare_phase2_regenie_assoc_genotypes:
+rule prepare_phase2_regenie_assoc_variants:
     input:
         config=RUN_CONFIG,
         pgen=f"{PHASE2_PAN_PREFIX}.pgen",
@@ -322,9 +365,8 @@ rule prepare_phase2_regenie_assoc_genotypes:
         psam=f"{PHASE2_PAN_PREFIX}.psam",
         extract=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.stage1_union.snplist",
     output:
-        pgen=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.assoc_qc.pgen",
-        pvar=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.assoc_qc.pvar",
-        psam=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.assoc_qc.psam",
+        variants=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.assoc_qc.snplist",
+        summary=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.assoc_qc.summary.tsv",
     log:
         "results/logs/phase2_regenie/assoc_genotypes.{group}.log",
     threads:
@@ -336,14 +378,15 @@ rule prepare_phase2_regenie_assoc_genotypes:
         "../../envs/gwas.yaml",
     params:
         pfile_prefix=lambda wildcards, input: str(input.pgen)[:-5],
-        out_prefix=lambda wildcards, output: str(output.pgen)[:-5],
+        out_prefix=lambda wildcards, output: str(output.variants)[:-len(".snplist")],
     shell:
         """
-        Rscript scripts/phase2_regenie.R prepare-assoc-genotypes \
+        Rscript scripts/phase2_regenie.R prepare-assoc-variants \
           --config {input.config} \
           --pfile-prefix {params.pfile_prefix} \
           --extract {input.extract} \
           --out-prefix {params.out_prefix} \
+          --summary-out {output.summary} \
           --threads {threads} \
           > {log} 2>&1
         """
@@ -440,6 +483,7 @@ rule run_phase2_regenie_step1:
         tool=PHASE2_REGENIE_TOOL,
     output:
         pred=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1_pred.list",
+        loco=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1_1.loco",
         done=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1.done",
     log:
         "results/logs/phase2_regenie/regenie_step1.{group}.log",
@@ -459,18 +503,21 @@ rule run_phase2_regenie_step1:
 rule write_phase2_regenie_step2_command:
     input:
         config=RUN_CONFIG,
-        pgen=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.assoc_qc.pgen",
-        pvar=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.assoc_qc.pvar",
-        psam=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.assoc_qc.psam",
+        pgen=f"{PHASE2_PAN_PREFIX}.pgen",
+        pvar=f"{PHASE2_PAN_PREFIX}.pvar",
+        psam=f"{PHASE2_PAN_PREFIX}.psam",
+        variants=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.assoc_qc.snplist",
+        keep=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.keep.txt",
         pred=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1_pred.list",
+        loco=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.step1_1.loco",
         pheno=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.pheno.tsv",
         covar=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.covar.tsv",
         traits=f"{PHASE2_DIR}/groups/{{group}}/{{group}}.analysis_traits.txt",
         build="results/qc/genome_build/genome_build.txt",
     output:
-        command=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.{{build}}.step2.command.sh",
+        command=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.{{build}}_{{trait}}.step2.command.sh",
     log:
-        "results/logs/phase2_regenie/write_regenie_step2_command.{group}.{build}.log",
+        "results/logs/phase2_regenie/write_regenie_step2_command.{group}.{build}.{trait}.log",
     threads:
         config["runtime"].get("threads_regenie_step2", config["runtime"]["threads_gwas"])
     resources:
@@ -481,13 +528,16 @@ rule write_phase2_regenie_step2_command:
     params:
         pfile_prefix=lambda wildcards, input: str(input.pgen)[:-5],
         out_prefix=lambda wildcards: f"results/gwas/PAN/regenie/groups/{wildcards.group}/{wildcards.group}.{wildcards.build}",
-        done=lambda wildcards: f"results/gwas/PAN/regenie/groups/{wildcards.group}/{wildcards.group}.{wildcards.build}.step2.done",
+        done=lambda wildcards: f"results/gwas/PAN/regenie/groups/{wildcards.group}/{wildcards.group}.{wildcards.build}_{wildcards.trait}.step2.done",
     shell:
         """
         Rscript scripts/phase2_regenie.R write-step2-command \
           --config {input.config} \
           --group {wildcards.group} \
+          --trait {wildcards.trait} \
           --pfile-prefix {params.pfile_prefix} \
+          --extract {input.variants} \
+          --keep {input.keep} \
           --pheno {input.pheno} \
           --covar {input.covar} \
           --pred-list {input.pred} \
@@ -502,12 +552,14 @@ rule write_phase2_regenie_step2_command:
 
 rule run_phase2_regenie_step2:
     input:
-        command=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.{{build}}.step2.command.sh",
+        command=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.{{build}}_{{trait}}.step2.command.sh",
         tool=PHASE2_REGENIE_TOOL,
     output:
-        done=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.{{build}}.step2.done",
+        stats=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.{{build}}_{{trait}}.regenie",
+        ids=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.{{build}}_{{trait}}.regenie.ids",
+        done=f"results/gwas/PAN/regenie/groups/{{group}}/{{group}}.{{build}}_{{trait}}.step2.done",
     log:
-        "results/logs/phase2_regenie/regenie_step2.{group}.{build}.log",
+        "results/logs/phase2_regenie/regenie_step2.{group}.{build}.{trait}.log",
     threads:
         config["runtime"].get("threads_regenie_step2", config["runtime"]["threads_gwas"])
     resources:
@@ -524,8 +576,9 @@ rule run_phase2_regenie_step2:
 rule stage_phase2_regenie_trait:
     input:
         config=RUN_CONFIG,
-        done=phase2_trait_regenie_done,
+        model=phase2_trait_regenie_outputs,
         group_summary=lambda wildcards: f"{PHASE2_DIR}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.trait_summary.tsv",
+        keep=lambda wildcards: f"{PHASE2_DIR}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.keep.txt",
     output:
         stats="results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie",
         summary="results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv",
@@ -536,6 +589,11 @@ rule stage_phase2_regenie_trait:
     params:
         group=lambda wildcards: phase2_trait_group(wildcards),
         raw_prefix=lambda wildcards: f"results/gwas/PAN/regenie/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.{wildcards.build}",
+        sample_args=lambda wildcards, input: (
+            f"--sample-ids {input.model[1]} --model-keep {input.keep}"
+            if input.model
+            else ""
+        ),
     shell:
         """
         Rscript scripts/phase2_regenie.R stage-trait-output \
@@ -543,6 +601,7 @@ rule stage_phase2_regenie_trait:
           --trait {wildcards.trait} \
           --group-summary {input.group_summary} \
           --raw-prefix {params.raw_prefix} \
+          {params.sample_args} \
           --out-stats {output.stats} \
           --out-summary {output.summary} \
           > {log} 2>&1
