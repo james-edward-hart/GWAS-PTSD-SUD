@@ -320,13 +320,19 @@ results/plots/{trait}/PAN/
 
 ## 9. Compress And Export Results
 
-Replace `[ANALYSIS_NAME]` with `project.analysis_name`, then create the archive:
+Replace `[ANALYSIS_NAME]` with `project.analysis_name`, then create the
+meta-analysis handoff:
 
 ```bash
-tar -czf [ANALYSIS_NAME]_PTSD_SUD_GWAS.tar.gz \
-  config/config.yaml \
-  results/
+bash scripts/create_meta_analysis_export.sh \
+  [ANALYSIS_NAME]_PTSD_SUD_GWAS.tar.gz
 ```
+
+The archive contains both ancestry-stratified and PAN summary statistics, the
+complete ReMeta HTP/LD export, reports, plots, configuration, manifests, and
+aggregate QC. It omits working genotypes, native duplicate outputs,
+sample-level files, and logs. PAN and ancestry-stratified results contain
+overlapping participants and must remain separate meta-analysis streams.
 
 Export the archive to the approved destination for the cohort:
 
@@ -334,5 +340,5 @@ Export the archive to the approved destination for the cohort:
 rsync -avP [ANALYSIS_NAME]_PTSD_SUD_GWAS.tar.gz /path/to/export/location/
 ```
 
-Review the archive contents before sharing. Reports, logs, manifests, and
-config snapshots may contain private paths or cohort-specific metadata.
+Review the archive contents before sharing. Reports, manifests, and config
+snapshots may contain private paths or cohort-specific metadata.
