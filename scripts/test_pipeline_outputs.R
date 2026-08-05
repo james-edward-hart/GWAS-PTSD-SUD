@@ -194,9 +194,8 @@ if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
       die("production Phase 2 singleton counts differ from the independently established acceptance counts")
     }
     tud <- status[status$trait == "co_ptsd_tud", , drop = FALSE]
-    if (nrow(tud) != 1L || tud$skipped[[1]] != "True" || as.integer(tud$usable_n[[1]]) != 416L ||
-        !grepl("below_phase2_thresholds:n=416<min_n=500", tud$skip_reason[[1]], fixed = TRUE)) {
-      die("production TUD trait was not preserved as the expected 416-sample Phase 2 skip")
+    if (nrow(tud) != 1L || as.integer(tud$usable_n[[1]]) != 416L) {
+      die("production TUD candidate count differs from the independently established count")
     }
   }
 

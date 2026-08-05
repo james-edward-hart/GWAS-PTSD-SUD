@@ -590,11 +590,15 @@ they also determine whether a trait-specific REGENIE model is executed.
 
 | Parameter | Required | Description |
 | --- | --- | --- |
-| `min_n` | Optional | Warn below this sample count; a Phase 2 trait below it is skipped. |
+| `min_n` | Optional | Warn below this sample count; a Phase 2 trait below it is skipped. The template uses `300`. |
 | `min_cases` | Optional | Warn below this case count; a binary Phase 2 trait below it is skipped, and the value is passed to REGENIE as `--minCaseCount`. Must be at least 1. |
 | `min_controls` | Optional | Warn below this control count; a binary Phase 2 trait below it is skipped. Must be at least 1. |
 
 The workflow fails trait/ancestry cells with zero cases or zero controls.
+For binary traits, the total-N floor does not replace the separate case and
+control floors. REGENIE may also have convergence problems in small or highly
+imbalanced cohorts, so passing these thresholds does not establish adequate
+power or calibration.
 
 ### `resources`
 

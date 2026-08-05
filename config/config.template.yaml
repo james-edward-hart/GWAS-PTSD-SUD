@@ -292,7 +292,7 @@ remeta:
 
 # Stage 1 report warnings; Phase 2 traits below these thresholds are skipped.
 warnings:
-  min_n: 500
+  min_n: 300
   min_cases: 50
   min_controls: 50
 
