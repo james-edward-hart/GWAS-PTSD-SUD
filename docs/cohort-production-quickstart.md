@@ -46,13 +46,17 @@ fingerprint (that printed to terminal) as `reference_package.fingerprint`.
 
 ## 3. Prepare Cohort Inputs
 
-Prepare one PLINK genotype dataset (already imputed):
+Prepare one PLINK genotype dataset. ReMeta is enabled by default and requires
+the source data as PGEN/PVAR/PSAM:
 
 ```text
 PGEN/PVAR/PSAM
-or
-BED/BIM/FAM
 ```
+
+Phase 2 can convert BED/BIM/FAM to a temporary PGEN for REGENIE, but that does
+not recover dosages or verified REF/ALT. Set `remeta.enabled: false` for any BED
+source or non-imputed array data. ReMeta accepts normalized WES hardcalls or
+imputed dosages supplied as PGEN.
 
 Use the genotype prefix without the file extension in `config/config.yaml`.
 
@@ -158,10 +162,23 @@ gwas:
 
 phase2_regenie:
   enabled: true
+
+remeta:
+  enabled: true
+  data_source: "imputed"
+  genotype_mode: "dosage"
+  input_variants_normalized: true
 ```
 
 PLINK2 expects INFO/MaCH R2 annotations for the INFO filter. If your data do
 not have INFO annotations, set `qc.use_mach_r2_filter: false`.
+
+The settings above are for imputed PGEN data. For WES, use `data_source: "wes"`
+and `genotype_mode: "hardcall"`. Confirm splitting, left-normalization, and
+reference alignment before setting `input_variants_normalized: true`.
+
+ReMeta writes HTP statistics, sample-matched within-gene LD, validation files,
+and rare-variant reports; it does not run gene tests.
 
 Edit the SLURM profile:
 
@@ -227,9 +244,8 @@ mamba env update -n gwas-stage1 -f envs/gwas.yaml --prune
 ```
 
 Snakemake creates hashed rule environments under the profile `conda-prefix`.
-When the optional cohort ReMeta export is enabled, Snakemake also creates the
-pinned Linux environment from `envs/remeta.yaml`; no central-analysis software
-or code is installed by this pipeline.
+With ReMeta enabled, Snakemake creates the pinned environment from
+`envs/remeta.yaml`. The pipeline does not install central-analysis software.
 To build all workflow rule environments up front, including the Phase 2 regenie
 environment, run this after activating `gwas-stage1-driver`:
 
@@ -307,7 +323,10 @@ results/plots/{trait}/PAN/
 Create a run archive:
 
 ```bash
-tar -czf cohort_stage1_gwas_results_YYYY-MM-DD.tar.gz \
+analysis_name="cohort_stage1_gwas"  # Match project.analysis_name in the config.
+archive="${analysis_name}_PTSD_SUD_GWAS.tar.gz"
+
+tar -czf "$archive" \
   config/config.yaml \
   results/
 ```
@@ -315,7 +334,7 @@ tar -czf cohort_stage1_gwas_results_YYYY-MM-DD.tar.gz \
 Export the archive to the approved destination for the cohort:
 
 ```bash
-rsync -avP cohort_stage1_gwas_results_YYYY-MM-DD.tar.gz /path/to/export/location/
+rsync -avP "$archive" /path/to/export/location/
 ```
 
 Review the archive contents before sharing. Reports, logs, manifests, and

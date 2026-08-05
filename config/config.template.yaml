@@ -272,7 +272,8 @@ phase2_regenie:
 # deliberately produces no local gene p-values: it exports sample-matched
 # regenie HTP statistics and marginal, within-gene LD matrices.
 remeta:
-  enabled: false
+  # Enabled by default. Disable for non-imputed arrays, WGS, or BED sources.
+  enabled: true
   # Only wes or imputed are accepted. Basic genotyping-array data are excluded.
   data_source: ""
   # Required pairing: wes=hardcall, imputed=dosage.
