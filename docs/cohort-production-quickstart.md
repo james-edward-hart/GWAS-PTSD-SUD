@@ -320,13 +320,10 @@ results/plots/{trait}/PAN/
 
 ## 9. Compress And Export Results
 
-Create a run archive:
+Replace `[ANALYSIS_NAME]` with `project.analysis_name`, then create the archive:
 
 ```bash
-analysis_name="cohort_stage1_gwas"  # Match project.analysis_name in the config.
-archive="${analysis_name}_PTSD_SUD_GWAS.tar.gz"
-
-tar -czf "$archive" \
+tar -czf [ANALYSIS_NAME]_PTSD_SUD_GWAS.tar.gz \
   config/config.yaml \
   results/
 ```
@@ -334,7 +331,7 @@ tar -czf "$archive" \
 Export the archive to the approved destination for the cohort:
 
 ```bash
-rsync -avP "$archive" /path/to/export/location/
+rsync -avP [ANALYSIS_NAME]_PTSD_SUD_GWAS.tar.gz /path/to/export/location/
 ```
 
 Review the archive contents before sharing. Reports, logs, manifests, and
