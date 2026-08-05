@@ -229,11 +229,48 @@ if (truthy(config$phase2_regenie$enabled %||% FALSE)) {
     require_file(top_hits, "missing Phase 2 top hits")
     require_nonempty_file(report, "missing Phase 2 report")
     report_text <- readLines(report, warn = FALSE)
+    skipped <- identical(status_row$skipped[[1]], "True")
     if (!any(grepl(paste0("Trait-specific group: ", group), report_text, fixed = TRUE))) {
       die("Phase 2 report lacks its singleton group: ", report)
     }
+    if (truthy(config$remeta$enabled %||% FALSE)) {
+      rare_report <- file.path(results, "reports", trait,
+        paste0(analysis_name, ".", trait, ".PAN.", build, ".rare_variant.regenie.report.md"))
+      require_nonempty_file(rare_report, "missing rare-variant report")
+      rare_text <- readLines(rare_report, warn = FALSE)
+      if (!any(grepl("Rare-variant REGENIE and ReMeta export report", report_text, fixed = TRUE)) ||
+          any(grepl("ReMeta LD Target Coverage", report_text, fixed = TRUE))) {
+        die("Phase 2 report does not cleanly delegate rare-variant reporting: ", report)
+      }
 
-    skipped <- identical(status_row$skipped[[1]], "True")
+      rare_stem <- file.path(results, "plots", trait, "PAN",
+        paste0(analysis_name, ".", trait, ".PAN.", build, ".rare_variant.regenie"))
+      rare_metrics <- file.path(pan_dir,
+        paste0(trait, ".PAN.", build, ".rare_variant.association_metrics.tsv"))
+      rare_hits <- file.path(pan_dir,
+        paste0(trait, ".PAN.", build, ".rare_variant.top_hits.tsv"))
+      rare_plots <- c(
+        paste0(rare_stem, ".qq.png"), paste0(rare_stem, ".manhattan.png"),
+        paste0(rare_stem, ".manhattan.pdf"), paste0(rare_stem, ".mac_qq.png"),
+        paste0(rare_stem, ".effect_frequency.png")
+      )
+      if (skipped) {
+        if (!any(grepl("Export status: skipped", rare_text, fixed = TRUE)) ||
+            any(file.exists(c(rare_metrics, rare_hits, rare_plots)))) {
+          die("skipped trait has a synthetic rare-variant reporting artifact: ", trait)
+        }
+      } else {
+        require_file(rare_metrics, "missing active-trait rare-variant metrics")
+        require_file(rare_hits, "missing active-trait rare-variant top hits")
+        for (path in rare_plots) require_nonempty_file(path, "missing active-trait rare-variant plot")
+        if (!any(grepl("ReMeta LD Target Coverage", rare_text, fixed = TRUE)) ||
+            !any(grepl("MAC-stratified QQ plot", rare_text, fixed = TRUE)) ||
+            !any(grepl("does not contain a local burden, SKAT, mask, gene, or", rare_text, fixed = TRUE))) {
+          die("active rare-variant report is incomplete: ", rare_report)
+        }
+      }
+    }
+
     keep_count <- if (file.info(keep_path)$size > 0) length(id_keys(keep_path, paste(trait, "model keep"))) else 0L
     if (keep_count != as.integer(status_row$keep_count[[1]]) ||
         keep_count != as.integer(status_row$model_sample_count[[1]])) {

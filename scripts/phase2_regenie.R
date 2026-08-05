@@ -12,7 +12,7 @@ if (!length(raw)) die("missing Phase 2 regenie subtask")
 subtask <- raw[[1]]
 args <- parse_args(
   defaults = list(threads = "1", keep = "", "stage1-summary" = character(),
-    "stage1-stats" = character(), "remeta-validation" = "", "status-summary" = character(),
+    "stage1-stats" = character(), "rare-variant-report" = "", "status-summary" = character(),
     "status-trait-list" = character(), "status-keep" = character(), "sample-ids" = "",
     "model-keep" = ""),
   repeated = c("stage1-summary", "stage1-stats", "status-summary", "status-trait-list", "status-keep"),
@@ -1206,105 +1206,10 @@ top_hit_lines <- function(rows) {
 }
 
 
-key_value <- function(df, key, default = "NA") {
-  if (!nrow(df) || !"key" %in% names(df) || !"value" %in% names(df)) return(default)
-  hit <- df$value[df$key == key]
-  if (length(hit)) as.character(hit[[1]]) else default
-}
-
-
-coverage_percent_label <- function(value) {
-  numeric_value <- suppressWarnings(as.numeric(value))
-  if (length(numeric_value) && is.finite(numeric_value[[1]])) {
-    return(sprintf("%.2f%%", numeric_value[[1]]))
-  }
-  "NA"
-}
-
-
-remeta_ld_coverage_lines <- function(config, validation_path, skipped, skip_reason, model_sample_count) {
-  if (!truthy(config$remeta$enabled %||% FALSE)) return(character())
-  if (skipped) {
-    if (!blank(validation_path)) die("skipped Phase 2 trait unexpectedly has a ReMeta validation artifact")
-    return(c(
-      "## ReMeta LD Target Coverage", "",
-      "ReMeta export skipped because no Phase 2 model was run for this trait.", "",
-      paste0("- Phase 2 skip reason: ", skip_reason)
-    ))
-  }
-  if (blank(validation_path) || !file.exists(validation_path)) {
-    die("ReMeta is enabled but its group validation summary is unavailable: ", validation_path)
-  }
-  coverage <- read_tsv(validation_path)
-  require_columns(coverage, c("key", "value"), validation_path)
-  required <- c(
-    "sample_count", "ordinary_regenie_sample_count", "rare_regenie_sample_count",
-    "target_variant_count", "unique_ld_target_variant_count", "target_variants_not_indexed",
-    "target_variant_ld_coverage_pct", "reference_gene_count", "indexed_gene_count",
-    "genes_without_indexed_variants", "indexed_gene_coverage_pct", "ld_gene_variant_assignments",
-    "ld_assignments_within_gene_bounds", "ld_assignments_outside_gene_bounds",
-    "ld_assignment_gene_bound_coverage_pct"
-  )
-  missing <- setdiff(required, coverage$key)
-  if (length(missing)) {
-    die("ReMeta group validation summary lacks LD coverage metric(s): ", paste(missing, collapse = ", "))
-  }
-  observed_samples <- suppressWarnings(as.integer(key_value(coverage, "sample_count")))
-  if (is.na(observed_samples) || observed_samples != as.integer(model_sample_count)) {
-    die("ReMeta validation sample count does not match the final Phase 2 model sample count")
-  }
-
-  c(
-    "## ReMeta LD Target Coverage", "",
-    paste0(
-      "Coverage is calculated from the group-specific LD indexes and their matching QC-filtered ",
-      "target PGEN. A target variant can be assigned to more than one overlapping gene, so unique ",
-      "variants and gene-variant assignments are reported separately."
-    ), "",
-    paste0("- Validated model samples: ", observed_samples),
-    paste0("- Ordinary REGENIE samples: ", key_value(coverage, "ordinary_regenie_sample_count")),
-    paste0("- Rare-variant REGENIE samples: ", key_value(coverage, "rare_regenie_sample_count")), "",
-    "| Coverage metric | Observed | Denominator | Coverage |",
-    "| --- | ---: | ---: | ---: |",
-    paste0(
-      "| Target genes with at least one indexed LD variant | ",
-      key_value(coverage, "indexed_gene_count"), " | ",
-      key_value(coverage, "reference_gene_count"), " | ",
-      coverage_percent_label(key_value(coverage, "indexed_gene_coverage_pct")), " |"
-    ),
-    paste0(
-      "| QC-passing target-region variants represented in LD indexes | ",
-      key_value(coverage, "unique_ld_target_variant_count"), " | ",
-      key_value(coverage, "target_variant_count"), " | ",
-      coverage_percent_label(key_value(coverage, "target_variant_ld_coverage_pct")), " |"
-    ),
-    paste0(
-      "| Indexed gene-variant assignments within declared gene spans | ",
-      key_value(coverage, "ld_assignments_within_gene_bounds"), " | ",
-      key_value(coverage, "ld_gene_variant_assignments"), " | ",
-      coverage_percent_label(key_value(coverage, "ld_assignment_gene_bound_coverage_pct")), " |"
-    ), "",
-    paste0(
-      "- Target genes without an indexed LD variant: ",
-      key_value(coverage, "genes_without_indexed_variants")
-    ),
-    paste0(
-      "- Target-region variants absent from every LD gene index: ",
-      key_value(coverage, "target_variants_not_indexed")
-    ),
-    paste0(
-      "- Indexed gene-variant assignments outside the declared gene span: ",
-      key_value(coverage, "ld_assignments_outside_gene_bounds")
-    ),
-    "- Conditional buffer variants: not included (`--skip-buffer`; marginal LD export)."
-  )
-}
-
-
 make_phase2_report <- function(config, trait, build, stats, stats_metrics_path, top_hits_path, summary_path,
                                group_summary, union_summary, pan_summary, ancestry_summary, qq, manhattan,
                                manhattan_pdf, stage1_summaries,
-                               remeta_validation, out) {
+                               rare_variant_report, out) {
   summary <- read_tsv(summary_path)
   skipped <- identical(summary$skipped[[1]], "True")
   stage1 <- data.frame()
@@ -1381,10 +1286,13 @@ make_phase2_report <- function(config, trait, build, stats, stats_metrics_path, 
   union_n <- union$variants[union$file == "UNION"][[1]]
   step2_maf_min <- phase2_step2_maf_min(config)
   step2_maf_label <- if (is.na(step2_maf_min)) "not_applied" else as.character(step2_maf_min)
-  remeta_lines <- remeta_ld_coverage_lines(
-    config, remeta_validation, skipped, summary$skip_reason[[1]], summary$model_sample_count[[1]]
-  )
-  remeta_block <- if (length(remeta_lines)) c(remeta_lines, "") else character()
+  rare_report_block <- if (!blank(rare_variant_report)) c(
+    "## Related Report", "",
+    paste0(
+      "[Rare-variant REGENIE and ReMeta export report](",
+      report_relative_path(rare_variant_report, out), ")"
+    ), ""
+  ) else character()
 
   lines <- c(
     paste0("# Phase 2 PAN Regenie Report: ", config$project$analysis_name, " / ", trait), "",
@@ -1411,7 +1319,7 @@ make_phase2_report <- function(config, trait, build, stats, stats_metrics_path, 
     paste0("- Step 2 pooled MAF minimum: ", step2_maf_label),
     paste0("- Regenie minMAC: ", config$phase2_regenie$min_mac %||% 1),
     paste0("- Regenie minINFO: ", ifelse(truthy(config$qc$use_mach_r2_filter %||% FALSE), as.character(qc_info_min(config)), "not_applied")), "",
-    remeta_block,
+    rare_report_block,
     "## REGENIE Run Settings", "",
     paste0("- Global PCs: ", phase2_pc_count(config)),
     paste0("- Step 1 block size: ", config$phase2_regenie$step1_bsize %||% 1000),
@@ -1502,7 +1410,7 @@ if (subtask == "write-groups") {
   make_phase2_report(config, args$trait, args$build, args$stats, args[["stats-metrics"]], args[["top-hits"]],
     args$summary, args[["group-summary"]], args[["union-summary"]], args[["pan-summary"]],
     args[["ancestry-summary"]], args$qq, args$manhattan, args[["manhattan-pdf"]], args[["stage1-summary"]],
-    args[["remeta-validation"]], args$out)
+    args[["rare-variant-report"]], args$out)
 } else if (subtask == "check-options") {
   if (!blank(args[["options-file"]] %||% "")) {
     value <- paste(readLines(args[["options-file"]], warn = FALSE), collapse = " ")

@@ -15,6 +15,9 @@ sys.path.insert(0, str(repo))
 from workflow.snake_helpers import (
     phase2_trait_groups,
     phase2_trait_regenie_outputs,
+    rare_variant_active_artifact,
+    rare_variant_report_for_trait,
+    rare_variant_report_targets,
     remeta_manifest_inputs,
 )
 
@@ -38,14 +41,20 @@ def config_for(samples, traits):
             "global_pcs": 2,
             "default_covariates": ["age", "sex", "PC1", "PC2"],
         },
+        "project": {"analysis_name": "dag_test"},
         "remeta": {"enabled": True},
     }
 
 
-def checkpoints_for(status):
+def checkpoints_for(status, build):
     result = SimpleNamespace(output=SimpleNamespace(status=status))
     checkpoint = SimpleNamespace(get=lambda: result)
-    return SimpleNamespace(select_phase2_active_groups=checkpoint)
+    build_result = SimpleNamespace(output=SimpleNamespace(build=build))
+    build_checkpoint = SimpleNamespace(get=lambda: build_result)
+    return SimpleNamespace(
+        select_phase2_active_groups=checkpoint,
+        infer_genome_build=build_checkpoint,
+    )
 
 
 with tempfile.TemporaryDirectory(prefix="phase2-dag-") as tmpdir:
@@ -64,6 +73,7 @@ with tempfile.TemporaryDirectory(prefix="phase2-dag-") as tmpdir:
         "Q\tQ\t\t\tNA\t\n",
     )
     config = config_for(samples, traits)
+    build = write(root / "build.txt", "GRCh38\n")
     groups = phase2_trait_groups(config)
     observed = {row["traits"][0]: row["group"] for row in groups}
     assert observed == {"A": "bt__A", "B": "bt__B", "Q": "qt__Q"}
@@ -86,12 +96,27 @@ with tempfile.TemporaryDirectory(prefix="phase2-dag-") as tmpdir:
         "bt__B\tB\tbt\t1\t0\t0\thash-b\tTrue\tFalse\n"
         "qt__Q\tQ\tqt\t2\t2\t2\thash-q\tFalse\tTrue\n",
     )
-    checkpoints = checkpoints_for(status)
+    checkpoints = checkpoints_for(status, build)
     active_wc = SimpleNamespace(trait="A", build="GRCh38")
     skipped_wc = SimpleNamespace(trait="B", build="GRCh38")
     active_outputs = phase2_trait_regenie_outputs(checkpoints, active_wc, config)
     assert len(active_outputs) == 3 and all("bt__A" in path for path in active_outputs)
     assert phase2_trait_regenie_outputs(checkpoints, skipped_wc, config) == []
+    expected_reports = rare_variant_report_targets(
+        checkpoints, ["A", "B", "Q"], SimpleNamespace(), config
+    )
+    assert len(expected_reports) == 3 and any("B.PAN.GRCh38.rare_variant" in path for path in expected_reports)
+    assert rare_variant_report_for_trait(checkpoints, active_wc, config) == [expected_reports[0]]
+    assert rare_variant_report_for_trait(checkpoints, skipped_wc, config) == [expected_reports[1]]
+    assert rare_variant_active_artifact(checkpoints, active_wc, config, "htp") == [
+        "results/remeta/export/GRCh38/htp/A.PAN.regenie.gz"
+    ]
+    assert rare_variant_active_artifact(checkpoints, skipped_wc, config, "htp") == []
+    disabled_config = {**config, "remeta": {"enabled": False}}
+    assert rare_variant_report_targets(
+        checkpoints, ["A", "B", "Q"], SimpleNamespace(), disabled_config
+    ) == []
+    assert rare_variant_report_for_trait(checkpoints, active_wc, disabled_config) == []
 
     artifacts = remeta_manifest_inputs(checkpoints, config, "GRCh38")
     assert len(artifacts) == 2 * (22 * 3 + 1)
@@ -104,9 +129,13 @@ with tempfile.TemporaryDirectory(prefix="phase2-dag-") as tmpdir:
         "bt__B\tB\tbt\t1\t0\t0\thash-b\tTrue\tFalse\n"
         "qt__Q\tQ\tqt\t2\t0\t0\thash-q\tTrue\tFalse\n",
     )
-    skipped_checkpoints = checkpoints_for(all_skipped)
+    skipped_checkpoints = checkpoints_for(all_skipped, build)
     assert phase2_trait_regenie_outputs(skipped_checkpoints, active_wc, config) == []
     assert remeta_manifest_inputs(skipped_checkpoints, config, "GRCh38") == []
+    assert len(rare_variant_report_targets(
+        skipped_checkpoints, ["A", "B", "Q"], SimpleNamespace(), config
+    )) == 3
+    assert rare_variant_active_artifact(skipped_checkpoints, active_wc, config, "metrics") == []
 
     duplicate_traits = write(
         root / "duplicate_traits.tsv",
@@ -160,14 +189,32 @@ with tempfile.TemporaryDirectory(prefix="phase2-dag-") as tmpdir:
 import shutil
 import sys
 sys.path.insert(0, {str(repo)!r})
-from workflow.snake_helpers import remeta_manifest_inputs
+from workflow.snake_helpers import rare_variant_report_targets, remeta_manifest_inputs
+
+fixture_config = {{
+    "project": {{"analysis_name": "dag_test"}},
+    "phase2_regenie": {{"enabled": True}},
+    "remeta": {{"enabled": True}},
+}}
+fixture_traits = [row.split("\\t")[1] for row in {status_rows!r}]
 
 def dynamic_targets(wildcards):
     return remeta_manifest_inputs(checkpoints, {{"remeta": {{"enabled": True}}}}, "GRCh38")
 
+def dynamic_reports(wildcards):
+    return rare_variant_report_targets(checkpoints, fixture_traits, wildcards, fixture_config)
+
 rule all:
     input:
-        dynamic_targets
+        dynamic_targets,
+        dynamic_reports
+
+checkpoint infer_genome_build:
+    output:
+        build="results/qc/genome_build/genome_build.txt"
+    run:
+        Path(output.build).parent.mkdir(parents=True, exist_ok=True)
+        Path(output.build).write_text("GRCh38\\n")
 
 checkpoint select_phase2_active_groups:
     input:
@@ -196,6 +243,13 @@ rule ld:
         for path in output:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             Path(path).touch()
+
+rule rare_report:
+    output:
+        "results/reports/{{trait}}/dag_test.{{trait}}.PAN.{{build}}.rare_variant.regenie.report.md"
+    run:
+        Path(output[0]).parent.mkdir(parents=True, exist_ok=True)
+        Path(output[0]).touch()
 '''
             )
             environment = dict(os.environ)
@@ -227,6 +281,8 @@ rule ld:
             ld = list((case / "results/remeta/export/GRCh38/ld").glob("*/chr*.remeta.*"))
             assert len(htp) == expected_active
             assert len(ld) == expected_active * 22 * 3
+            reports = list((case / "results/reports").glob("*/*.rare_variant.regenie.report.md"))
+            assert len(reports) == len(status_rows)
             assert not any("TUD" in str(path) for path in htp + ld)
 
         active_rows = [

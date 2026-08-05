@@ -370,6 +370,26 @@ def phase2_report_targets(checkpoints, traits, wildcards, config):
     ]
 
 
+def rare_variant_report_path(config, trait, build):
+    analysis_name = analysis_output_name(config)
+    return (
+        f"results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}."
+        "rare_variant.regenie.report.md"
+    )
+
+
+def rare_variant_report_targets(checkpoints, traits, wildcards, config):
+    if not remeta_enabled(config):
+        return []
+    if not phase2_enabled(config):
+        workflow_error("rare-variant reports require phase2_regenie.enabled")
+    build = inferred_build(checkpoints)
+    status_traits = [row["trait"] for row in phase2_status_rows(checkpoints)]
+    if set(status_traits) != set(traits):
+        workflow_error("Phase 2 status traits do not match the configured rare-report traits")
+    return [rare_variant_report_path(config, trait, build) for trait in traits]
+
+
 def phase2_group_stage1_stats(checkpoints, wildcards, config):
     build = inferred_build(checkpoints)
     ancestries = active_ancestries(checkpoints, wildcards)
@@ -523,14 +543,50 @@ def remeta_validations(checkpoints, config, build):
     ]
 
 
-def remeta_validation_for_trait(checkpoints, wildcards, config):
+def rare_variant_report_for_trait(checkpoints, wildcards, config):
     if not remeta_enabled(config):
         return []
+    if not phase2_enabled(config):
+        workflow_error("rare-variant reports require phase2_regenie.enabled")
+    phase2_trait_status(checkpoints, wildcards.trait)
+    return [rare_variant_report_path(config, wildcards.trait, wildcards.build)]
+
+
+def rare_variant_active_artifact(checkpoints, wildcards, config, artifact):
+    if not remeta_enabled(config):
+        return []
+    if not phase2_enabled(config):
+        workflow_error("rare-variant reports require phase2_regenie.enabled")
     status = phase2_trait_status(checkpoints, wildcards.trait)
     if status["skipped"] == "True":
         return []
-    group = phase2_trait_group(config, wildcards.trait)
-    return [f"results/remeta/work/{wildcards.build}/groups/{group}/{group}.validation.ok"]
+
+    trait = wildcards.trait
+    build = wildcards.build
+    group = phase2_trait_group(config, trait)
+    analysis_name = analysis_output_name(config)
+    plot_stem = (
+        f"results/plots/{trait}/PAN/{analysis_name}.{trait}.PAN.{build}."
+        "rare_variant.regenie"
+    )
+    gwas_stem = f"results/gwas/{trait}/PAN/{trait}.PAN.{build}.rare_variant"
+    paths = {
+        "htp": f"results/remeta/export/{build}/htp/{trait}.PAN.regenie.gz",
+        "target_summary": (
+            f"results/remeta/work/{build}/groups/{group}/{group}.target.summary.tsv"
+        ),
+        "validation": f"results/remeta/work/{build}/groups/{group}/{group}.validation.ok",
+        "metrics": f"{gwas_stem}.association_metrics.tsv",
+        "top_hits": f"{gwas_stem}.top_hits.tsv",
+        "qq": f"{plot_stem}.qq.png",
+        "manhattan": f"{plot_stem}.manhattan.png",
+        "manhattan_pdf": f"{plot_stem}.manhattan.pdf",
+        "mac_qq": f"{plot_stem}.mac_qq.png",
+        "effect_frequency": f"{plot_stem}.effect_frequency.png",
+    }
+    if artifact not in paths:
+        workflow_error(f"unknown rare-report artifact: {artifact}")
+    return [paths[artifact]]
 
 
 # Keep POP-MaD outputs in the production ancestry directory.

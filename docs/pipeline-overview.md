@@ -77,8 +77,14 @@ results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manh
 results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manhattan.pdf
 results/plots/{trait}/PAN/{analysis_name}.{trait}.PAN.{build}.regenie.qq.png
 results/plots/{trait}/PAN/{analysis_name}.{trait}.PAN.{build}.regenie.manhattan.png
+results/plots/{trait}/PAN/{analysis_name}.{trait}.PAN.{build}.rare_variant.regenie.qq.png
+results/plots/{trait}/PAN/{analysis_name}.{trait}.PAN.{build}.rare_variant.regenie.manhattan.{png,pdf}
+results/plots/{trait}/PAN/{analysis_name}.{trait}.PAN.{build}.rare_variant.regenie.mac_qq.png
+results/plots/{trait}/PAN/{analysis_name}.{trait}.PAN.{build}.rare_variant.regenie.effect_frequency.png
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.rare_variant.{association_metrics,top_hits}.tsv
 results/reports/{trait}/{analysis_name}.{trait}.{ancestry}.{build}.report.md
 results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}.regenie.report.md
+results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}.rare_variant.regenie.report.md
 results/manifests/run_manifest.tsv
 results/remeta/export/{build}/htp/{trait}.PAN.regenie.gz
 results/remeta/export/{build}/ld/{group}/chr{chrom}.remeta.gene.ld
@@ -86,5 +92,9 @@ results/remeta/export/{analysis_name}.{build}.remeta_manifest.tsv
 ```
 
 `{analysis_name}` is the filename-safe version of `project.analysis_name`.
+Rare-variant reports are present only when ReMeta export is enabled. They
+summarize the existing target-region single-variant HTP and validated LD; they
+do not run or report local gene tests. Skipped traits receive a text-only audit
+report without synthetic HTP, LD, metric, or plot files.
 The production review and archive sequence is in
 [cohort-production-quickstart.md](cohort-production-quickstart.md).

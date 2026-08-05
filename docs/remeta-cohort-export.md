@@ -110,11 +110,17 @@ For each active Phase 2 singleton trait group, the branch:
    HTP-to-PVAR/LD membership, and gene/index consistency.
 6. Writes the export manifest with SHA-256 hashes and byte counts.
 
-When ReMeta is enabled, each final Phase 2 PAN report includes a **ReMeta LD
-Target Coverage** section derived from that trait group's validated artifacts.
-It reports target genes with indexed variants, unique QC-passing target-region
-variants represented in the LD indexes, gene-variant assignments within their
-declared gene spans, uncovered counts, and the no-buffer policy.
+When ReMeta is enabled, each configured trait receives a separate rare-variant
+report. Active reports summarize the existing single-variant HTP, overall and
+MAC-stratified QQ plots, a target-region Manhattan plot, effect versus cohort
+frequency, and validated LD coverage. The ordinary PAN report links to this
+report instead of repeating the LD section. Skipped traits receive a text-only
+audit report and no synthetic scientific artifacts.
+
+The report is intentionally not a local burden, SKAT, mask, gene, or
+meta-analysis result. Cohort AAF and MAC are diagnostic; the central analysis
+still supplies external rarity harmonization, annotations, masks, and ReMeta
+gene tests.
 
 The group keep contains complete covariates and a valid phenotype for exactly
 one trait. A status checkpoint schedules REGENIE and ReMeta only for active
@@ -147,6 +153,15 @@ results/remeta/export/{build}/ld/{group}/chr1.remeta.buffer.ld
 results/remeta/export/{build}/ld/{group}/chr1.remeta.ld.idx.gz
 ...
 results/remeta/export/{analysis_name}.{build}.remeta_manifest.tsv
+```
+
+Reporting derivatives remain outside the checksummed export tree:
+
+```text
+results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}.rare_variant.regenie.report.md
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.rare_variant.association_metrics.tsv
+results/gwas/{trait}/PAN/{trait}.PAN.{build}.rare_variant.top_hits.tsv
+results/plots/{trait}/PAN/{analysis_name}.{trait}.PAN.{build}.rare_variant.regenie.*
 ```
 
 The chromosome partitions are reusable work products at

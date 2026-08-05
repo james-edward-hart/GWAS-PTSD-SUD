@@ -161,6 +161,42 @@ rule plot_phase2_regenie:
         """
 
 
+rule plot_rare_variant_regenie:
+    input:
+        config=RUN_CONFIG,
+        htp="results/remeta/export/{build}/htp/{trait}.PAN.regenie.gz",
+        validation=lambda wildcards: rare_variant_active_artifact(wildcards, "validation"),
+        trait_summary=lambda wildcards: f"{PHASE2_DIR}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.trait_summary.tsv",
+    output:
+        qq=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.rare_variant.regenie.qq.png",
+        manhattan=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.rare_variant.regenie.manhattan.png",
+        manhattan_pdf=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.rare_variant.regenie.manhattan.pdf",
+        mac_qq=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.rare_variant.regenie.mac_qq.png",
+        effect_frequency=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.rare_variant.regenie.effect_frequency.png",
+        metrics="results/gwas/{trait}/PAN/{trait}.PAN.{build}.rare_variant.association_metrics.tsv",
+        top_hits="results/gwas/{trait}/PAN/{trait}.PAN.{build}.rare_variant.top_hits.tsv",
+    log:
+        "results/logs/reporting/plot_rare_variant_regenie.{trait}.{build}.log",
+    conda:
+        "../../envs/reporting.yaml",
+    shell:
+        """
+        Rscript scripts/plot_gwas.R \
+          --config {input.config:q} \
+          --stats {input.htp:q} \
+          --trait-summary {input.trait_summary:q} \
+          --qq {output.qq:q} \
+          --manhattan {output.manhattan:q} \
+          --manhattan-pdf {output.manhattan_pdf:q} \
+          --mac-qq {output.mac_qq:q} \
+          --effect-frequency {output.effect_frequency:q} \
+          --metrics-out {output.metrics:q} \
+          --top-hits-out {output.top_hits:q} \
+          --large-plot-threshold 10000000 \
+          > {log:q} 2>&1
+        """
+
+
 rule make_phase2_regenie_report:
     input:
         config=RUN_CONFIG,
@@ -176,7 +212,7 @@ rule make_phase2_regenie_report:
         manhattan=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.manhattan.png",
         manhattan_pdf=f"results/plots/{{trait}}/PAN/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.manhattan.pdf",
         stage1_summary=phase2_trait_stage1_summaries,
-        remeta_validation=remeta_validation_for_trait,
+        rare_variant_report=rare_variant_report_for_trait,
     output:
         report=f"results/reports/{{trait}}/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.regenie.report.md",
     log:
@@ -184,9 +220,9 @@ rule make_phase2_regenie_report:
     conda:
         "../../envs/gwas.yaml",
     params:
-        remeta_validation_arg=lambda wildcards, input: (
-            f"--remeta-validation {input.remeta_validation[0]}"
-            if input.remeta_validation
+        rare_variant_report_arg=lambda wildcards, input: (
+            f"--rare-variant-report {shlex.quote(str(input.rare_variant_report[0]))}"
+            if input.rare_variant_report
             else ""
         ),
     shell:
@@ -207,9 +243,61 @@ rule make_phase2_regenie_report:
           --manhattan {input.manhattan} \
           --manhattan-pdf {input.manhattan_pdf} \
           --stage1-summary {input.stage1_summary} \
-          {params.remeta_validation_arg} \
+          {params.rare_variant_report_arg} \
           --out {output.report} \
           > {log} 2>&1
+        """
+
+
+rule make_rare_variant_regenie_report:
+    input:
+        config=RUN_CONFIG,
+        summary="results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv",
+        group_summary=lambda wildcards: f"{PHASE2_DIR}/groups/{phase2_trait_group(wildcards)}/{phase2_trait_group(wildcards)}.trait_summary.tsv",
+        htp=lambda wildcards: rare_variant_active_artifact(wildcards, "htp"),
+        target_summary=lambda wildcards: rare_variant_active_artifact(wildcards, "target_summary"),
+        validation=lambda wildcards: rare_variant_active_artifact(wildcards, "validation"),
+        metrics=lambda wildcards: rare_variant_active_artifact(wildcards, "metrics"),
+        top_hits=lambda wildcards: rare_variant_active_artifact(wildcards, "top_hits"),
+        qq=lambda wildcards: rare_variant_active_artifact(wildcards, "qq"),
+        manhattan=lambda wildcards: rare_variant_active_artifact(wildcards, "manhattan"),
+        manhattan_pdf=lambda wildcards: rare_variant_active_artifact(wildcards, "manhattan_pdf"),
+        mac_qq=lambda wildcards: rare_variant_active_artifact(wildcards, "mac_qq"),
+        effect_frequency=lambda wildcards: rare_variant_active_artifact(wildcards, "effect_frequency"),
+    output:
+        report=f"results/reports/{{trait}}/{ANALYSIS_OUTPUT_NAME}.{{trait}}.PAN.{{build}}.rare_variant.regenie.report.md",
+    log:
+        "results/logs/reporting/make_rare_variant_regenie_report.{trait}.{build}.log",
+    conda:
+        "../../envs/gwas.yaml",
+    params:
+        active_args=lambda wildcards, input: " ".join(
+            f"--{flag} {shlex.quote(str(getattr(input, name)[0]))}"
+            for flag, name in (
+                ("htp", "htp"),
+                ("target-summary", "target_summary"),
+                ("validation", "validation"),
+                ("metrics", "metrics"),
+                ("top-hits", "top_hits"),
+                ("qq", "qq"),
+                ("manhattan", "manhattan"),
+                ("manhattan-pdf", "manhattan_pdf"),
+                ("mac-qq", "mac_qq"),
+                ("effect-frequency", "effect_frequency"),
+            )
+            if getattr(input, name)
+        ),
+    shell:
+        """
+        Rscript scripts/make_rare_variant_report.R \
+          --config {input.config:q} \
+          --trait {wildcards.trait:q} \
+          --build {wildcards.build:q} \
+          --summary {input.summary:q} \
+          --group-summary {input.group_summary:q} \
+          {params.active_args} \
+          --out {output.report:q} \
+          > {log:q} 2>&1
         """
 
 
@@ -218,6 +306,7 @@ rule write_run_manifest:
         config=RUN_CONFIG,
         reports=report_targets,
         phase2_reports=phase2_report_targets,
+        rare_variant_reports=rare_variant_report_targets,
         regenie_tool=phase2_regenie_tool_input,
         build="results/qc/genome_build/genome_build.txt",
     output:

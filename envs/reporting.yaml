@@ -5,4 +5,5 @@ channels:
 dependencies:
   - r-base>=4.3,<5
   - r-data.table
+  - r-r.utils
   - r-yaml>=2.3

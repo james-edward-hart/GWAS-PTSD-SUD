@@ -21,6 +21,9 @@ from workflow.snake_helpers import (
     phase2_group_ids as phase2_group_ids_for_config,
     phase2_group_traits as phase2_group_traits_for_config,
     phase2_report_targets as phase2_report_targets_for_context,
+    rare_variant_active_artifact as rare_variant_active_artifact_for_context,
+    rare_variant_report_for_trait as rare_variant_report_for_trait_for_context,
+    rare_variant_report_targets as rare_variant_report_targets_for_context,
     phase2_status_file as phase2_status_file_for_context,
     phase2_trait_group as phase2_trait_group_for_config,
     phase2_trait_regenie_outputs as phase2_trait_regenie_outputs_for_context,
@@ -34,7 +37,6 @@ from workflow.snake_helpers import (
     remeta_targets as remeta_targets_for_context,
     remeta_trait_summaries as remeta_trait_summaries_for_config,
     remeta_validations as remeta_validations_for_config,
-    remeta_validation_for_trait as remeta_validation_for_trait_for_context,
     popmad_path,
     popmad_within_file as popmad_within_file_for_config,
     reference_package_inputs as reference_package_inputs_for_config,
@@ -86,6 +88,7 @@ admixture_targets = lambda: admixture_targets_for_config(config)
 admixture_validation_inputs = lambda wildcards: admixture_validation_inputs_for_config(config, wildcards)
 report_targets = lambda wildcards: report_targets_for_context(checkpoints, TRAITS, wildcards, config)
 phase2_report_targets = lambda wildcards: phase2_report_targets_for_context(checkpoints, TRAITS, wildcards, config)
+rare_variant_report_targets = lambda wildcards: rare_variant_report_targets_for_context(checkpoints, TRAITS, wildcards, config)
 phase2_group_stage1_stats = lambda wildcards: phase2_group_stage1_stats_for_context(checkpoints, wildcards, config)
 phase2_trait_stage1_summaries = lambda wildcards: phase2_trait_stage1_summaries_for_context(checkpoints, wildcards, config)
 phase2_trait_regenie_outputs = lambda wildcards: phase2_trait_regenie_outputs_for_context(checkpoints, wildcards, config)
@@ -99,7 +102,10 @@ remeta_group_ld_inputs = lambda wildcards: remeta_group_ld_inputs_for_config(wil
 remeta_target_summaries = lambda wildcards: remeta_target_summaries_for_config(checkpoints, config, wildcards.build)
 remeta_trait_summaries = lambda wildcards: remeta_trait_summaries_for_config(config)
 remeta_validations = lambda wildcards: remeta_validations_for_config(checkpoints, config, wildcards.build)
-remeta_validation_for_trait = lambda wildcards: remeta_validation_for_trait_for_context(checkpoints, wildcards, config)
+rare_variant_report_for_trait = lambda wildcards: rare_variant_report_for_trait_for_context(checkpoints, wildcards, config)
+rare_variant_active_artifact = lambda wildcards, artifact: rare_variant_active_artifact_for_context(
+    checkpoints, wildcards, config, artifact
+)
 remeta_resource_file = lambda build, filename: remeta_resource_file_for_config(config, build, filename)
 active_admixture_stratum_outputs = lambda wildcards, filename: active_admixture_stratum_outputs_for_context(checkpoints, wildcards, filename)
 active_unrelated_keep_files = lambda wildcards: active_unrelated_keep_files_for_context(checkpoints, wildcards)
@@ -130,6 +136,7 @@ rule all:
         # expanded after the genome-build checkpoint completes.
         report_targets,
         phase2_report_targets,
+        rare_variant_report_targets,
         remeta_targets,
         ancestry_reference_targets(),
         admixture_targets(),

@@ -463,7 +463,7 @@ if (!identical(readLines(raw), readLines(native_stats))) stop("native regenie ou
 pan_summary <- file.path(tmp, "pan_summary.tsv")
 ancestry <- file.path(tmp, "ancestry.tsv")
 stage1_summary <- file.path(tmp, "stage1_summary.tsv")
-remeta_validation <- file.path(tmp, "remeta_validation.tsv")
+rare_variant_report <- file.path(tmp, "rare_variant.report.md")
 report <- file.path(tmp, "report.md")
 stats_metrics <- file.path(tmp, "association_metrics.tsv")
 top_hits <- file.path(tmp, "top_hits.tsv")
@@ -488,32 +488,14 @@ write_lines(c(
   "chrom\tpos\tvariant_id\teffect\tse\tp",
   "1\t100\trs1\t1.1\tNA\t0.01"
 ), top_hits)
-write_lines(c(
-  "key\tvalue",
-  "status\tvalidated",
-  "sample_count\t4",
-  "ordinary_regenie_sample_count\t4",
-  "rare_regenie_sample_count\t4",
-  "target_variant_count\t100",
-  "unique_ld_target_variant_count\t98",
-  "target_variants_not_indexed\t2",
-  "target_variant_ld_coverage_pct\t98.000000",
-  "reference_gene_count\t20",
-  "indexed_gene_count\t18",
-  "genes_without_indexed_variants\t2",
-  "indexed_gene_coverage_pct\t90.000000",
-  "ld_gene_variant_assignments\t110",
-  "ld_assignments_within_gene_bounds\t109",
-  "ld_assignments_outside_gene_bounds\t1",
-  "ld_assignment_gene_bound_coverage_pct\t99.090909"
-), remeta_validation)
+write_lines("rare report", rare_variant_report)
 run_phase2(c(
   "make-report", "--config", config, "--trait", "bt2", "--build", "GRCh38",
   "--stats", native_stats, "--stats-metrics", stats_metrics, "--top-hits", top_hits,
   "--summary", native_summary, "--group-summary", group_summary,
   "--union-summary", union_summary, "--pan-summary", pan_summary, "--ancestry-summary", ancestry,
   "--qq", "qq.png", "--manhattan", "mh.png", "--manhattan-pdf", "mh.pdf",
-  "--stage1-summary", stage1_summary, "--remeta-validation", remeta_validation, "--out", report
+  "--stage1-summary", stage1_summary, "--rare-variant-report", rare_variant_report, "--out", report
 ))
 text <- readLines(report)
 if (!any(grepl("Stage 1 Lambda Comparison", text, fixed = TRUE))) stop("Phase 2 report missing Stage 1 comparison")
@@ -525,11 +507,11 @@ if (!any(grepl("REGENIE sample-ID validation: matched exact model keep", text, f
 }
 if (!any(grepl("![QQ plot](qq.png)", text, fixed = TRUE))) stop("Phase 2 report missing embedded QQ plot")
 if (!any(grepl("![Manhattan plot](mh.png)", text, fixed = TRUE))) stop("Phase 2 report missing embedded Manhattan plot")
-if (!any(grepl("QC-passing target-region variants represented in LD indexes | 98 | 100 | 98.00%", text, fixed = TRUE))) {
-  stop("Phase 2 report missing ReMeta target-variant LD coverage")
+if (!any(grepl("Rare-variant REGENIE and ReMeta export report", text, fixed = TRUE))) {
+  stop("Phase 2 report missing its rare-variant report link")
 }
-if (!any(grepl("Conditional buffer variants: not included", text, fixed = TRUE))) {
-  stop("Phase 2 report missing ReMeta buffer policy")
+if (any(grepl("ReMeta LD Target Coverage", text, fixed = TRUE))) {
+  stop("Phase 2 report still duplicates rare-variant LD coverage")
 }
 if (!any(grepl("Large PAN plot fallback", text, fixed = TRUE))) {
   stop("Phase 2 report missing large-plot fallback disclosure")
@@ -539,6 +521,8 @@ if (!any(grepl("Association metrics and top hits use all valid variants", text, 
 }
 
 skipped_report <- file.path(tmp, "skipped_report.md")
+skipped_rare_report <- file.path(tmp, "skipped_rare.report.md")
+write_lines("skipped rare report", skipped_rare_report)
 skipped_metrics <- file.path(tmp, "skipped_association_metrics.tsv")
 skipped_top_hits <- file.path(tmp, "skipped_top_hits.tsv")
 write_lines(c(
@@ -562,21 +546,21 @@ run_phase2(c(
   "--summary", skipped_summary, "--group-summary", skipped_group_summary,
   "--union-summary", union_summary, "--pan-summary", pan_summary, "--ancestry-summary", ancestry,
   "--qq", "skipped_qq.png", "--manhattan", "skipped_mh.png", "--manhattan-pdf", "skipped_mh.pdf",
-  "--stage1-summary", stage1_summary, "--out", skipped_report
+  "--stage1-summary", stage1_summary, "--rare-variant-report", skipped_rare_report, "--out", skipped_report
 ))
 skipped_text <- readLines(skipped_report)
 if (!any(grepl("Skip reason: below_phase2_thresholds:n=1<min_n=2;controls=0<min_controls=1", skipped_text, fixed = TRUE))) {
   stop("skipped Phase 2 report missing its precise threshold reason")
 }
-if (!any(grepl("ReMeta export skipped", skipped_text, fixed = TRUE))) {
-  stop("skipped Phase 2 report missing ReMeta skip disclosure")
+if (!any(grepl("Rare-variant REGENIE and ReMeta export report", skipped_text, fixed = TRUE))) {
+  stop("skipped Phase 2 report missing its rare-variant audit link")
 }
 if (any(grepl("rs1", skipped_text, fixed = TRUE))) stop("skipped report reused active-trait top hits")
 pan_sections <- c(
   "## Model Overview",
   "## PAN Sample Set",
   "## Variant Sources and QC",
-  "## ReMeta LD Target Coverage",
+  "## Related Report",
   "## REGENIE Run Settings",
   "## Association Results",
   "## Top Hits",

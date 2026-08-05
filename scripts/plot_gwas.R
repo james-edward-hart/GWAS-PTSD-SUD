@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 
-# Draw QQ and Manhattan plots from harmonized GWAS summary statistics.
+# Draw association plots and exact summaries from harmonized statistics.
 
 cmd <- commandArgs(FALSE)
 script_dir <- dirname(normalizePath(sub("^--file=", "", cmd[grepl("^--file=", cmd)][1])))
@@ -19,14 +19,22 @@ args <- parse_args(defaults = list(
   "manhattan-pdf" = "",
   "metrics-out" = "",
   "top-hits-out" = "",
+  "trait-summary" = "",
+  "mac-qq" = "",
+  "effect-frequency" = "",
   "large-plot-threshold" = "Inf"
 ))
 require_args(args, c("stats", "qq", "manhattan"))
 
 analysis_name <- ""
+config <- list()
 if (nzchar(args$config)) {
   config <- load_config(args$config)
   analysis_name <- config$project$analysis_name %||% ""
+}
+rare_mode <- any(nzchar(c(args[["trait-summary"]], args[["mac-qq"]], args[["effect-frequency"]])))
+if (rare_mode) {
+  require_args(args, c("config", "trait-summary", "mac-qq", "effect-frequency", "metrics-out", "top-hits-out"))
 }
 
 
@@ -39,7 +47,7 @@ first_column <- function(columns, aliases) {
 
 stats_header <- function(path) {
   if (!file.exists(path) || file.info(path)$size == 0) die("GWAS stats file is empty: ", path)
-  con <- file(path, open = "rt")
+  con <- if (grepl("\\.gz$", path, ignore.case = TRUE)) gzfile(path, open = "rt") else file(path, open = "rt")
   on.exit(close(con), add = TRUE)
   skipped <- 0L
   repeat {
@@ -55,7 +63,7 @@ stats_header <- function(path) {
   }
 }
 
-read_stats <- function(path, include_top_hits = FALSE) {
+read_stats <- function(path, include_top_hits = FALSE, rare = FALSE) {
   if (!requireNamespace("data.table", quietly = TRUE)) die("R package 'data.table' is required")
   header <- stats_header(path)
   sources <- list(
@@ -66,10 +74,29 @@ read_stats <- function(path, include_top_hits = FALSE) {
     trait = first_column(header$columns, c("trait", "Trait")),
     ancestry = first_column(header$columns, c("ancestry", "Ancestry")),
     build = first_column(header$columns, c("build", "Build")),
-    effect = if (include_top_hits) first_column(header$columns, c("beta_or_log_or", "BETA", "Effect")) else "",
-    se = if (include_top_hits) first_column(header$columns, c("SE", "se")) else ""
+    effect = if (include_top_hits || rare) first_column(header$columns, c("beta_or_log_or", "BETA", "Effect")) else "",
+    se = if (include_top_hits && !rare) first_column(header$columns, c("SE", "se")) else "",
+    lci = if (rare) first_column(header$columns, c("LCI_Effect", "LCI_effect")) else "",
+    uci = if (rare) first_column(header$columns, c("UCI_Effect", "UCI_effect")) else "",
+    aaf = if (rare) first_column(header$columns, "AAF") else "",
+    model = if (rare) first_column(header$columns, "Model") else "",
+    num_cases = if (rare) first_column(header$columns, "Num_Cases") else "",
+    cases_ref = if (rare) first_column(header$columns, "Cases_Ref") else "",
+    cases_het = if (rare) first_column(header$columns, "Cases_Het") else "",
+    cases_alt = if (rare) first_column(header$columns, "Cases_Alt") else "",
+    num_controls = if (rare) first_column(header$columns, "Num_Controls") else "",
+    controls_ref = if (rare) first_column(header$columns, "Controls_Ref") else "",
+    controls_het = if (rare) first_column(header$columns, "Controls_Het") else "",
+    controls_alt = if (rare) first_column(header$columns, "Controls_Alt") else ""
   )
   if (!nzchar(sources$p)) die("GWAS stats file is missing p or LOG10P column")
+  if (rare) {
+    required <- c("chrom", "pos", "variant_id", "trait", "effect", "lci", "uci", "aaf",
+      "num_cases", "cases_ref", "cases_het", "cases_alt", "num_controls",
+      "controls_ref", "controls_het", "controls_alt")
+    missing <- required[!nzchar(unlist(sources[required]))]
+    if (length(missing)) die("rare-variant HTP file is missing field(s): ", paste(missing, collapse = ", "))
+  }
   selected <- unique(unname(unlist(sources, use.names = FALSE)))
   selected <- selected[nzchar(selected)]
   fread_args <- list(
@@ -104,7 +131,7 @@ if (length(large_plot_threshold) != 1L || is.na(large_plot_threshold) || large_p
   die("large-plot-threshold must be a positive number or Inf")
 }
 
-stats <- read_stats(args$stats, include_top_hits = nzchar(args[["top-hits-out"]]))
+stats <- read_stats(args$stats, include_top_hits = nzchar(args[["top-hits-out"]]), rare = rare_mode)
 total_variants <- nrow(stats)
 
 format_lambda <- function(value) {
@@ -126,13 +153,84 @@ plot_title <- function(df, analysis_name = "") {
 }
 
 
-top_hits <- function(df, max_rows = 10L) {
-  columns <- c("chrom", "pos", "variant_id", "effect", "se")
-  if (!nrow(df)) {
-    return(data.frame(chrom = character(), pos = character(), variant_id = character(),
-      effect = character(), se = character(), p = numeric(), stringsAsFactors = FALSE))
+numeric_column <- function(df, name) suppressWarnings(as.numeric(df[[name]]))
+
+
+add_rare_fields <- function(df, valid_p, summary, genotype_mode) {
+  if (nrow(summary) != 1L || !summary$trait_type[[1]] %in% c("bt", "qt")) {
+    die("rare-variant plotting requires one active BT or QT trait summary")
   }
-  ord <- order(df$p_num, na.last = NA)
+  if (identical(summary$skipped[[1]], "True")) die("cannot plot a skipped rare-variant trait")
+  observed_traits <- unique(as.character(df$trait[!is.na(df$trait) & nzchar(df$trait)]))
+  if (length(observed_traits) && !identical(observed_traits, as.character(summary$trait[[1]]))) {
+    die("rare-variant HTP trait does not match its singleton Phase 2 summary")
+  }
+
+  df$aaf <- numeric_column(df, "aaf")
+  df$maf <- pmin(df$aaf, 1 - df$aaf)
+  num_cases <- numeric_column(df, "num_cases")
+  num_controls <- numeric_column(df, "num_controls")
+  num_controls[!is.finite(num_controls)] <- 0
+  called_n <- num_cases + num_controls
+
+  required_frequency <- valid_p & (
+    !is.finite(df$aaf) | df$aaf < 0 | df$aaf > 1 | !is.finite(called_n) | called_n <= 0
+  )
+  if (any(required_frequency)) {
+    die("valid rare-variant HTP rows contain invalid AAF or sample counts")
+  }
+
+  if (identical(genotype_mode, "hardcall")) {
+    counts <- do.call(cbind, lapply(
+      c("cases_ref", "cases_het", "cases_alt", "controls_ref", "controls_het", "controls_alt"),
+      function(name) numeric_column(df, name)
+    ))
+    if (identical(summary$trait_type[[1]], "qt")) counts[, 4:6] <- 0
+    invalid_counts <- valid_p & apply(
+      counts, 1L, function(row) any(!is.finite(row) | row < 0 | row != floor(row))
+    )
+    if (any(invalid_counts)) die("valid hardcall HTP rows contain invalid genotype counts")
+    called_from_counts <- rowSums(counts[, c(1, 2, 3, 4, 5, 6), drop = FALSE])
+    expected_called <- if (identical(summary$trait_type[[1]], "bt")) called_n else num_cases
+    if (any(valid_p & called_from_counts != expected_called)) {
+      die("rare-variant HTP genotype counts do not equal their reported sample totals")
+    }
+    alt_count <- counts[, 2] + 2 * counts[, 3] + counts[, 5] + 2 * counts[, 6]
+    df$mac <- pmin(alt_count, 2 * called_from_counts - alt_count)
+    mac_definition <- "exact hardcall MAC"
+  } else if (identical(genotype_mode, "dosage")) {
+    # Dosage AAF can imply a non-integer expected allele count.
+    df$mac <- 2 * called_n * df$maf
+    mac_definition <- "dosage-based expected MAC"
+  } else {
+    die("rare-variant plotting requires remeta.genotype_mode hardcall or dosage")
+  }
+  if (any(valid_p & (!is.finite(df$mac) | df$mac <= 0))) {
+    die("valid rare-variant HTP rows contain an invalid minor allele count")
+  }
+
+  df$mac_bin <- cut(
+    df$mac,
+    breaks = c(-Inf, 1, 5, 10, 20, Inf),
+    labels = c("1", "2-5", "6-10", "11-20", ">20"),
+    right = TRUE
+  )
+  list(df = df, trait_type = summary$trait_type[[1]], mac_definition = mac_definition)
+}
+
+
+top_hits <- function(df, rare = FALSE, max_rows = 10L) {
+  columns <- if (rare) {
+    c("chrom", "pos", "variant_id", "effect", "lci", "uci", "aaf", "maf", "mac")
+  } else {
+    c("chrom", "pos", "variant_id", "effect", "se")
+  }
+  if (!nrow(df)) {
+    values <- setNames(replicate(length(columns), character(), simplify = FALSE), columns)
+    values$p <- numeric()
+    return(as.data.frame(values, stringsAsFactors = FALSE))
+  }
+  ord <- order(df$p_num, seq_len(nrow(df)), na.last = NA)
   ord <- ord[seq_len(min(length(ord), max_rows))]
   values <- lapply(columns, function(column) {
     if (column %in% names(df)) as.character(df[[column]][ord]) else rep("NA", length(ord))
@@ -145,24 +243,52 @@ top_hits <- function(df, max_rows = 10L) {
 
 gwas_title <- plot_title(stats, analysis_name)
 valid <- is.finite(stats$p_num) & stats$p_num > 0 & stats$p_num <= 1
+rare_info <- NULL
+if (rare_mode) {
+  trait_summary <- read_tsv(args[["trait-summary"]])
+  genotype_mode <- tolower(as.character(config$remeta$genotype_mode %||% ""))
+  rare_info <- add_rare_fields(stats, valid, trait_summary, genotype_mode)
+  stats <- rare_info$df
+  gwas_title <- paste0(gwas_title, " / target-region single variants")
+}
 stats <- stats[valid, , drop = FALSE]
 valid_p_values <- nrow(stats)
-hit_rows <- top_hits(stats)
-stats <- stats[intersect(c("p_num", "chrom", "pos", "variant_id"), names(stats))]
+hit_rows <- top_hits(stats, rare = rare_mode)
+if (rare_mode) names(hit_rows)[names(hit_rows) == "variant_id"] <- "cpra"
+plot_columns <- c("p_num", "chrom", "pos", "variant_id")
+if (rare_mode) plot_columns <- c(plot_columns, "effect", "aaf", "maf", "mac", "mac_bin")
+stats <- stats[intersect(plot_columns, names(stats))]
+
+
+# Preserve full-rank expectations when a very large plot is thinned.
+qq_plot_indices <- function(sorted_p, threshold, force = FALSE) {
+  indices <- seq_along(sorted_p)
+  thinned <- force || length(sorted_p) > threshold
+  if (thinned) {
+    indices <- sort(unique(c(
+      seq.int(1L, length(sorted_p), by = 2L), which(sorted_p <= 1e-5)
+    )))
+  }
+  list(indices = indices, thinned = thinned)
+}
+
+
+qq_coordinates <- function(sorted_p, indices = seq_along(sorted_p)) {
+  a <- if (length(sorted_p) <= 10L) 3 / 8 else 1 / 2
+  expected_p <- (indices - a) / (length(sorted_p) + 1 - 2 * a)
+  list(expected = -log10(expected_p), observed = -log10(sorted_p[indices]))
+}
 
 
 # Draw the QQ plot, preserving an empty image for empty results.
 lambda_gc <- genomic_lambda(stats$p_num)
 sorted_p <- sort(stats$p_num)
-qq_indices <- seq_along(sorted_p)
-qq_thinned <- length(sorted_p) > large_plot_threshold
-if (qq_thinned) {
-  qq_indices <- sort(unique(c(seq.int(1L, length(sorted_p), by = 2L), which(sorted_p <= 1e-5), length(sorted_p))))
-}
-ppoints_a <- if (length(sorted_p) <= 10L) 3 / 8 else 1 / 2
-expected_p <- (qq_indices - ppoints_a) / (length(sorted_p) + 1 - 2 * ppoints_a)
-observed <- -log10(sorted_p[qq_indices])
-expected <- -log10(expected_p)
+qq_selection <- qq_plot_indices(sorted_p, large_plot_threshold)
+qq_indices <- qq_selection$indices
+qq_thinned <- qq_selection$thinned
+qq <- qq_coordinates(sorted_p, qq_indices)
+observed <- qq$observed
+expected <- qq$expected
 ensure_parent(args$qq)
 png(args$qq, width = 1200, height = 1200, res = 150)
 par(mar = c(5, 5, 3.5, 1))
@@ -364,6 +490,117 @@ if (nzchar(args[["manhattan-pdf"]])) {
 }
 
 
+mac_levels <- c("1", "2-5", "6-10", "11-20", ">20")
+mac_colors <- setNames(c("#5E3C99", "#3288BD", "#66C2A5", "#E6AB02", "#D53E4F"), mac_levels)
+mac_counts <- setNames(integer(length(mac_levels)), mac_levels)
+mac_qq_eligible <- mac_qq_plotted <- effect_eligible <- effect_plotted <- 0L
+mac_qq_thinned <- effect_thinned <- FALSE
+
+
+mac_display_labels <- function(mac_definition) {
+  if (grepl("expected", mac_definition, fixed = TRUE)) {
+    c("<=1", ">1-5", ">5-10", ">10-20", ">20")
+  } else {
+    mac_levels
+  }
+}
+
+
+draw_mac_qq <- function(df, path, threshold, mac_definition) {
+  ensure_parent(path)
+  png(path, width = 1400, height = 1200, res = 150)
+  on.exit(invisible(dev.off()), add = TRUE)
+  par(mar = c(5, 5, 3.5, 1))
+
+  # Trigger fallback from the full diagnostic, while retaining each stratum's
+  # own expected ranks and every suggestive point.
+  thin_all <- nrow(df) > threshold
+  strata <- lapply(mac_levels, function(label) {
+    p <- sort(df$p_num[as.character(df$mac_bin) == label])
+    selection <- qq_plot_indices(p, threshold, force = thin_all)
+    list(label = label, n = length(p), selection = selection, xy = qq_coordinates(p, selection$indices))
+  })
+  names(strata) <- mac_levels
+  populated <- strata[vapply(strata, function(x) x$n > 0L, logical(1))]
+  if (!length(populated)) {
+    plot.new()
+    title(paste0(gwas_title, "\nMAC-stratified QQ plot"))
+    text(0.5, 0.5, "No variants with valid P value and MAC", col = "#4D4D4D")
+  } else {
+    limit <- max(unlist(lapply(populated, function(x) c(x$xy$expected, x$xy$observed))), na.rm = TRUE)
+    plot(NA, xlim = c(0, limit), ylim = c(0, limit),
+      xlab = "Expected -log10(P)", ylab = "Observed -log10(P)",
+      main = paste0(gwas_title, "\nMAC-stratified QQ plot"))
+    abline(0, 1, col = "#7A7A7A", lwd = 1.2)
+    for (entry in populated) {
+      points(entry$xy$expected, entry$xy$observed, pch = 16, cex = 0.38,
+        col = adjustcolor(mac_colors[[entry$label]], alpha.f = 0.72))
+    }
+    display <- setNames(mac_display_labels(mac_definition), mac_levels)
+    legend("topleft",
+      legend = vapply(populated, function(x) paste0("MAC ", display[[x$label]], " (n=", x$n, ")"), character(1)),
+      col = mac_colors[vapply(populated, `[[`, character(1), "label")], pch = 16,
+      bty = "n", cex = 0.78)
+  }
+  strata
+}
+
+
+draw_effect_frequency <- function(df, path, trait_type, threshold, mac_definition) {
+  effect <- numeric_column(df, "effect")
+  y <- if (identical(trait_type, "bt")) suppressWarnings(log2(effect)) else effect
+  eligible <- is.finite(df$maf) & df$maf > 0 & df$maf <= 0.5 & is.finite(y)
+  if (identical(trait_type, "bt")) eligible <- eligible & effect > 0
+  plot_df <- df[eligible, , drop = FALSE]
+  plot_df$effect_plot <- y[eligible]
+  eligible_n <- nrow(plot_df)
+  thinned <- eligible_n > threshold
+  if (thinned) {
+    ordered <- order(plot_df$maf, plot_df$p_num, na.last = NA)
+    keep <- sort(unique(c(ordered[seq.int(1L, length(ordered), by = 2L)], which(plot_df$p_num <= 1e-5))))
+    plot_df <- plot_df[keep, , drop = FALSE]
+  }
+
+  ensure_parent(path)
+  png(path, width = 1400, height = 1200, res = 150)
+  on.exit(invisible(dev.off()), add = TRUE)
+  par(mar = c(5, 5, 3.5, 1))
+  plot_title_text <- paste0(gwas_title, "\nEffect versus cohort minor-allele frequency")
+  if (!nrow(plot_df)) {
+    plot.new()
+    title(plot_title_text)
+    text(0.5, 0.5, "No variants with valid effect and allele frequency", col = "#4D4D4D")
+  } else {
+    colors <- adjustcolor(mac_colors[as.character(plot_df$mac_bin)], alpha.f = 0.55)
+    ylab <- if (identical(trait_type, "bt")) "log2(ALT-allele odds ratio)" else "ALT-allele beta"
+    plot(plot_df$maf, plot_df$effect_plot, log = "x", pch = 16,
+      cex = point_size(nrow(plot_df)), col = colors,
+      xlab = "Cohort minor-allele frequency (log scale)", ylab = ylab, main = plot_title_text)
+    abline(h = 0, col = "#777777", lwd = 1, lty = 2)
+    present <- mac_levels[mac_levels %in% as.character(plot_df$mac_bin)]
+    display <- setNames(mac_display_labels(mac_definition), mac_levels)
+    legend("topright", legend = paste("MAC", display[present]), col = mac_colors[present], pch = 16,
+      bty = "n", cex = 0.78)
+  }
+  list(eligible = eligible_n, plotted = nrow(plot_df), thinned = thinned)
+}
+
+
+if (rare_mode) {
+  mac_counts[] <- as.integer(table(factor(as.character(stats$mac_bin), levels = mac_levels)))
+  strata <- draw_mac_qq(stats, args[["mac-qq"]], large_plot_threshold, rare_info$mac_definition)
+  mac_qq_eligible <- sum(vapply(strata, `[[`, integer(1), "n"))
+  mac_qq_plotted <- sum(vapply(strata, function(x) length(x$selection$indices), integer(1)))
+  mac_qq_thinned <- any(vapply(strata, function(x) x$selection$thinned, logical(1)))
+  effect_result <- draw_effect_frequency(
+    stats, args[["effect-frequency"]], rare_info$trait_type, large_plot_threshold, rare_info$mac_definition
+  )
+  effect_eligible <- effect_result$eligible
+  effect_plotted <- effect_result$plotted
+  effect_thinned <- effect_result$thinned
+}
+
+
 metrics <- data.frame(
   metric = c(
     "total_variants",
@@ -389,20 +626,44 @@ metrics <- data.frame(
     manhattan_data$eligible_variants,
     if (is.null(manhattan_data$df)) 0L else nrow(manhattan_data$df),
     if (is.finite(large_plot_threshold)) format(large_plot_threshold, scientific = FALSE, trim = TRUE) else "Inf",
-    if (qq_thinned || manhattan_data$thinned) "True" else "False"
+    if (qq_thinned || manhattan_data$thinned || mac_qq_thinned || effect_thinned) "True" else "False"
   ),
   stringsAsFactors = FALSE
 )
+if (rare_mode) {
+  metrics <- rbind(metrics, data.frame(
+    metric = c(
+      "rare_variant_mode", "genotype_mode", "mac_definition",
+      "mac_bin_1", "mac_bin_2_5", "mac_bin_6_10", "mac_bin_11_20", "mac_bin_gt20",
+      "mac_qq_eligible_variants", "mac_qq_points_plotted",
+      "effect_frequency_eligible_variants", "effect_frequency_points_plotted"
+    ),
+    value = c(
+      "True", genotype_mode, rare_info$mac_definition, unname(mac_counts),
+      mac_qq_eligible, mac_qq_plotted, effect_eligible, effect_plotted
+    ),
+    stringsAsFactors = FALSE
+  ))
+}
 if (nzchar(args[["metrics-out"]])) write_tsv(metrics, args[["metrics-out"]])
 if (nzchar(args[["top-hits-out"]])) write_tsv(hit_rows, args[["top-hits-out"]])
 
-if (qq_thinned || manhattan_data$thinned) {
+if (qq_thinned || manhattan_data$thinned || mac_qq_thinned || effect_thinned) {
   cat(
     "Applied large-plot fallback:", length(qq_indices), "of", length(sorted_p), "QQ points and",
     if (is.null(manhattan_data$df)) 0L else nrow(manhattan_data$df), "of",
     manhattan_data$eligible_variants, "Manhattan points plotted; exact summaries use all valid variants.\n"
   )
+  if (rare_mode) {
+    cat(
+      "Rare diagnostics:", mac_qq_plotted, "of", mac_qq_eligible,
+      "MAC-QQ points and", effect_plotted, "of", effect_eligible,
+      "effect-frequency points plotted.\n"
+    )
+  }
 }
 
 # Report generated plot paths for logs.
-cat("Wrote GWAS plots:", args$qq, args$manhattan, args[["manhattan-pdf"]], "\n")
+plot_paths <- c(args$qq, args$manhattan, args[["manhattan-pdf"]])
+if (rare_mode) plot_paths <- c(plot_paths, args[["mac-qq"]], args[["effect-frequency"]])
+cat("Wrote association plots:", plot_paths, "\n")

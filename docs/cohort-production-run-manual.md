@@ -796,12 +796,42 @@ Lambda GC, significance counts, and top hits always use every valid variant;
 the exact plotted and eligible counts are recorded in the metrics file and the
 final report.
 
+When ReMeta export is enabled, review the separate target-region report:
+
+```text
+results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}.rare_variant.regenie.report.md
+```
+
+It contains the existing HTP single-variant QQ and Manhattan plots, a
+MAC-stratified QQ plot, effect versus cohort frequency, and the validated LD
+coverage formerly shown in the PAN report. It is not a local gene test.
+Hardcall reports use exact genotype-count MAC; dosage reports use expected MAC
+from variant-specific N and AAF. Overall lambda is descriptive for this
+selected target set and should be interpreted with the MAC-stratified QQ plot.
+
 Review `results/qc/phase2_regenie/trait_group_status.tsv` before interpreting
 PAN results. Each row is one trait-specific group; active rows must have a
 nonzero final model count, while skipped rows give the threshold reason. With
 ReMeta enabled, only active rows should have HTP/LD artifacts. Ordinary
 REGENIE IDs, rare-variant REGENIE IDs, the group keep, and target PSAM are
 validated as identical before the report and export manifest complete.
+
+To backfill only these reports and refresh the PAN links after a completed run,
+target the run manifest while restricting execution to reporting rules:
+
+```bash
+snakemake results/manifests/run_manifest.tsv \
+  --profile profiles/slurm \
+  --rerun-incomplete \
+  --allowed-rules plot_rare_variant_regenie \
+    make_rare_variant_regenie_report make_phase2_regenie_report \
+    write_run_manifest \
+  --forcerun make_phase2_regenie_report write_run_manifest
+```
+
+Inspect the dry run first. No REGENIE, target-PGEN, ReMeta LD, or validation
+rule should be present; missing upstream artifacts should cause this restricted
+backfill to stop rather than recompute scientific analyses.
 
 **Fix:** Inspect the harmonized stats and filter summary:
 

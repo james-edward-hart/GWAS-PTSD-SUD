@@ -24,6 +24,8 @@ Rscript scripts/test_genotype_input_sanitizer.R
 Rscript scripts/test_sex_check.R
 Rscript scripts/test_phase2_regenie.R
 Rscript scripts/test_remeta_cohort.R
+Rscript scripts/test_plot_gwas.R
+Rscript scripts/test_rare_variant_report.R
 python scripts/test_phase2_dag_helpers.py
 python scripts/test_remeta_resources.py
 ```
