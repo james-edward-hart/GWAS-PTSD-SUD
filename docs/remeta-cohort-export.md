@@ -18,8 +18,10 @@ output is one p-value per gene/mask/test combination.
 
 ## Scientific Contract
 
-- Eligible data are WES hardcalls or imputed dosages. Basic array and WGS
-  inputs are rejected by configuration validation.
+- Eligible sources for exome exports are original WES data supplied as PGEN
+  hardcalls or imputed PGEN with preserved dosages (TOPMed imputation preferred).
+  Basic array and WGS inputs are rejected by configuration validation. BED
+  conversion cannot restore dosages or verified REF/ALT.
 - Every active trait has its own target PGEN and LD prefix, subset to that
   trait's exact Phase 2 model keep. Ordinary regenie IDs, rare-variant regenie
   IDs, the keep, and the target PSAM must be identical.
@@ -60,7 +62,8 @@ samples; the manifest makes the choice and sample set explicit.
 
 ## Configuration
 
-Enable the branch only after Phase 2 regenie is configured:
+The branch is disabled by default. Enable it only after Phase 2 regenie is
+configured, explicitly specifying the data source and matching genotype mode:
 
 ```yaml
 tools:

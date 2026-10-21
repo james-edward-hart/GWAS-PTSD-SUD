@@ -586,23 +586,27 @@ failing the whole workflow.
 
 This optional cohort-only branch exports rare single-variant regenie HTP
 statistics, sample-matched marginal ReMeta LD, and a checksummed handoff
-manifest. It does not run central gene tests or produce gene p-values locally.
+manifest. It is disabled by default and does not run central gene tests or
+produce gene p-values locally.
 
 | Parameter | Required when enabled | Description |
 | --- | --- | --- |
-| `enabled` | Yes | Requires `phase2_regenie.enabled: true`. |
-| `data_source` | Yes | `wes` or `imputed`; basic array and WGS inputs are rejected. |
+| `enabled` | Yes | Defaults to `false`; opting in requires `phase2_regenie.enabled: true`. |
+| `data_source` | Yes | Explicitly choose `wes` or `imputed` for exome exports; basic array and WGS inputs are rejected. |
 | `genotype_mode` | Yes | `hardcall` for WES or `dosage` for imputed data. |
 | `input_variants_normalized` | Yes | Explicit attestation that variants were split, left-normalized, and reference-aligned before entering the workflow. |
 | `resource_root` | Yes | Bundled build-specific gene and target resources. Template uses `resources/remeta`. |
 | `min_mac` | Recommended | Cohort target/HTP MAC floor. Keep at `1`; central rarity rules are applied later. |
 | `geno_missing_max` | Recommended | Maximum missingness for target variants. |
-| `info_min` | Imputed only | MaCH R2/INFO floor for imputed dosages. |
+| `info_min` | Imputed only | Computed MaCH R2 floor for imputed dosages. |
 | `target_r2` | Recommended | ReMeta target-LD sparsity threshold. Template uses ReMeta's `0.0001` default. |
 
-The branch accepts PGEN input only. Each active trait gets a target PGEN built
-from its exact model keep. Ordinary regenie, rare-variant regenie, the target
-PSAM, and ReMeta LD are required to contain identical samples.
+The branch accepts PGEN input only, originating from WES or imputation with
+dosages preserved (TOPMed imputation preferred). Supply WES as normalized PGEN
+hardcalls. Converting BED to PGEN cannot restore dosages or verified REF/ALT.
+Each active trait gets a target PGEN built from its exact model keep.
+Ordinary regenie, rare-variant regenie, the target PSAM, and ReMeta LD are
+required to contain identical samples.
 Only marginal within-gene LD is exported; there is no flanking buffer or
 conditional-analysis payload. See [Cohort ReMeta Export](remeta-cohort-export.md)
 for the scientific contract and output layout.

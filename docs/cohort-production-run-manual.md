@@ -275,11 +275,11 @@ expected and documented.
 
 ### Imputed Dosage Filters Are Not Applied
 
-**Symptom:** Imputed variants are present but INFO filtering is not used.
+**Symptom:** Imputed variants are present but MaCH R² filtering is not used.
 
-**Likely cause:** INFO filtering is disabled in the config.
+**Likely cause:** MaCH R² filtering is disabled in the config.
 
-**Fix:** For imputed dosage data with INFO/MaCH R2 annotations, keep filtering enabled:
+**Fix:** For imputed dosage data, keep filtering enabled:
 
 ```yaml
 qc:
@@ -287,8 +287,9 @@ qc:
   info_min: 0.9
 ```
 
-PLINK2 expects INFO/MaCH R2 annotations for this filter. For unimputed genotype
-data or imputed data without INFO annotations, set:
+PLINK2 computes MaCH R² from genotypes/dosages; PVAR INFO annotations are not
+required. Non-PAR X is not evaluated by this filter. For unimputed hardcalls,
+set:
 
 ```yaml
 qc:

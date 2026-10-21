@@ -273,9 +273,10 @@ phase2_regenie:
 # deliberately produces no local gene p-values: it exports sample-matched
 # regenie HTP statistics and marginal, within-gene LD matrices.
 remeta:
-  # Enabled by default. Disable for non-imputed arrays, WGS, or BED sources.
-  enabled: true
-  # Only wes or imputed are accepted. Basic genotyping-array data are excluded.
+  # Opt in only for original WES or imputed PGEN with preserved dosages.
+  # TOPMed imputation is preferred. BED, unimputed arrays, and WGS are ineligible.
+  enabled: false
+  # Required when enabled: explicitly choose wes or imputed for exome exports.
   data_source: ""
   # Required pairing: wes=hardcall, imputed=dosage.
   genotype_mode: ""
@@ -286,7 +287,7 @@ remeta:
   resource_root: "resources/remeta"
   min_mac: 1
   geno_missing_max: 0.05
-  # Used only for imputed dosages; INFO/MaCH R2 annotations must be present.
+  # Used only for imputed dosages; PLINK2 computes MaCH R2 from genotype values.
   info_min: 0.8
   # ReMeta's published/default marginal target-LD sparsity threshold.
   target_r2: 0.0001

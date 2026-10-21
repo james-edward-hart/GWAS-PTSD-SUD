@@ -45,19 +45,19 @@ fingerprint (that printed to terminal) as `reference_package.fingerprint`.
 
 ## 3. Prepare Cohort Inputs
 
-Prepare one PLINK genotype dataset. ReMeta is enabled by default and requires
-the source data as PGEN/PVAR/PSAM:
+Prepare one genotype dataset in either supported format:
 
-```text
-PGEN/PVAR/PSAM
-```
+| Format | Required files | `genotypes.type` |
+| --- | --- | --- |
+| PGEN (PLINK2) | `.pgen`, `.pvar`, `.psam` | `pgen` |
+| BED (PLINK 1.9) | `.bed`, `.bim`, `.fam` | `bed` |
 
-Phase 2 can convert BED/BIM/FAM to a temporary PGEN for REGENIE, but that does
-not recover dosages or verified REF/ALT. Set `remeta.enabled: false` for any BED
-source or non-imputed array data. ReMeta accepts normalized WES hardcalls or
-imputed dosages supplied as PGEN.
+All three files must share a prefix. Use that prefix without the file extension
+in `genotypes.prefix` in `config/config.yaml`.
 
-Use the genotype prefix without the file extension in `config/config.yaml`.
+ReMeta is disabled by default. Its additional source-data requirements and
+configuration are described in Step 4. Phase 2 can convert BED to a temporary
+PGEN for REGENIE; this does not recover dosages or verified REF/ALT.
 
 Prepare a sample manifest TSV (phenotype + covariate file) with one row per
 sample:
@@ -163,18 +163,40 @@ phase2_regenie:
   enabled: true
 
 remeta:
+  enabled: false
+```
+
+Without usable X markers, `sex_check.allow_no_sex_markers: true` requires documented external sex QC.
+
+Stage 1 PLINK2 computes MaCH R² from genotype/dosage values; this filter does
+not require INFO annotations in the PVAR. For unimputed hardcalls, set
+`qc.use_mach_r2_filter: false`. The filter does not evaluate non-PAR X.
+
+To enable ReMeta exome exports, the original data must be **WES** or **imputed
+PGEN with preserved dosages** (TOPMed imputation preferred). Supply WES as
+normalized PGEN hardcalls. BED sources and unimputed array data are not eligible
+for ReMeta; converting BED to PGEN does not restore the required information.
+
+Explicitly specify which source you have in the config:
+
+| Original data | `remeta.data_source` | `remeta.genotype_mode` |
+| --- | --- | --- |
+| WES | `wes` | `hardcall` |
+| Imputed exome variants with preserved dosages | `imputed` | `dosage` |
+
+For example, for imputed PGEN:
+
+```yaml
+remeta:
   enabled: true
   data_source: "imputed"
   genotype_mode: "dosage"
   input_variants_normalized: true
 ```
 
-PLINK2 expects INFO/MaCH R2 annotations for the INFO filter. If your data do
-not have INFO annotations, set `qc.use_mach_r2_filter: false`.
-
-The settings above are for imputed PGEN data. For WES, use `data_source: "wes"`
-and `genotype_mode: "hardcall"`. Confirm splitting, left-normalization, and
-reference alignment before setting `input_variants_normalized: true`.
+Keep `phase2_regenie.enabled: true` and `genotypes.type: "pgen"` when enabling
+ReMeta. Confirm splitting, left-normalization, and reference alignment before
+setting `input_variants_normalized: true`; these are upstream requirements.
 
 ReMeta writes HTP statistics, sample-matched within-gene LD, validation files,
 and rare-variant reports; it does not run gene tests.
@@ -327,9 +349,9 @@ bash scripts/create_meta_analysis_export.sh \
   [ANALYSIS_NAME]_PTSD_SUD_GWAS.tar.gz
 ```
 
-The archive contains both ancestry-stratified and PAN summary statistics, the
-complete ReMeta HTP/LD export, reports, plots, configuration, manifests, and
-aggregate QC. It omits working genotypes, native duplicate outputs,
+The archive contains both ancestry-stratified and PAN summary statistics,
+reports, plots, configuration, manifests, aggregate QC, and the ReMeta HTP/LD
+export when enabled. It omits working genotypes, native duplicate outputs,
 sample-level files, and logs. PAN and ancestry-stratified results contain
 overlapping participants and must remain separate meta-analysis streams.
 
