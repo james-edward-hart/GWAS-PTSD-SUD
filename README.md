@@ -1,7 +1,7 @@
 # Cohort Production Quickstart
 
 This is the run manual for launching a production cohort GWAS. Use it
-when you have prepared phenotypic data and a cluster with access to conda channels.
+when you have prepared phenotypic data following the guide.
 
 For full parameter details, see the
 [Configuration Guide](docs/configuration.md). If a run fails, use the
@@ -53,11 +53,7 @@ Prepare one genotype dataset in either supported format:
 | BED (PLINK 1.9) | `.bed`, `.bim`, `.fam` | `bed` |
 
 All three files must share a prefix. Use that prefix without the file extension
-in `genotypes.prefix` in `config/config.yaml`.
-
-ReMeta is disabled by default. Its additional source-data requirements and
-configuration are described in Step 4. Phase 2 can convert BED to a temporary
-PGEN for REGENIE; this does not recover dosages or verified REF/ALT.
+for `genotypes.prefix` in `config/config.yaml`.
 
 Prepare a sample manifest TSV (phenotype + covariate file) with one row per
 sample:
@@ -172,6 +168,7 @@ Stage 1 PLINK2 computes MaCH R² from genotype/dosage values; this filter does
 not require INFO annotations in the PVAR. For unimputed hardcalls, set
 `qc.use_mach_r2_filter: false`. The filter does not evaluate non-PAR X.
 
+ReMeta is disabled by default and is **optional** for this analysis, it is computationally heavy and requires a massive data transfer (>15GB)
 To enable ReMeta exome exports, the original data must be **WES** or **imputed
 PGEN with preserved dosages** (TOPMed imputation preferred). Supply WES as
 normalized PGEN hardcalls. BED sources and unimputed array data are not eligible
@@ -223,7 +220,7 @@ default-resources:
 
 `conda-prefix` must be a writable directory accessible to compute nodes (could be in your home directory).
 The bundled profile requests 64 GB for GWAS harmonization, summary, plotting,
-and reporting jobs that still load complete association-result tables.
+and reporting jobs.
 
 ## 5. Set Up The Environment
 
@@ -300,7 +297,7 @@ Continue only after these checks pass.
 
 ## 7. Run The Pipeline
 
-Submit the full workflow:
+Submit the full workflow (simply copy and paste this line, no edits):
 
 ```bash
 snakemake --profile profiles/slurm
@@ -352,14 +349,13 @@ bash scripts/create_meta_analysis_export.sh \
 The archive contains both ancestry-stratified and PAN summary statistics,
 reports, plots, configuration, manifests, aggregate QC, and the ReMeta HTP/LD
 export when enabled. It omits working genotypes, native duplicate outputs,
-sample-level files, and logs. PAN and ancestry-stratified results contain
-overlapping participants and must remain separate meta-analysis streams.
+sample-level files, and logs. 
 
-Export the archive to the approved destination for the cohort:
+Export the archive to the approved destination for the cohort (will be provided by PGC analysis team):
 
 ```bash
 rsync -avP [ANALYSIS_NAME]_PTSD_SUD_GWAS.tar.gz /path/to/export/location/
 ```
 
 Review the archive contents before sharing. Reports, manifests, and config
-snapshots may contain private paths or cohort-specific metadata.
+snapshots may contain private paths or cohort-specific metadata. Scrub them if necessary.
