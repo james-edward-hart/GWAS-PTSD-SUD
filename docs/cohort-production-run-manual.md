@@ -1,7 +1,7 @@
 # Cohort Production Troubleshooting Guide
 
 Use this guide when the
-[Cohort Production Quickstart](cohort-production-quickstart.md) fails or when a
+[Cohort Production Quickstart](../README.md) fails or when a
 cohort run needs a targeted check before rerunning.
 
 For any failure, start with the rule log named by Snakemake. Most logs are under

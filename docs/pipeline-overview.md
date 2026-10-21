@@ -97,4 +97,4 @@ summarize the existing target-region single-variant HTP and validated LD; they
 do not run or report local gene tests. Skipped traits receive a text-only audit
 report without synthetic HTP, LD, metric, or plot files.
 The production review and archive sequence is in
-[cohort-production-quickstart.md](cohort-production-quickstart.md).
+[Cohort Production Quickstart](../README.md).

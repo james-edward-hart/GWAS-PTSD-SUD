@@ -8,7 +8,7 @@ Do not use these files as a template for cohort analysis. Full Stage 1 runs
 require one cohort genotype dataset, a sample manifest (phenotype + covariate
 file), a trait registry, a build-matched fingerprinted reference package, and
 the production workflow described in
-[cohort-production-quickstart.md](cohort-production-quickstart.md).
+[Cohort Production Quickstart](../README.md).
 
 ## Fixture Setup
 

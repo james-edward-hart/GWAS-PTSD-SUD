@@ -1,200 +1,344 @@
-# Ancestry-Stratified GWAS Workflow
+# Cohort Production Quickstart
 
-<p align="center">
-  <strong>Production Snakemake workflow for ancestry-stratified GWAS</strong><br>
-  This repository turns cohort genotypes, sample metadata, trait definitions,
-  and a fingerprinted ancestry reference package into a reproducible,
-  review-ready ancestry-stratified GWAS run. The workflow records configuration,
-  reference, software, QC, and output provenance so analyses can be checked,
-  rerun, and archived consistently.
-</p>
+This is the run manual for launching a production cohort GWAS. Use it
+when you have prepared phenotypic data and a cluster with access to conda channels.
 
-<p align="center">
-  The current implementation includes Stage 1 ancestry-stratified PLINK2 GWAS
-  and Phase 2 pooled pan-ancestry regenie GWAS, with final result packaging.
-</p>
+For full parameter details, see the
+[Configuration Guide](docs/configuration.md). If a run fails, use the
+[Cohort Production Troubleshooting Guide](docs/cohort-production-run-manual.md).
 
-```mermaid
-flowchart LR
-    inputs["Cohort inputs<br>PLINK + samples + traits"] --> validate["Preflight validation<br>config, paths, covariates"]
-    validate --> build["Build resolution<br>GRCh37 or GRCh38"]
-    build --> ancestry["Population structure<br>POP-MaD ancestry<br>GWAS PCs<br>ADMIXTURE QC"]
-    ancestry --> qc["GWAS-ready QC<br>sex, relatedness, missingness"]
-    qc --> gwas["Stage 1 association<br>PLINK2 per trait x ancestry"]
-    gwas --> pan["Phase 2 association<br>regenie PAN pooled GWAS"]
-    pan --> remeta["Optional cohort export<br>rare HTP + marginal gene LD"]
-    remeta --> review["Review package<br>results, plots, reports, manifests"]
+## 1. Clone The Repository
 
-    ref["Reference package<br>fingerprinted and build-matched"] --> build
-    ref --> ancestry
-    ref --> qc
+Work on cluster storage that is visible from login and compute nodes.
 
-    classDef input fill:#eef7ff,stroke:#3867d6,color:#111827;
-    classDef work fill:#f8fafc,stroke:#64748b,color:#111827;
-    classDef reference fill:#ecfdf5,stroke:#047857,color:#111827;
-    classDef output fill:#fff7ed,stroke:#c2410c,color:#111827;
-    class inputs input;
-    class validate,build,ancestry,qc,gwas,pan,remeta work;
-    class ref reference;
-    class review output;
+```bash
+cd /path/to/project
+git clone https://github.com/james-edward-hart/GWAS-PTSD-SUD.git
+cd GWAS-PTSD-SUD
 ```
 
-## Start Here
+Keep protected cohort inputs outside the repository unless your data-use rules
+explicitly allow them to be stored there.
 
-If you are running cohort data, go straight to the
-[Cohort Production Quickstart](docs/cohort-production-quickstart.md). It is the
-short step-by-step operating guide for a production SLURM run.
+## 2. Download The Reference Package
 
-Use this README as the project front page and documentation index.
+Download the approved Stage 1 reference package from Zenodo:
 
-## Documentation Map
+```bash
+mkdir -p reference-data
+curl -L \
+  "https://zenodo.org/api/records/20615958/files/stage1_reference_package.tar.gz/content" \
+  -o reference-data/stage1_reference_package.tar.gz
+curl -L \
+  "https://zenodo.org/api/records/20615958/files/stage1_reference_package.tar.gz.sha256/content" \
+  -o reference-data/stage1_reference_package.tar.gz.sha256
+sha256sum reference-data/stage1_reference_package.tar.gz
+cat reference-data/stage1_reference_package.tar.gz.sha256
+tar -xzf reference-data/stage1_reference_package.tar.gz -C reference-data
+cat reference-data/stage1_reference_package/content_fingerprint.sha256
+```
 
-| Area | Document | Purpose |
-| --- | --- | --- |
-| Run | [Cohort Production Quickstart](docs/cohort-production-quickstart.md) | Short start-to-finish runbook for SLURM cohort analyses. |
-| Troubleshoot | [Cohort Production Troubleshooting Guide](docs/cohort-production-run-manual.md) | Step-organized fixes for setup, validation, QC, GWAS, reporting, and export failures. |
-| Configure | [Configuration Guide](docs/configuration.md) | Field-by-field instructions for `config/config.yaml`, sample manifests (phenotype + covariate files), and trait registries. |
-| Orient | [Pipeline Overview](docs/pipeline-overview.md) | Stage descriptions, expected outputs, and how the workflow is organized. |
-| Reference | [Ancestry Reference Preparation](docs/ancestry-reference-prep.md) | How to use, validate, and document the ancestry reference package. |
-| Provenance | [Resources And Downloads](docs/resources-and-downloads.md) | Software, reference, and resource records to keep with each release. |
-| Develop | [Development Notes](docs/development-notes.md) | Focused checks for scripts, rules, and local workflow changes. |
-| Example Data | [HapMap3 Development Data](docs/local-example-run.md) | Public development-data setup for non-production checks. |
-| Methods | [Resource Methods](resources/README.md) | Genome-build marker-panel methods and resource details. |
-| ReMeta | [Cohort ReMeta Export](docs/remeta-cohort-export.md) | Scientific contract, configuration, outputs, and central-analysis handoff. |
+IMPORTANT: You will use this info in the config later.
+Use the unpacked package directory as `reference_package.root`. Use the printed
+fingerprint (that printed to terminal) as `reference_package.fingerprint`.
 
-Do not use the HapMap3 development-data commands for production analyses. A
-production run requires a production-style `config/config.yaml` and a
-build-matched, fingerprinted reference package.
+(Don't be alarmed by tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple. prints)
 
-## What The Pipeline Does
+## 3. Prepare Cohort Inputs
 
-- Accepts one genome-wide PLINK dataset: `PGEN/PVAR/PSAM` or `BED/BIM/FAM`.
-- Validates config, sample manifest (phenotype + covariate file), trait
-  registry, software manifests, reference manifests, genotype files, reference
-  package contents, and covariates.
-- Infers genotype genome build from marker positions and writes build-resolved
-  config snapshots.
-- Computes POP-MaD ancestry and within-ancestry GWAS PCs from the approved
-  reference package.
-- Optionally runs supervised ADMIXTURE as report-only ancestry QC.
-- Runs genetic sex checks, relatedness filtering, trait/covariate preparation,
-  ancestry-stratified PLINK2 `--glm`, plotting, reporting, and manifest
-  generation.
-- Runs pooled pan-ancestry regenie GWAS as Phase 2 when enabled, using cohort
-  global PCs, one exact-sample model per trait, native regenie outputs, `PAN`
-  plots/reports, and Stage 1 ancestry-specific QC comparisons.
-- Optionally exports sample-matched rare-variant regenie HTP statistics and
-  marginal within-gene ReMeta LD for central gene-level meta-analysis.
-
-The workflow does not run imputation, METAL, trans-ancestry meta-analysis,
-liftover, central ReMeta gene tests, or reference-package construction.
-
-## Required Inputs
-
-Production runs require:
-
-- one PLINK genotype prefix: `pgen` or `bed`
-- a sample manifest TSV (phenotype + covariate file)
-- a trait registry TSV
-- the unpacked prebuilt ancestry reference package
-- conda/mamba access for the Snakemake driver and rule environments
-- reviewed software and reference manifests
-
-The sample manifest (phenotype + covariate file) must include unique
-`FID`/`IID` rows, `age`, `age2`, `sex`, all phenotype columns, and all non-PC
-covariates used by configured traits. Sex codes must be `1`, `2`, `0`, `NA`,
-`-9`, or `.`.
-
-Calculate `age2` as a centered quadratic term, not raw `age^2`:
+Prepare one PLINK genotype dataset. ReMeta is enabled by default and requires
+the source data as PGEN/PVAR/PSAM:
 
 ```text
-mean_age = mean(age) across non-missing analysis samples
-age2 = (age - mean_age)^2
+PGEN/PVAR/PSAM
 ```
 
-Use the same age units as `age`, usually years, and document the `mean_age`
-value used for the cohort release.
+Phase 2 can convert BED/BIM/FAM to a temporary PGEN for REGENIE, but that does
+not recover dosages or verified REF/ALT. Set `remeta.enabled: false` for any BED
+source or non-imputed array data. ReMeta accepts normalized WES hardcalls or
+imputed dosages supplied as PGEN.
 
-The trait registry must include:
+Use the genotype prefix without the file extension in `config/config.yaml`.
+
+Prepare a sample manifest TSV (phenotype + covariate file) with one row per
+sample:
+
+```text
+FID	IID	age	age2	sex	<phenotype columns>	<non-PC covariates>
+```
+
+Required rules:
+
+- `FID` and `IID` must match the genotype files exactly.
+- `sex` must use PLINK-style codes: `1`, `2`, `0`, `NA`, `-9`, or `.`.
+- Include every phenotype column and every non-PC covariate used in the GWAS.
+- Export as tab-delimited text, not CSV or Excel.
+
+Calculate `age2` as a centered quadratic age term:
+
+```r
+mean_age <- mean(manifest$age, na.rm = TRUE)
+manifest$age2 <- (manifest$age - mean_age)^2
+```
+
+Prepare a trait registry TSV (editable example at config/example_traits.tsv):
 
 ```text
 trait_id	phenotype_column	case_value	control_value	missing_values
 ```
 
-An optional `covariates` column can list trait-specific covariates as
-comma-separated names. Full schemas are in
-[docs/configuration.md](docs/configuration.md).
+Optional trait-specific covariates can be listed in a `covariates` column as
+comma-separated names.
 
-## Output Landmarks
+## 4. Configure The Run
 
-Core outputs are written under `results/`:
+Create the editable config:
+
+```bash
+cp config/config.template.yaml config/config.yaml
+```
+
+Edit `config/config.yaml` first. These fields are the minimum production
+starting point:
+
+```yaml
+project:
+  analysis_name: "cohort_stage1_gwas"
+  cohort_data_release: "cohort_freeze_or_release_label"
+  genome_build: "auto"
+
+reference_package:
+  root: "/path/to/unpacked/stage1_reference_package"
+  fingerprint: "value-from-content_fingerprint.sha256"
+
+inputs:
+  sample_manifest: "/path/to/cohort/sample_manifest.tsv"
+  trait_registry: "/path/to/cohort/trait_registry.tsv"
+
+genotypes:
+  type: "pgen"
+  prefix: "/path/to/cohort/genotypes_without_extension"
+
+tools:
+  plink2: "plink2"
+  plink1: "plink"
+  admixture: "admixture"
+  regenie: "regenie"
+
+analysis:
+  min_stratum_n: 50
+  ancestries:
+    - AFR
+    - AMR
+    - EAS
+    - EUR
+    - SAS
+```
+
+The default Snakemake rule environments install these tools. Change `tools.*`
+only when your cluster requires site-managed modules or explicit executable
+paths, because it cannot access them via conda channels.
+
+Keep these production safety settings unless the analysis plan says otherwise:
+
+```yaml
+ancestry_reference:
+  enabled: true
+
+admixture:
+  enabled: true
+
+sex_check:
+  enabled: true
+  action: "exclude"
+  allow_no_sex_markers: false
+
+qc:
+  use_mach_r2_filter: true
+  info_min: 0.9
+
+gwas:
+  allow_missing_pcs: false
+
+phase2_regenie:
+  enabled: true
+
+remeta:
+  enabled: true
+  data_source: "imputed"
+  genotype_mode: "dosage"
+  input_variants_normalized: true
+```
+
+PLINK2 expects INFO/MaCH R2 annotations for the INFO filter. If your data do
+not have INFO annotations, set `qc.use_mach_r2_filter: false`.
+
+The settings above are for imputed PGEN data. For WES, use `data_source: "wes"`
+and `genotype_mode: "hardcall"`. Confirm splitting, left-normalization, and
+reference alignment before setting `input_variants_normalized: true`.
+
+ReMeta writes HTP statistics, sample-matched within-gene LD, validation files,
+and rare-variant reports; it does not run gene tests.
+
+Edit the SLURM profile:
 
 ```text
-results/config/effective_config.yaml
+profiles/slurm/config.yaml
+```
+
+Set your cluster account, partition, optional QOS, and Snakemake conda
+environment directory:
+
+```yaml
+slurm-qos: "normal"
+conda-prefix: "/path/to/shared/conda/envs"
+
+default-resources:
+  slurm_account: "your_account"
+  slurm_partition: "standard"
+  mem_mb: 32000
+  runtime: 60
+```
+
+`conda-prefix` must be a writable directory accessible to compute nodes (could be in your home directory).
+The bundled profile requests 64 GB for GWAS harmonization, summary, plotting,
+and reporting jobs that still load complete association-result tables.
+
+## 5. Set Up The Environment
+
+Load the conda-providing module used on your cluster. On my cluster that's
+miniforge3 (yours might be anaconda3, mamba, etc.):
+
+```bash
+module load miniforge3/23.3.1
+```
+
+Create the Snakemake driver environment:
+
+```bash
+mamba env create -f envs/snakemake-driver.yaml
+conda activate gwas-stage1-driver
+```
+
+Create the workflow utility environment used for preflight:
+
+```bash
+mamba env create -f envs/gwas.yaml
+```
+
+This same environment definition is used by most Snakemake jobs and installs
+PLINK 1.9, PLINK2, and ADMIXTURE from conda channels. Phase 2 regenie execution
+uses a separate Snakemake rule environment from `envs/regenie.yaml`; do not
+create it as the active driver or preflight environment.
+
+The current Bioconda PLINK2 build is alpha 6.9, while this repository's
+software manifest requires alpha 7.1 or newer. For production, install the
+approved official/site-managed Linux binary and set `tools.plink2` to its
+absolute path; the conda package remains useful only for non-production setup.
+
+If either environment already exists, update it instead:
+
+```bash
+mamba env update -n gwas-stage1-driver -f envs/snakemake-driver.yaml --prune
+mamba env update -n gwas-stage1 -f envs/gwas.yaml --prune
+```
+
+Snakemake creates hashed rule environments under the profile `conda-prefix`.
+With ReMeta enabled, Snakemake creates the pinned environment from
+`envs/remeta.yaml`. The pipeline does not install central-analysis software.
+To build all workflow rule environments up front, including the Phase 2 regenie
+environment, run this after activating `gwas-stage1-driver`:
+
+```bash
+snakemake --profile profiles/slurm --conda-create-envs-only
+```
+
+## 6. Run Basic Checks
+
+Run preflight:
+
+```bash
+mamba run -n gwas-stage1 Rscript scripts/production_preflight.R \
+  --config config/config.yaml \
+  --profile profiles/slurm/config.yaml
+```
+
+Run a Snakemake dry run:
+
+```bash
+snakemake -n --profile profiles/slurm
+```
+
+Run the validation target:
+
+```bash
+snakemake --profile profiles/slurm results/qc/input_validation/validation.ok
+```
+
+Continue only after these checks pass.
+
+## 7. Run The Pipeline
+
+Submit the full workflow:
+
+```bash
+snakemake --profile profiles/slurm
+```
+
+If a job fails, inspect the matching file under `results/logs/`, fix the cause,
+and rerun the same command. Snakemake will continue from completed outputs.
+
+## 8. Review Outputs
+
+Start with the final GWAS reports. Each report is written per trait and active
+ancestry stratum:
+
+```text
+results/reports/
+```
+
+The Stage 1 reports are written per trait and ancestry. Phase 2 also writes one
+slim `PAN` regenie report per trait. Reports include the run inputs, reference
+package fingerprint, ancestry and ADMIXTURE summaries, sample filtering counts,
+covariates, variant filtering counts, lambda GC, top association signals, QQ and
+Manhattan plots, and POP-MaD or Stage 1 comparison context where relevant.
+
+Use these supporting files when you need the underlying tables:
+
+```text
+results/manifests/run_manifest.tsv
 results/config/resolved_config.yaml
-results/qc/
+results/qc/strata/strata_counts.tsv
+results/qc/admixture/admixture_report.md
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.plink2.glm.tsv
 results/gwas/{trait}/{ancestry}/{trait}.{ancestry}.{build}.gwas_filter_summary.tsv
 results/gwas/{trait}/PAN/{trait}.PAN.{build}.regenie
 results/gwas/{trait}/PAN/{trait}.PAN.{build}.phase2_summary.tsv
-results/plots/ancestry/{analysis_name}.popmad_reference_study_pcs.png
-results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.qq.png
-results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manhattan.png
-results/plots/{trait}/{ancestry}/{analysis_name}.{trait}.{ancestry}.{build}.manhattan.pdf
-results/reports/{trait}/{analysis_name}.{trait}.{ancestry}.{build}.report.md
-results/reports/{trait}/{analysis_name}.{trait}.PAN.{build}.regenie.report.md
-results/manifests/run_manifest.tsv
-results/remeta/export/{build}/htp/{trait}.PAN.regenie.gz
-results/remeta/export/{build}/ld/{group}/chr{chrom}.remeta.gene.ld
-results/remeta/export/{analysis_name}.{build}.remeta_manifest.tsv
+results/plots/{trait}/{ancestry}/
+results/plots/{trait}/PAN/
 ```
 
-Phase 2 and ReMeta `{group}` values are stable singleton IDs such as
-`bt__co_ptsd_aud`; skipped traits have reports but no HTP or LD artifacts.
+## 9. Compress And Export Results
 
-`{analysis_name}` is the filename-safe version of `project.analysis_name`.
-Ancestry preparation also writes
-`results/qc/ancestry/reference/variant_harmonization.tsv`, which maps
-source-native rsID/CPRA values to ancestry-only working IDs. This does not
-rename Stage 1 GWAS or ordinary Phase 2 association outputs.
-Each GWAS report embeds the POP-MaD projection, QQ, and Manhattan plots and
-summarizes ancestry and ADMIXTURE QC, sample filtering, variant filtering,
-lambda GC, and top association signals.
+Replace `[ANALYSIS_NAME]` with `project.analysis_name`, then create the
+meta-analysis handoff:
 
-Use the production manual for the review and archive checklist.
-
-## Repository Map
-
-```text
-Snakefile                         Workflow entry point
-workflow/rules/                   Snakemake rules
-workflow/snake_helpers.py         Shared DAG helpers
-scripts/                          R and shell helper scripts
-scripts/lib/                      Shared R helpers
-config/                           Config templates and public example inputs
-envs/                             Conda environment definitions
-profiles/slurm/                   SLURM execution profile
-resources/                        Marker panels and provenance manifests
-docs/                             User documentation
-results/                          Generated outputs
+```bash
+bash scripts/create_meta_analysis_export.sh \
+  [ANALYSIS_NAME]_PTSD_SUD_GWAS.tar.gz
 ```
 
-`config/config.yaml` is intentionally untracked because production configs can
-contain private paths. Start production configs from
-`config/config.template.yaml`.
+The archive contains both ancestry-stratified and PAN summary statistics, the
+complete ReMeta HTP/LD export, reports, plots, configuration, manifests, and
+aggregate QC. It omits working genotypes, native duplicate outputs,
+sample-level files, and logs. PAN and ancestry-stratified results contain
+overlapping participants and must remain separate meta-analysis streams.
 
-## Development Data
+Export the archive to the approved destination for the cohort:
 
-The HapMap3 files are public development data for focused script checks and
-marker-panel maintenance. They are not a cohort analysis template and do not
-replace the production reference package.
+```bash
+rsync -avP [ANALYSIS_NAME]_PTSD_SUD_GWAS.tar.gz /path/to/export/location/
+```
 
-Use [docs/development-notes.md](docs/development-notes.md) and
-[docs/local-example-run.md](docs/local-example-run.md) for development checks.
-
-## Privacy And Security
-
-Do not commit protected cohort data, credentials, or private external-drive
-paths. Keep production inputs and `results/` on approved storage, and review
-logs, reports, config snapshots, and manifests before sharing outputs because
-they intentionally record runtime paths and provenance.
+Review the archive contents before sharing. Reports, manifests, and config
+snapshots may contain private paths or cohort-specific metadata.
