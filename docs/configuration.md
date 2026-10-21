@@ -223,7 +223,7 @@ fingerprinted reference package. Do not add ancestry-label or PC-path fields to
 
 | Parameter | Required | Description |
 | --- | --- | --- |
-| `plink2` | Yes | PLINK2 command or executable path. Production requires the alpha 7.1+ Linux binary recorded in the software manifest; the current Bioconda package is alpha 6.9. Validation checks that the configured command can run `--version`. |
+| `plink2` | Yes | Default `plink2` uses Bioconda alpha 7.8 pinned in `envs/gwas.yaml` for production. Use an explicit executable path only when site policy requires it. Validation checks that the configured command can run `--version`. |
 | `plink1` | When ADMIXTURE enabled | PLINK 1.9 command or executable path. The default rule environment installs it from conda. Used for the supervised ADMIXTURE sample merge. |
 | `admixture` | When ADMIXTURE enabled | ADMIXTURE command or executable path. The default rule environment installs it from conda. Required when `admixture.enabled: true`. |
 

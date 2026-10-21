@@ -21,13 +21,15 @@ Official source:
 https://www.cog-genomics.org/plink/2.0/
 ```
 
-Use an approved alpha 7.1-or-newer Linux x86_64 build on HPC systems, as
-recorded in `resources/manifests/software.tsv`. The workflow uses PLINK2 for
-genotype input, filtering, sex-marker PAR splitting and LD pruning, PCA,
-projection, and `--glm` GWAS. At the time of this repository update, the
-Bioconda package resolves to alpha 6.9; production runs must therefore point
-`tools.plink2` to the approved site-managed or official alpha 7.1+ Linux
-binary instead of silently accepting that older package.
+The production environment pins [Bioconda PLINK2 alpha 7.8](https://bioconda.github.io/recipes/plink2/README.html)
+as `plink2=2.0.0a.7.8` in `envs/gwas.yaml`, also recorded in
+`resources/manifests/software.tsv`. Keep `tools.plink2: "plink2"`; use a separate
+official or site-managed binary only when required by cluster software policy.
+Update existing utility environments from `envs/gwas.yaml`; Snakemake creates
+rule environments from the same pinned definition.
+
+The workflow uses PLINK2 for genotype input, filtering, sex-marker PAR splitting
+and LD pruning, PCA, projection, and `--glm` GWAS.
 
 ### PLINK 1.9
 

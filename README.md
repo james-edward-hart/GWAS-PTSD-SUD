@@ -249,16 +249,22 @@ PLINK 1.9, PLINK2, and ADMIXTURE from conda channels. Phase 2 regenie execution
 uses a separate Snakemake rule environment from `envs/regenie.yaml`; do not
 create it as the active driver or preflight environment.
 
-The current Bioconda PLINK2 build is alpha 6.9, while this repository's
-software manifest requires alpha 7.1 or newer. For production, install the
-approved official/site-managed Linux binary and set `tools.plink2` to its
-absolute path; the conda package remains useful only for non-production setup.
+`envs/gwas.yaml` pins PLINK2 alpha 7.8 (`plink2=2.0.0a.7.8`) from
+[Bioconda](https://bioconda.github.io/recipes/plink2/README.html) for production.
+Keep `tools.plink2: "plink2"`; a separate official or site-managed binary is
+only needed when your cluster's software policy requires it.
 
 If either environment already exists, update it instead:
 
 ```bash
 mamba env update -n gwas-stage1-driver -f envs/snakemake-driver.yaml --prune
 mamba env update -n gwas-stage1 -f envs/gwas.yaml --prune
+```
+
+Verify that the utility environment reports `PLINK v2.0.0-a.7.8`:
+
+```bash
+mamba run -n gwas-stage1 plink2 --version
 ```
 
 Snakemake creates hashed rule environments under the profile `conda-prefix`.

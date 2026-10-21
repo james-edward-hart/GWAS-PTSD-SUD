@@ -36,8 +36,8 @@ inputs:
   trait_registry: "/path/to/cohort/trait_registry.tsv"
 
 
-# Tool commands. Production must point PLINK2 to the approved alpha 7.1+ Linux
-# binary; other defaults can come from the Snakemake conda environments.
+# Tool commands supplied by Snakemake conda environments; PLINK2 is pinned to
+# alpha 7.8. Use explicit paths only when required by site software policy.
 tools:
   plink2: "plink2"
   plink1: "plink"

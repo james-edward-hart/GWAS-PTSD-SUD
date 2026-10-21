@@ -9,5 +9,5 @@ dependencies:
   - gawk
   - htslib
   - plink
-  - plink2
+  - plink2=2.0.0a.7.8
   - admixture
