@@ -168,35 +168,43 @@ Stage 1 PLINK2 computes MaCH R² from genotype/dosage values; this filter does
 not require INFO annotations in the PVAR. For unimputed hardcalls, set
 `qc.use_mach_r2_filter: false`. The filter does not evaluate non-PAR X.
 
-ReMeta is disabled by default and is **optional** for this analysis, it is computationally heavy and requires a massive data transfer (>15GB)
-To enable ReMeta exome exports, the original data must be **WES** or **imputed
-PGEN with preserved dosages** (TOPMed imputation preferred). Supply WES as
-normalized PGEN hardcalls. BED sources and unimputed array data are not eligible
-for ReMeta; converting BED to PGEN does not restore the required information.
-
-Explicitly specify which source you have in the config:
-
-| Original data | `remeta.data_source` | `remeta.genotype_mode` |
-| --- | --- | --- |
-| WES | `wes` | `hardcall` |
-| Imputed exome variants with preserved dosages | `imputed` | `dosage` |
-
-For example, for imputed PGEN:
-
-```yaml
-remeta:
-  enabled: true
-  data_source: "imputed"
-  genotype_mode: "dosage"
-  input_variants_normalized: true
-```
-
-Keep `phase2_regenie.enabled: true` and `genotypes.type: "pgen"` when enabling
-ReMeta. Confirm splitting, left-normalization, and reference alignment before
-setting `input_variants_normalized: true`; these are upstream requirements.
-
-ReMeta writes HTP statistics, sample-matched within-gene LD, validation files,
-and rare-variant reports; it does not run gene tests.
+> [!NOTE]
+> <details>
+> <summary><strong>Optional ReMeta exome exports (disabled by default)</strong></summary>
+>
+> ReMeta is **optional** and **disabled by default**. It is computationally heavy
+> and requires a large data transfer (>15 GB).
+>
+> To enable ReMeta exome exports, the original data must be **WES** or **imputed
+> PGEN with preserved dosages** (TOPMed imputation preferred). Supply WES as
+> normalized PGEN hardcalls. BED sources and unimputed array data are not eligible
+> for ReMeta; converting BED to PGEN does not restore the required information.
+>
+> Explicitly specify which source you have in the config:
+>
+> | Original data | `remeta.data_source` | `remeta.genotype_mode` |
+> | --- | --- | --- |
+> | WES | `wes` | `hardcall` |
+> | Imputed exome variants with preserved dosages | `imputed` | `dosage` |
+>
+> For example, for imputed PGEN:
+>
+> ```yaml
+> remeta:
+>   enabled: true
+>   data_source: "imputed"
+>   genotype_mode: "dosage"
+>   input_variants_normalized: true
+> ```
+>
+> Keep `phase2_regenie.enabled: true` and `genotypes.type: "pgen"` when enabling
+> ReMeta. Confirm splitting, left-normalization, and reference alignment before
+> setting `input_variants_normalized: true`; these are upstream requirements.
+>
+> ReMeta writes HTP statistics, sample-matched within-gene LD, validation files,
+> and rare-variant reports; it does not run gene tests.
+>
+> </details>
 
 Edit the SLURM profile:
 
