@@ -868,6 +868,25 @@ genotype_component_paths <- function(block, label = "genotype") {
 qc_info_min <- function(config) config$qc$info_min %||% 0.9
 
 
+# Apply the same chromosome/PAR handling before HWE and association. Legacy XY
+# markers are already diploid; unsplit X uses the inferred study build.
+gwas_chromosome_args <- function(config) {
+  if (truthy(config$qc$autosome_only %||% TRUE)) return("--autosome")
+  args <- c("--chr", "1-22,X,XY,PAR1,PAR2")
+  metadata <- plink_metadata_summary(config$genotypes, "GWAS genotype input")
+  has_x <- plink_metadata_count(metadata, "x_variants") > 0
+  has_par <- sum(vapply(c("par1_variants", "par2_variants"), function(metric) {
+    plink_metadata_count(metadata, metric)
+  }, numeric(1))) > 0
+  if (has_x && !has_par) {
+    build <- switch(config$project$inferred_genome_build %||% "", GRCh37 = "b37", GRCh38 = "b38", "")
+    if (!nzchar(build)) die("GWAS needs project.inferred_genome_build GRCh37 or GRCh38 to split pseudoautosomal regions")
+    args <- c(args, "--split-par", build)
+  }
+  args
+}
+
+
 # Build shared GWAS QC filters for PLINK2.
 gwas_filters <- function(config, include_hwe = TRUE) {
   qc <- config$qc
@@ -881,7 +900,7 @@ gwas_filters <- function(config, include_hwe = TRUE) {
     "--mind", as.character(qc$sample_missing_max)
   )
   if (truthy(qc$snps_only_acgt %||% TRUE)) filters <- c(filters, "--snps-only", "just-acgt")
-  if (truthy(qc$autosome_only %||% TRUE)) filters <- c(filters, "--autosome")
+  filters <- c(filters, gwas_chromosome_args(config))
   if (truthy(qc$use_mach_r2_filter %||% TRUE)) {
     filters <- c(filters, "--mach-r2-filter", as.character(qc_info_min(config)))
   }
@@ -894,7 +913,7 @@ control_hwe_filters <- function(config) {
   qc <- config$qc
   filters <- c("--hwe", as.character(qc$hwe_p_min))
   if (truthy(qc$snps_only_acgt %||% TRUE)) filters <- c(filters, "--snps-only", "just-acgt")
-  if (truthy(qc$autosome_only %||% TRUE)) filters <- c(filters, "--autosome")
+  filters <- c(filters, gwas_chromosome_args(config))
   filters
 }
 

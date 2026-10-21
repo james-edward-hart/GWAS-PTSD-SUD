@@ -124,9 +124,27 @@ for (trait in trait_ids) {
     require_file(stats, "missing GWAS stats")
     require_file(summary, "missing GWAS filter summary")
     if (count_rows(stats) <= 0) die("GWAS stats are empty: ", stats)
-    header <- names(read_tsv(stats))
+    stats_rows <- read_tsv(stats)
+    header <- names(stats_rows)
     for (column in c("a1_freq", "mac", "info", "test")) {
       if (!column %in% header) die("GWAS stats missing harmonized column ", column, ": ", stats)
+    }
+    if (any(!stats_rows$chrom %in% c(as.character(seq_len(22)), "X"))) {
+      die("GWAS stats contain unexpected chromosome labels: ", stats)
+    }
+    summary_rows <- read_tsv(summary)
+    valid_p <- suppressWarnings(as.numeric(stats_rows$p))
+    valid_p <- is.finite(valid_p) & valid_p > 0 & valid_p <= 1
+    x <- stats_rows$chrom == "X"
+    expected_counts <- c(
+      autosomal_analysis_variants = sum(!x), autosomal_valid_p_value_variants = sum(!x & valid_p),
+      x_analysis_variants = sum(x), x_valid_p_value_variants = sum(x & valid_p)
+    )
+    for (metric in names(expected_counts)) {
+      observed <- summary_rows$value[summary_rows$metric == metric]
+      if (length(observed) != 1L || observed != as.character(expected_counts[[metric]])) {
+        die("GWAS summary metric ", metric, " differs from summary statistics: ", summary)
+      }
     }
     require_file(report, "missing report")
     report_text <- readLines(report, warn = FALSE)

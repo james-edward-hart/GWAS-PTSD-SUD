@@ -31,10 +31,17 @@ if (truthy(config$gwas$covar_variance_standardize %||% TRUE)) command <- c(comma
 # Preserve free-form PLINK2 glm options from config.
 glm_options <- trimws(config$gwas$glm_options %||% "")
 glm_parts <- if (nzchar(glm_options)) strsplit(glm_options, "\\s+")[[1]] else character()
+# PLINK otherwise adds FAM/PSAM sex again on X, making the model collinear.
+# FAM/PSAM sex still determines ploidy when no-x-sex is used.
+if ("sex" %in% tolower(covars)) {
+  if ("sex" %in% glm_parts) die("gwas.glm_options cannot include 'sex' when sex is already a configured covariate")
+  glm_parts <- unique(c(glm_parts, "no-x-sex"))
+}
 command <- c(
   command,
   "--extract", args[["hwe-snplist"]],
   gwas_filters(config, include_hwe = FALSE),
+  "--xchr-model", "2",
   "--glm", glm_parts,
   "--threads", args$threads,
   "--out", args[["plink-prefix"]]

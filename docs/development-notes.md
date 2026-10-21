@@ -22,6 +22,7 @@ Rscript scripts/test_reference_package.R
 Rscript scripts/test_infer_genome_build.R
 Rscript scripts/test_genotype_input_sanitizer.R
 Rscript scripts/test_sex_check.R
+Rscript scripts/test_plink2_gwas.R
 Rscript scripts/test_phase2_regenie.R
 Rscript scripts/test_remeta_cohort.R
 Rscript scripts/test_plot_gwas.R
@@ -29,6 +30,11 @@ Rscript scripts/test_rare_variant_report.R
 python scripts/test_phase2_dag_helpers.py
 python scripts/test_remeta_resources.py
 ```
+
+The Stage 1 GWAS test uses synthetic BED/PGEN fixtures to cover X/PAR in both
+genome builds, binary/quantitative models, and downstream plots/reports. To keep
+its review artifacts, supply a new directory with
+`Rscript scripts/test_plink2_gwas.R --out-dir results/tests/plink2_gwas_x`.
 
 Full validation must run through Snakemake so the workflow can infer the genome
 build, resolve the reference package, and validate

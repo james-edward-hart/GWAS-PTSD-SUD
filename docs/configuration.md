@@ -394,9 +394,33 @@ These settings drive PLINK2 GWAS variant and sample filters.
 | `hwe_p_min` | Recommended | Minimum Hardy-Weinberg p-value filter, calculated in controls only before GWAS. |
 | `geno_missing_max` | Recommended | Maximum per-variant missingness. |
 | `sample_missing_max` | Recommended | Maximum per-sample missingness. |
-| `use_mach_r2_filter` | Recommended | Add PLINK2 `--mach-r2-filter`. PLINK2 expects INFO/MaCH R2 annotations for this filter; set `false` if they are absent. |
+| `use_mach_r2_filter` | Recommended | Add PLINK2 `--mach-r2-filter`, computed from genotypes/dosages. Non-PAR X is not evaluated; no separate X imputation-quality filter is applied. |
 | `snps_only_acgt` | Recommended | Keep only A/C/G/T SNPs when `true`. |
-| `autosome_only` | Recommended | Restrict GWAS to autosomes when `true`. |
+| `autosome_only` | Recommended | `false` includes chromosomes 1–22 and available X/PAR markers; `true` restricts Stage 1 GWAS to autosomes. The template uses `false`; omission retains the legacy `true` default. Y and mitochondrial variants are excluded. |
+
+Stage 1 applies this chromosome selection to both the HWE prefilter and the
+combined PLINK2 association run. Unsplit X uses the inferred GRCh37/GRCh38 PAR
+boundaries; already-split PAR1/PAR2 and legacy XY-coded PAR remain diploid.
+HWE uses PLINK2's native X test in controls for binary traits and nonmissing
+samples for quantitative traits. Genotype-file sex still determines ploidy.
+When the configured covariates include `sex`, the workflow adds `no-x-sex` to
+avoid a duplicate sex covariate; do not also request `sex` in `gwas.glm_options`.
+X dosage coding is explicitly `--xchr-model 2` (0–2 in both sexes).
+
+The existing summary-statistics file includes X and PAR rows as `chrom = X`,
+with their original positions and per-variant `n`; raw PLINK outputs retain
+native region labels. Manhattan plots place X after 22. QQ plots, lambda GC,
+significance counts, and top signals pool all valid included P values. Reports
+give autosomal/X row counts, valid-P counts, and the X sample-count range.
+Inputs without X, or with all X markers removed by QC, still produce autosomal
+outputs and zero X counts. Including X can change sample-missingness filtering
+and therefore autosomal estimates; rerun HWE, association, plots, and reports
+together after changing this setting. Ancestry, relatedness, and Phase 2 use
+their own chromosome settings.
+
+See the PLINK2 documentation for [X regression](https://www.cog-genomics.org/plink/2.0/assoc#glm),
+[PAR splitting](https://www.cog-genomics.org/plink/2.0/data#split_par), and
+[MaCH R2 filtering](https://www.cog-genomics.org/plink/2.0/filter#mach_r2).
 
 For imputed dosage data, keep INFO/R2 filtering enabled:
 
@@ -406,7 +430,7 @@ qc:
   info_min: 0.9
 ```
 
-For unimputed genotype data or imputed data without INFO annotations, use:
+To disable the computed MaCH R2 filter (for example, for unimputed hardcalls), use:
 
 ```yaml
 qc:

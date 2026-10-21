@@ -54,12 +54,18 @@ or_num <- suppressWarnings(as.numeric(or_value))
 beta[needs_beta & is.finite(or_num) & or_num > 0] <- as.character(log(or_num[needs_beta & is.finite(or_num) & or_num > 0]))
 
 
+# PAR remains diploid in the native analysis; combine its labels with X only
+# here so downstream plots share one X axis without changing coordinates.
+chrom <- normalize_plink_chromosome(get_first(glm, c("#CHROM", "CHROM")))
+chrom[chrom %in% c("XY", "PAR1", "PAR2")] <- "X"
+
+
 # Emit a stable summary-statistics schema for downstream reports.
 out <- data.frame(
   trait = args$trait,
   ancestry = args$ancestry,
   build = args$build,
-  chrom = get_first(glm, c("#CHROM", "CHROM")),
+  chrom = chrom,
   pos = get_first(glm, "POS"),
   variant_id = get_first(glm, "ID"),
   ref = get_first(glm, "REF"),

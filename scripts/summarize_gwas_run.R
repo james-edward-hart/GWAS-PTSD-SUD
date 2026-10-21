@@ -75,6 +75,10 @@ covar <- read_tsv(args$covar)
 stats <- read_tsv(args$stats)
 p <- suppressWarnings(as.numeric(stats$p))
 valid_p <- is.finite(p) & p > 0 & p <= 1
+autosomal <- stats$chrom %in% as.character(seq_len(22))
+x <- stats$chrom == "X"
+x_n <- suppressWarnings(as.numeric(stats$n[x]))
+x_n <- x_n[is.finite(x_n) & x_n > 0]
 
 log_lines <- if (file.exists(args[["plink-log"]])) readLines(args[["plink-log"]], warn = FALSE) else character()
 hwe_log_lines <- if (file.exists(args[["hwe-log"]])) readLines(args[["hwe-log"]], warn = FALSE) else character()
@@ -107,6 +111,12 @@ summary <- data.frame(
     "plink_final_variants",
     "harmonized_analysis_variants",
     "valid_p_value_variants",
+    "autosomal_analysis_variants",
+    "autosomal_valid_p_value_variants",
+    "x_analysis_variants",
+    "x_valid_p_value_variants",
+    "x_sample_count_min",
+    "x_sample_count_max",
     "genomewide_significant_variants",
     "suggestive_variants",
     "lambda_gc",
@@ -136,6 +146,12 @@ summary <- data.frame(
     extract_log_value(log_lines, c("^([0-9,]+) variants remaining after main filters\\.?")),
     nrow(stats),
     sum(valid_p),
+    sum(autosomal),
+    sum(autosomal & valid_p),
+    sum(x),
+    sum(x & valid_p),
+    if (length(x_n)) min(x_n) else "NA",
+    if (length(x_n)) max(x_n) else "NA",
     sum(valid_p & p <= 5e-8),
     sum(valid_p & p <= 1e-5),
     ifelse(is.finite(lambda_gc), sprintf("%.6f", lambda_gc), "NA"),
