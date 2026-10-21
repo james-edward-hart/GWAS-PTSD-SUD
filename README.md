@@ -9,7 +9,7 @@ For full parameter details, see the
 
 ## 1. Clone The Repository
 
-Work on cluster storage that is visible from login and compute nodes.
+Work on cluster storage that is visible to the compute nodes.
 
 ```bash
 cd /path/to/project
@@ -17,8 +17,7 @@ git clone https://github.com/james-edward-hart/GWAS-PTSD-SUD.git
 cd GWAS-PTSD-SUD
 ```
 
-Keep protected cohort inputs outside the repository unless your data-use rules
-explicitly allow them to be stored there.
+Keep protected cohort inputs outside the repository.
 
 ## 2. Download The Reference Package
 
