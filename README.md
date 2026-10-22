@@ -46,7 +46,11 @@ fingerprint (that printed to terminal) as `reference_package.fingerprint`.
 
 ## 3. Prepare Cohort Inputs
 
-Prepare one genotype dataset in either supported format:
+Use **genome-wide genotypes on GRCh37 or GRCh38**, with matching sample IDs
+and sex information. Preserve dosages in imputed PGEN. Include non-PAR X for
+sex QC, or document external sex QC if unavailable.
+
+Supported formats:
 
 | Format | Required files | `genotypes.type` |
 | --- | --- | --- |
