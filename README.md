@@ -1,4 +1,5 @@
 # PGC (PTSD-SUD) Cohort Run Guide
+PIs: Ananda Amstadter & Jacquelyn Meyers -- Study Coordinator: James Hart (hartj5@vcu.edu)
 
 This is the run manual for launching a production cohort GWAS. Use it
 when you have prepared phenotypic data following the guide.
