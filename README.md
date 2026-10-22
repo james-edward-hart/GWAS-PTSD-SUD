@@ -1,4 +1,4 @@
-# Cohort Production Quickstart
+# PGC (PTSD-SUD) Cohort Run Guide
 
 This is the run manual for launching a production cohort GWAS. Use it
 when you have prepared phenotypic data following the guide.
