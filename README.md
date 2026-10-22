@@ -4,6 +4,8 @@ PIs: Ananda Amstadter & Jacquelyn Meyers -- Study Coordinator: James Hart (hartj
 This is the run manual for launching a production cohort GWAS. Use it
 when you have prepared phenotypic data following the guide.
 
+The current pipeline requires **SLURM** for cluster execution.
+
 For full parameter details, see the
 [Configuration Guide](docs/configuration.md). If a run fails, use the
 [Cohort Production Troubleshooting Guide](docs/cohort-production-run-manual.md).
